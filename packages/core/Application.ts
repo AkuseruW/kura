@@ -54,4 +54,16 @@ export class Application {
 			}
 		}
 	}
+
+	listen(): void {
+		process.on('SIGTERM', async () => {
+			await this.shutdown()
+			process.exit(0)
+		})
+
+		process.on('SIGINT', async () => {
+			await this.shutdown()
+			process.exit(0)
+		})
+	}
 }
