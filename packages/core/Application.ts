@@ -1,14 +1,9 @@
 import { Config } from "./Config"
 import { Container } from "./Container"
 import { Env } from "./Env"
+import { ServiceProvider } from "./ServiceProvider"
 
 type AppState = 'created' | 'registered' | 'booted' | 'ready' | 'shutdown'
-
-export interface ServiceProvider {
-	register(app: Application): void | Promise<void>
-	boot?(app: Application): void | Promise<void>
-	shutdown?(app: Application): void | Promise<void>
-}
 
 export class Application {
 	private state: AppState = 'created'
@@ -32,14 +27,14 @@ export class Application {
 		this.state = 'registered'
 
 		for (const provider of this.providers) {
-			await provider.register(this)
+			await provider.register()
 		}
 
 		this.state = 'booted'
 
 		for (const provider of this.providers) {
 			if (provider.boot) {
-				await provider.boot(this)
+				await provider.boot()
 			}
 		}
 
@@ -55,7 +50,7 @@ export class Application {
 
 		for (const provider of this.providers) {
 			if (provider.shutdown) {
-				await provider.shutdown(this)
+				await provider.shutdown()
 			}
 		}
 	}
