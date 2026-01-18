@@ -1,3 +1,5 @@
+import { Schema } from "../validator/Schema"
+
 export class KuraRequest {
 	private body: Record<string, any> = {}
 	private query: Record<string, string> = {}
@@ -58,5 +60,9 @@ export class KuraRequest {
 			delete result[key]
 		}
 		return result
+	}
+
+	validate<T>(schema: Schema<T>): T {
+		return schema.parse(this.all())
 	}
 }
