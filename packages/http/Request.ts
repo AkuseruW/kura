@@ -18,6 +18,12 @@ export class KuraRequest {
 			this.body = await this.request.json() as Record<string, any>
 		} else if (contentType?.includes('multipart/form-data')) {
 			this.formData = await this.request.formData() as unknown as FormData
+		} else if (contentType?.includes('application/x-www-form-urlencoded')) {
+			const text = await this.request.text()
+			const params = new URLSearchParams(text)
+			params.forEach((value, key) => {
+				this.body[key] = value
+			})
 		}
 	}
 
