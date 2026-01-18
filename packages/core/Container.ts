@@ -1,6 +1,6 @@
 export class Container {
-	private bindings = new Map<string, () => any>()
-	private singletons = new Map<string, any>()
+	private bindings = new Map<string, () => any>();
+	private singletons = new Map<string, any>();
 
 	bind(key: string, factory: () => any) {
 		this.bindings.set(key, factory);
