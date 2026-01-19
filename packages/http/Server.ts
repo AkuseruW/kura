@@ -1,5 +1,8 @@
 export type Context = {
 	request: Request;
+	params?: Record<string, string>;
+	body?: unknown;
+	requestId?: string;
 };
 
 type Handler = (ctx: Context) => Response | Promise<Response>;
