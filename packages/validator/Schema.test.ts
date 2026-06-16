@@ -8,6 +8,50 @@ describe("Schema", () => {
 		expect(v.boolean().parse(true)).toBe(true);
 	});
 
+	test("validates string rules", () => {
+		expect(v.string().email().parse("dev@kura.dev")).toBe("dev@kura.dev");
+		expect(v.string().min(3).max(5).parse("kura")).toBe("kura");
+		expect(v.string().regex(/^ku/).parse("kura")).toBe("kura");
+		expect(v.string().url().parse("https://kura.dev/docs")).toBe(
+			"https://kura.dev/docs",
+		);
+
+		expect(() => v.string().email().parse("invalid")).toThrow(
+			"Validation failed for string",
+		);
+		expect(() => v.string().min(3).parse("ku")).toThrow(
+			"Validation failed for string",
+		);
+		expect(() => v.string().max(3).parse("kura")).toThrow(
+			"Validation failed for string",
+		);
+		expect(() => v.string().regex(/^ku$/).parse("kura")).toThrow(
+			"Validation failed for string",
+		);
+		expect(() => v.string().url().parse("kura")).toThrow(
+			"Validation failed for string",
+		);
+	});
+
+	test("validates number rules", () => {
+		expect(v.number().min(1).max(10).parse(5)).toBe(5);
+		expect(v.number().integer().parse(5)).toBe(5);
+		expect(v.number().positive().parse(1)).toBe(1);
+
+		expect(() => v.number().min(3).parse(2)).toThrow(
+			"Validation failed for number",
+		);
+		expect(() => v.number().max(3).parse(4)).toThrow(
+			"Validation failed for number",
+		);
+		expect(() => v.number().integer().parse(1.5)).toThrow(
+			"Validation failed for number",
+		);
+		expect(() => v.number().positive().parse(0)).toThrow(
+			"Validation failed for number",
+		);
+	});
+
 	test("validates arrays and objects", () => {
 		const schema = v.object({
 			ids: v.array(v.number()),

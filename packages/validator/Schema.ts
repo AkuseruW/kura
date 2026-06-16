@@ -10,11 +10,92 @@ export class Schema<T = unknown> {
 		return schema;
 	}
 
+	email(this: Schema<string>): Schema<string> {
+		this.rules.push(
+			(v) => typeof v === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+		);
+		return this;
+	}
+
+	regex(this: Schema<string>, pattern: RegExp): Schema<string> {
+		const expression = new RegExp(pattern.source, pattern.flags);
+
+		this.rules.push((v) => {
+			if (typeof v !== "string") {
+				return false;
+			}
+
+			expression.lastIndex = 0;
+			return expression.test(v);
+		});
+		return this;
+	}
+
+	url(this: Schema<string>): Schema<string> {
+		this.rules.push((v) => {
+			if (typeof v !== "string") {
+				return false;
+			}
+
+			try {
+				new URL(v);
+				return true;
+			} catch {
+				return false;
+			}
+		});
+		return this;
+	}
+
 	number(): Schema<number> {
 		const schema = new Schema<number>();
 		schema._type = "number";
 		schema.rules.push((v) => typeof v === "number");
 		return schema;
+	}
+
+	min(this: Schema<string>, value: number): Schema<string>;
+	min(this: Schema<number>, value: number): Schema<number>;
+	min(this: Schema<string> | Schema<number>, value: number) {
+		this.rules.push((v) => {
+			if (typeof v === "string") {
+				return v.length >= value;
+			}
+
+			if (typeof v === "number") {
+				return v >= value;
+			}
+
+			return false;
+		});
+		return this;
+	}
+
+	max(this: Schema<string>, value: number): Schema<string>;
+	max(this: Schema<number>, value: number): Schema<number>;
+	max(this: Schema<string> | Schema<number>, value: number) {
+		this.rules.push((v) => {
+			if (typeof v === "string") {
+				return v.length <= value;
+			}
+
+			if (typeof v === "number") {
+				return v <= value;
+			}
+
+			return false;
+		});
+		return this;
+	}
+
+	integer(this: Schema<number>): Schema<number> {
+		this.rules.push((v) => typeof v === "number" && Number.isInteger(v));
+		return this;
+	}
+
+	positive(this: Schema<number>): Schema<number> {
+		this.rules.push((v) => typeof v === "number" && v > 0);
+		return this;
 	}
 
 	boolean(): Schema<boolean> {
