@@ -274,6 +274,20 @@ export {
 } from "./packages/queue/SQLiteQueueDriver";
 
 export {
+	FakeEventDispatcher,
+	type FakeEventMatcher,
+	type FakeEventRecord,
+	type FakeMailAddress,
+	FakeMailDriver,
+	type FakeMailMatcher,
+	type FakeMailMessage,
+	type FakeMailMessageMatch,
+	type FakeMailRecord,
+	FakeQueueDriver,
+	type FakeQueueMatcher,
+} from "./packages/testing/Fakes";
+
+export {
 	type AsyncValidationContext,
 	type DatabaseValidationOptions,
 	type Infer,
