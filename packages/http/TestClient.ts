@@ -1,3 +1,4 @@
+import { AssertionError, deepStrictEqual, strictEqual } from "node:assert";
 import { BaseException } from "../core/BaseException";
 import type { Router } from "./Router";
 import type { Context } from "./Server";
@@ -273,6 +274,59 @@ export class TestResponse {
 	async json<T = unknown>(): Promise<T> {
 		return (await this.response.clone().json()) as T;
 	}
+
+	assertStatus(status: number): this {
+		strictEqual(
+			this.status,
+			status,
+			`Expected response status ${status}, received ${this.status}`,
+		);
+
+		return this;
+	}
+
+	assertHeader(name: string, value: string): this {
+		const actual = this.header(name);
+		strictEqual(
+			actual,
+			value,
+			`Expected response header [${name}] to be [${value}], received [${actual}]`,
+		);
+
+		return this;
+	}
+
+	assertRedirect(url: string): this {
+		if (!isRedirectStatus(this.status)) {
+			throw new AssertionError({
+				message: `Expected response to be a redirect, received status ${this.status}`,
+				actual: this.status,
+				expected: redirectStatuses,
+				operator: "includes",
+			});
+		}
+
+		return this.assertHeader("Location", url);
+	}
+
+	async assertJson(expected: unknown): Promise<this> {
+		let actual: unknown;
+		try {
+			actual = await this.json();
+		} catch {
+			throw new AssertionError({
+				message: "Expected response body to be valid JSON",
+				actual: await this.text(),
+				expected,
+				operator: "JSON.parse",
+				stackStartFn: this.assertJson,
+			});
+		}
+
+		deepStrictEqual(actual, expected, "Expected response JSON to match");
+
+		return this;
+	}
 }
 
 function handlerFromRouter(router: Router): TestClientHandler {
@@ -411,6 +465,12 @@ function safeDecode(value: string): string {
 	} catch {
 		return value;
 	}
+}
+
+const redirectStatuses = [301, 302, 303, 307, 308] as const;
+
+function isRedirectStatus(status: number): boolean {
+	return redirectStatuses.includes(status as (typeof redirectStatuses)[number]);
 }
 
 function isRouter(value: TestClientTarget): value is Router {
