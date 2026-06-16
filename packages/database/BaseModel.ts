@@ -100,6 +100,8 @@ const modelRelations = new WeakMap<
 >();
 const initializedModelMetadata = new WeakSet<ConstructorObject>();
 const markPersisted = Symbol("markPersisted");
+const setLoadedRelation = Symbol("setLoadedRelation");
+const relationMetadata = Symbol("relationMetadata");
 
 export function column(options: ModelColumnOptions = {}): ColumnDecorator {
 	const decorator = (
@@ -235,6 +237,8 @@ export class ModelQueryBuilder<
 	TModel extends BaseModel<TAttributes>,
 	TAttributes extends ModelAttributes,
 > {
+	private readonly preloadedRelations: string[] = [];
+
 	constructor(
 		private readonly model: ModelClass<TModel, TAttributes>,
 		private readonly builder: QueryBuilder<TAttributes>,
@@ -298,18 +302,39 @@ export class ModelQueryBuilder<
 		return this;
 	}
 
+	preload(name: string): this {
+		const relationName = name.trim();
+		if (relationName.length === 0) {
+			throw new Error("preload() relation name cannot be empty");
+		}
+
+		if (!this.preloadedRelations.includes(relationName)) {
+			this.preloadedRelations.push(relationName);
+		}
+
+		return this;
+	}
+
 	toSQL(): CompiledQuery {
 		return this.builder.toSQL();
 	}
 
 	async all(): Promise<readonly TModel[]> {
 		const rows = await this.builder.all();
-		return rows.map((row) => hydrateModel(this.model, row));
+		const models = rows.map((row) => hydrateModel(this.model, row));
+		await preloadModelRelations(models, this.preloadedRelations);
+		return models;
 	}
 
 	async first(): Promise<TModel | null> {
 		const row = await this.builder.first();
-		return row ? hydrateModel(this.model, row) : null;
+		if (!row) {
+			return null;
+		}
+
+		const model = hydrateModel(this.model, row);
+		await preloadModelRelations([model], this.preloadedRelations);
+		return model;
 	}
 
 	async paginate(
@@ -317,10 +342,12 @@ export class ModelQueryBuilder<
 		perPage = 15,
 	): Promise<ModelPaginatedResult<TModel>> {
 		const result = await this.builder.paginate(page, perPage);
+		const data = result.data.map((row) => hydrateModel(this.model, row));
+		await preloadModelRelations(data, this.preloadedRelations);
 
 		return {
 			...result,
-			data: result.data.map((row) => hydrateModel(this.model, row)),
+			data,
 		};
 	}
 
@@ -349,6 +376,31 @@ type RelationQueryKey = {
 	readonly column: string;
 	readonly value: QueryPrimitive;
 	readonly sourceKey: string;
+};
+
+type AnyModelClass = ModelClass<BaseModel, ModelAttributes>;
+
+type ModelRelationMetadata = {
+	readonly name: string;
+	readonly type: ModelRelationType;
+	readonly parentModel: AnyModelClass;
+	readonly relatedModel: AnyModelClass;
+	readonly foreignKey?: string;
+	readonly localKey?: string;
+	readonly ownerKey?: string;
+};
+
+type RelationMetadataProvider = {
+	[relationMetadata](): ModelRelationMetadata;
+};
+
+type RelationValueSource = {
+	toObject(): object;
+};
+
+type PreloadableModel = RelationValueSource & {
+	relation(name: string): RelationMetadataProvider;
+	[setLoadedRelation](name: string, value: unknown): void;
 };
 
 export class ModelRelation<
@@ -403,6 +455,18 @@ export class ModelRelation<
 		)
 			.where(key.column as QueryColumn<TRelatedAttributes>, key.value)
 			.all();
+	}
+
+	[relationMetadata](): ModelRelationMetadata {
+		return {
+			name: this.definition.name,
+			type: this.definition.type,
+			parentModel: this.parentModel as unknown as AnyModelClass,
+			relatedModel: this.relatedModel as unknown as AnyModelClass,
+			foreignKey: this.definition.foreignKey,
+			localKey: this.definition.localKey,
+			ownerKey: this.definition.ownerKey,
+		};
 	}
 
 	private resolveQueryKey(required: true): RelationQueryKey;
@@ -735,8 +799,7 @@ export abstract class BaseModel<
 		}
 
 		const related = await relation.first();
-		this.loadedRelations.set(name, related);
-		Object.assign(this, { [name]: related });
+		this[setLoadedRelation](name, related);
 
 		return related as TRelated | null;
 	}
@@ -756,8 +819,7 @@ export abstract class BaseModel<
 		}
 
 		const related = await relation.all();
-		this.loadedRelations.set(name, related);
-		Object.assign(this, { [name]: related });
+		this[setLoadedRelation](name, related);
 
 		return related as readonly TRelated[];
 	}
@@ -918,6 +980,11 @@ export abstract class BaseModel<
 		this.loadedRelations.clear();
 	}
 
+	[setLoadedRelation](name: string, value: unknown): void {
+		this.loadedRelations.set(name, value);
+		Object.assign(this, { [name]: value });
+	}
+
 	private [markPersisted](): this {
 		this.persisted = true;
 		this.syncOriginal();
@@ -943,6 +1010,195 @@ function hydrateModel<
 	instance.fill(normalizeHydratedAttributes(model, attributes));
 	instance[markPersisted]();
 	return instance;
+}
+
+async function preloadModelRelations(
+	models: readonly PreloadableModel[],
+	relationNames: readonly string[],
+): Promise<void> {
+	if (models.length === 0 || relationNames.length === 0) {
+		return;
+	}
+
+	for (const relationName of relationNames) {
+		await preloadModelRelation(models, relationName);
+	}
+}
+
+async function preloadModelRelation(
+	models: readonly PreloadableModel[],
+	relationName: string,
+): Promise<void> {
+	const firstModel = models[0];
+	if (!firstModel) {
+		return;
+	}
+
+	const relation = firstModel.relation(relationName);
+	const metadata = relation[relationMetadata]();
+
+	if (metadata.type === "belongsTo") {
+		await preloadBelongsToRelation(models, metadata);
+		return;
+	}
+
+	await preloadForeignKeyRelation(models, metadata);
+}
+
+async function preloadBelongsToRelation(
+	models: readonly PreloadableModel[],
+	metadata: ModelRelationMetadata,
+): Promise<void> {
+	const foreignKey =
+		metadata.foreignKey ?? `${lowerFirst(metadata.relatedModel.name)}Id`;
+	const ownerKey =
+		metadata.ownerKey ?? resolvePrimaryKey(metadata.relatedModel);
+	const ownerColumn = resolveColumnName(metadata.relatedModel, ownerKey);
+	const foreignKeyValues = collectRelationValues(models, foreignKey);
+	const relatedModels =
+		foreignKeyValues.length === 0
+			? []
+			: await new ModelQueryBuilder(
+					metadata.relatedModel,
+					createQueryBuilder(metadata.relatedModel),
+				)
+					.where(
+						ownerColumn as QueryColumn<ModelAttributes>,
+						"in",
+						foreignKeyValues,
+					)
+					.all();
+	const relatedByOwnerKey = indexModelsByRelationKey(relatedModels, ownerKey);
+
+	for (const model of models) {
+		const foreignKeyValue = resolveRelationValue(model, foreignKey);
+		const related =
+			foreignKeyValue === null
+				? null
+				: (relatedByOwnerKey.get(relationValueKey(foreignKeyValue)) ?? null);
+		model[setLoadedRelation](metadata.name, related);
+	}
+}
+
+async function preloadForeignKeyRelation(
+	models: readonly PreloadableModel[],
+	metadata: ModelRelationMetadata,
+): Promise<void> {
+	const localKey = metadata.localKey ?? resolvePrimaryKey(metadata.parentModel);
+	const foreignKey =
+		metadata.foreignKey ?? `${lowerFirst(metadata.parentModel.name)}Id`;
+	const foreignColumn = resolveColumnName(metadata.relatedModel, foreignKey);
+	const localKeyValues = collectRelationValues(models, localKey);
+	const relatedModels =
+		localKeyValues.length === 0
+			? []
+			: await new ModelQueryBuilder(
+					metadata.relatedModel,
+					createQueryBuilder(metadata.relatedModel),
+				)
+					.where(
+						foreignColumn as QueryColumn<ModelAttributes>,
+						"in",
+						localKeyValues,
+					)
+					.all();
+	const relatedByForeignKey = groupModelsByRelationKey(
+		relatedModels,
+		foreignKey,
+	);
+
+	for (const model of models) {
+		const localKeyValue = resolveRelationValue(model, localKey);
+		const related =
+			localKeyValue === null
+				? []
+				: (relatedByForeignKey.get(relationValueKey(localKeyValue)) ?? []);
+
+		if (metadata.type === "hasMany") {
+			model[setLoadedRelation](metadata.name, related);
+			continue;
+		}
+
+		model[setLoadedRelation](metadata.name, related[0] ?? null);
+	}
+}
+
+function collectRelationValues(
+	models: readonly RelationValueSource[],
+	key: string,
+): readonly QueryPrimitive[] {
+	const values: QueryPrimitive[] = [];
+	const seen = new Set<string>();
+
+	for (const model of models) {
+		const value = resolveRelationValue(model, key);
+		if (value === null) {
+			continue;
+		}
+
+		const indexKey = relationValueKey(value);
+		if (seen.has(indexKey)) {
+			continue;
+		}
+
+		seen.add(indexKey);
+		values.push(value);
+	}
+
+	return values;
+}
+
+function indexModelsByRelationKey<TModel extends RelationValueSource>(
+	models: readonly TModel[],
+	key: string,
+): ReadonlyMap<string, TModel> {
+	const indexed = new Map<string, TModel>();
+
+	for (const model of models) {
+		const value = resolveRelationValue(model, key);
+		if (value !== null && !indexed.has(relationValueKey(value))) {
+			indexed.set(relationValueKey(value), model);
+		}
+	}
+
+	return indexed;
+}
+
+function groupModelsByRelationKey<TModel extends RelationValueSource>(
+	models: readonly TModel[],
+	key: string,
+): ReadonlyMap<string, readonly TModel[]> {
+	const grouped = new Map<string, TModel[]>();
+
+	for (const model of models) {
+		const value = resolveRelationValue(model, key);
+		if (value === null) {
+			continue;
+		}
+
+		const indexKey = relationValueKey(value);
+		const group = grouped.get(indexKey);
+		if (group) {
+			group.push(model);
+			continue;
+		}
+
+		grouped.set(indexKey, [model]);
+	}
+
+	return grouped;
+}
+
+function relationValueKey(value: QueryPrimitive): string {
+	if (value instanceof Date) {
+		return `date:${value.getTime()}`;
+	}
+
+	if (value instanceof Uint8Array) {
+		return `bytes:${Array.from(value).join(",")}`;
+	}
+
+	return `${typeof value}:${String(value)}`;
 }
 
 function resolveDatabase<
@@ -1147,8 +1403,8 @@ function resolveColumnName<
 	);
 }
 
-function resolveRelationValue<TAttributes extends ModelAttributes>(
-	model: BaseModel<TAttributes>,
+function resolveRelationValue(
+	model: RelationValueSource,
 	key: string,
 ): QueryPrimitive | null {
 	const attributes = model.toObject() as Record<string, unknown>;
