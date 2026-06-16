@@ -1,12 +1,21 @@
 {
 	"name": "kura",
-	"module": "index.ts",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
 	"type": "module",
 	"private": true,
 	"bin": {
-		"kura": "./bin/kura.ts"
+		"kura": "./dist/bin/kura.js"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		}
 	},
 	"scripts": {
+		"build": "bun run scripts/build.ts",
 		"lint": "biome check .",
 		"format": "biome format . --write",
 		"test": "bun test",
