@@ -57,11 +57,11 @@ describe("generator console commands", () => {
 		const exitCode = await console.run(["make:model", "User"]);
 
 		expect(exitCode).toBe(0);
-		expect(output.text()).toBe("Created app/Models/User.ts");
-		expect(await readGenerated(root, "app/Models/User.ts")).toContain(
+		expect(output.text()).toBe("Created app/models/User.ts");
+		expect(await readGenerated(root, "app/models/User.ts")).toContain(
 			"export class User extends BaseModel<UserAttributes>",
 		);
-		expect(await readGenerated(root, "app/Models/User.ts")).toContain(
+		expect(await readGenerated(root, "app/models/User.ts")).toContain(
 			'static override table = "users";',
 		);
 	});
@@ -79,10 +79,10 @@ describe("generator console commands", () => {
 
 		expect(exitCode).toBe(0);
 		expect(output.text()).toBe(
-			"Created app/Controllers/Admin/UserController.ts",
+			"Created app/controllers/Admin/UserController.ts",
 		);
 		expect(
-			await readGenerated(root, "app/Controllers/Admin/UserController.ts"),
+			await readGenerated(root, "app/controllers/Admin/UserController.ts"),
 		).toContain("export class AdminUserController extends BaseController");
 	});
 
@@ -96,12 +96,12 @@ describe("generator console commands", () => {
 
 		expect(exitCode).toBe(0);
 		expect(output.text()).toBe(
-			"Created database/Migrations/20260616171011_create_users.ts",
+			"Created database/migrations/20260616171011_create_users.ts",
 		);
 		expect(
 			await readGenerated(
 				root,
-				"database/Migrations/20260616171011_create_users.ts",
+				"database/migrations/20260616171011_create_users.ts",
 			),
 		).toContain('schema.createTable("users"');
 	});
@@ -112,15 +112,15 @@ describe("generator console commands", () => {
 		registerGeneratorCommands(console, { root, now: fixedNow });
 
 		const cases = [
-			["make:middleware", "Auth", "app/Middleware/AuthMiddleware.ts"],
-			["make:validator", "CreateUser", "app/Validators/CreateUserValidator.ts"],
-			["make:seeder", "User", "database/Seeders/UserSeeder.ts"],
-			["make:factory", "User", "database/Factories/UserFactory.ts"],
-			["make:event", "UserCreated", "app/Events/UserCreatedEvent.ts"],
-			["make:listener", "SendWelcome", "app/Listeners/SendWelcomeListener.ts"],
-			["make:job", "SendEmail", "app/Jobs/SendEmailJob.ts"],
-			["make:mail", "Welcome", "app/Mail/WelcomeMail.ts"],
-			["make:policy", "User", "app/Policies/UserPolicy.ts"],
+			["make:middleware", "Auth", "app/middleware/AuthMiddleware.ts"],
+			["make:validator", "CreateUser", "app/validators/CreateUserValidator.ts"],
+			["make:seeder", "User", "database/seeders/UserSeeder.ts"],
+			["make:factory", "User", "database/factories/UserFactory.ts"],
+			["make:event", "UserCreated", "app/events/UserCreatedEvent.ts"],
+			["make:listener", "SendWelcome", "app/listeners/SendWelcomeListener.ts"],
+			["make:job", "SendEmail", "app/jobs/SendEmailJob.ts"],
+			["make:mail", "Welcome", "app/mails/WelcomeMail.ts"],
+			["make:policy", "User", "app/policies/UserPolicy.ts"],
 		] as const;
 
 		for (const [command, name, path] of cases) {
@@ -145,7 +145,7 @@ describe("generator console commands", () => {
 				output: forceOutput,
 			}),
 		).toBe(0);
-		expect(forceOutput.text()).toBe("Overwritten app/Models/User.ts");
+		expect(forceOutput.text()).toBe("Overwritten app/models/User.ts");
 	});
 
 	test("supports root option and validates names", async () => {
@@ -159,7 +159,7 @@ describe("generator console commands", () => {
 			await console.run(["make:job", "SyncUser", "--root", overrideRoot]),
 		).toBe(0);
 		expect(
-			await readGenerated(overrideRoot, "app/Jobs/SyncUserJob.ts"),
+			await readGenerated(overrideRoot, "app/jobs/SyncUserJob.ts"),
 		).toContain("export class SyncUserJob");
 
 		expect(await console.run(["make:job", "../Bad"])).toBe(1);

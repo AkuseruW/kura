@@ -71,9 +71,16 @@ describe("new app command", () => {
 			scripts: { dev: string; build: string };
 		};
 		expect(packageJson.dependencies.kura).toBe("file:../kura");
-		expect(packageJson.scripts.dev).toBe("bun --watch src/server.ts");
+		expect(packageJson.scripts.dev).toBe("bun kura serve --watch");
 		expect(packageJson.scripts.build).toContain("--target=bun");
-		expect(await readGenerated(root, "demo-api/src/routes.ts")).toContain(
+		expect(packageJson.scripts.build).toContain("bin/server.ts");
+		expect(await readGenerated(root, "demo-api/kura")).toContain(
+			"./bin/console.ts",
+		);
+		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
+			'entry: "bin/server.ts"',
+		);
+		expect(await readGenerated(root, "demo-api/start/routes.ts")).toContain(
 			'framework: "kura"',
 		);
 		expect(await readGenerated(root, "demo-api/.env.example")).toContain(
@@ -178,10 +185,10 @@ describe("new app command", () => {
 			cmd: [
 				process.execPath,
 				"build",
-				"src/server.ts",
+				"bin/server.ts",
 				"--target=bun",
 				"--packages=external",
-				"--outdir=dist",
+				"--outdir=build",
 			],
 			cwd: join(root, "demo"),
 			stderr: "pipe",
