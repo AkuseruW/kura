@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+	afterCreate,
+	afterSave,
 	BaseModel,
+	beforeCreate,
+	beforeDelete,
+	beforeSave,
 	belongsTo,
 	column,
 	hasMany,
@@ -371,6 +376,203 @@ describe("BaseModel", () => {
 		expect(connection.queries[0]?.bindings[4]).toBeInstanceOf(Date);
 	});
 
+	test("runs create and save hooks around inserts", async () => {
+		const events: string[] = [];
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			declare id: number;
+			declare email: string;
+			declare name: string;
+			declare active: boolean;
+
+			@beforeSave()
+			static normalizeEmail(user: User): void {
+				events.push(`beforeSave:${user.email}`);
+				user.setAttribute("email", user.email.toLowerCase());
+			}
+
+			@beforeCreate()
+			static activate(user: User): void {
+				events.push(`beforeCreate:${user.email}`);
+				user.setAttribute("active", true);
+			}
+
+			@afterCreate()
+			static created(user: User): void {
+				events.push(`afterCreate:${user.id}`);
+			}
+
+			@afterSave()
+			static saved(user: User): void {
+				events.push(`afterSave:${user.isPersisted()}`);
+			}
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		connection.queueResult<UserAttributes>({
+			rows: [],
+			affectedRows: 1,
+			insertId: 12,
+		});
+
+		const user = await User.create({
+			email: "ADA@KURA.DEV",
+			name: "Ada",
+		});
+
+		expect(user.id).toBe(12);
+		expect(user.email).toBe("ada@kura.dev");
+		expect(user.active).toBe(true);
+		expect(events).toEqual([
+			"beforeSave:ADA@KURA.DEV",
+			"beforeCreate:ada@kura.dev",
+			"afterCreate:12",
+			"afterSave:true",
+		]);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?)',
+				bindings: ["ada@kura.dev", "Ada", true],
+			},
+		]);
+	});
+
+	test("runs async save hooks around updates", async () => {
+		const events: string[] = [];
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			declare id: number;
+			declare email: string;
+			declare name: string;
+			declare active: boolean;
+
+			@beforeSave()
+			static async rewriteName(user: User): Promise<void> {
+				events.push(`beforeSave:${user.name}`);
+				await Promise.resolve();
+				user.setAttribute("name", "Grace Hopper");
+			}
+
+			@afterSave()
+			static async saved(user: User): Promise<void> {
+				await Promise.resolve();
+				events.push(`afterSave:${user.name}`);
+			}
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "grace@kura.dev",
+			name: "Grace",
+			active: true,
+		});
+		connection.queueResult<UserAttributes>({
+			rows: [],
+			affectedRows: 1,
+		});
+
+		user.setAttribute("name", "Grace Brewster");
+		await user.save();
+
+		expect(user.name).toBe("Grace Hopper");
+		expect(user.isDirty()).toBe(false);
+		expect(events).toEqual([
+			"beforeSave:Grace Brewster",
+			"afterSave:Grace Hopper",
+		]);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'update "users" set "name" = ? where "id" = ?',
+				bindings: ["Grace Hopper", 1],
+			},
+		]);
+	});
+
+	test("does not run save hooks for clean persisted models", async () => {
+		const events: string[] = [];
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			@beforeSave()
+			static before(): void {
+				events.push("beforeSave");
+			}
+
+			@afterSave()
+			static after(): void {
+				events.push("afterSave");
+			}
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+
+		await user.save();
+
+		expect(events).toEqual([]);
+		expect(connection.queries).toEqual([]);
+	});
+
+	test("cancels creates when beforeCreate returns false", async () => {
+		const events: string[] = [];
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			declare email: string;
+
+			@beforeSave()
+			static beforeSave(user: User): void {
+				events.push(`beforeSave:${user.email}`);
+			}
+
+			@beforeCreate()
+			static beforeCreate(user: User): false {
+				events.push(`beforeCreate:${user.email}`);
+				return false;
+			}
+
+			@afterCreate()
+			static afterCreate(): void {
+				events.push("afterCreate");
+			}
+
+			@afterSave()
+			static afterSave(): void {
+				events.push("afterSave");
+			}
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+
+		const user = await User.create({
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+
+		expect(user.isPersisted()).toBe(false);
+		expect(events).toEqual([
+			"beforeSave:ada@kura.dev",
+			"beforeCreate:ada@kura.dev",
+		]);
+		expect(connection.queries).toEqual([]);
+	});
+
 	test("saves dirty persisted models with an updated timestamp", async () => {
 		class User extends BaseModel<UserAttributes> {
 			static override table = "users";
@@ -461,6 +663,57 @@ describe("BaseModel", () => {
 			{
 				sql: 'delete from "users" where "id" = ?',
 				bindings: [1],
+			},
+		]);
+	});
+
+	test("runs beforeDelete hooks and cancels deletes when requested", async () => {
+		const events: string[] = [];
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			declare email: string;
+
+			@beforeDelete()
+			static async protectLockedUsers(user: User): Promise<boolean> {
+				await Promise.resolve();
+				events.push(`beforeDelete:${user.email}`);
+				return user.email !== "locked@kura.dev";
+			}
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const locked = User.hydrate({
+			id: 1,
+			email: "locked@kura.dev",
+			name: "Locked",
+			active: true,
+		});
+		const allowed = User.hydrate({
+			id: 2,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+		connection.queueResult<UserAttributes>({
+			rows: [],
+			affectedRows: 1,
+		});
+
+		await expect(locked.delete()).resolves.toBe(false);
+		await expect(allowed.delete()).resolves.toBe(true);
+
+		expect(locked.isPersisted()).toBe(true);
+		expect(allowed.isPersisted()).toBe(false);
+		expect(events).toEqual([
+			"beforeDelete:locked@kura.dev",
+			"beforeDelete:ada@kura.dev",
+		]);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'delete from "users" where "id" = ?',
+				bindings: [2],
 			},
 		]);
 	});
