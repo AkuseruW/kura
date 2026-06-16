@@ -43,7 +43,7 @@ export type ColumnDecorator = {
 	(value: undefined, context: ClassFieldDecoratorContext): void;
 };
 
-export type ModelRelationType = "belongsTo" | "hasOne";
+export type ModelRelationType = "belongsTo" | "hasOne" | "hasMany";
 
 export type RelationModelFactory<
 	TRelated extends BaseModel<TRelatedAttributes>,
@@ -56,6 +56,11 @@ export type BelongsToRelationOptions = {
 };
 
 export type HasOneRelationOptions = {
+	readonly foreignKey?: string;
+	readonly localKey?: string;
+};
+
+export type HasManyRelationOptions = {
 	readonly foreignKey?: string;
 	readonly localKey?: string;
 };
@@ -155,6 +160,16 @@ export function hasOne<
 	options: HasOneRelationOptions = {},
 ): RelationDecorator {
 	return relationDecorator("hasOne", relatedModel, options);
+}
+
+export function hasMany<
+	TRelatedAttributes extends ModelAttributes,
+	TRelated extends BaseModel<TRelatedAttributes>,
+>(
+	relatedModel: RelationModelFactory<TRelated, TRelatedAttributes>,
+	options: HasManyRelationOptions = {},
+): RelationDecorator {
+	return relationDecorator("hasMany", relatedModel, options);
 }
 
 function relationDecorator(
@@ -376,13 +391,27 @@ export class ModelRelation<
 			.first();
 	}
 
+	async all(): Promise<readonly TRelated[]> {
+		const key = this.resolveQueryKey(false);
+		if (!key) {
+			return [];
+		}
+
+		return new ModelQueryBuilder(
+			this.relatedModel,
+			createQueryBuilder(this.relatedModel),
+		)
+			.where(key.column as QueryColumn<TRelatedAttributes>, key.value)
+			.all();
+	}
+
 	private resolveQueryKey(required: true): RelationQueryKey;
 	private resolveQueryKey(required: false): RelationQueryKey | null;
 	private resolveQueryKey(required: boolean): RelationQueryKey | null {
 		const queryKey =
 			this.definition.type === "belongsTo"
 				? this.resolveBelongsToQueryKey()
-				: this.resolveHasOneQueryKey();
+				: this.resolveRelatedByForeignKeyQueryKey();
 
 		if (queryKey || !required) {
 			return queryKey;
@@ -411,7 +440,7 @@ export class ModelRelation<
 		};
 	}
 
-	private resolveHasOneQueryKey(): RelationQueryKey | null {
+	private resolveRelatedByForeignKeyQueryKey(): RelationQueryKey | null {
 		const localKey =
 			this.definition.localKey ?? resolvePrimaryKey(this.parentModel);
 		const foreignKey =
@@ -649,6 +678,20 @@ export abstract class BaseModel<
 		});
 	}
 
+	hasMany<
+		TRelatedAttributes extends ModelAttributes,
+		TRelated extends BaseModel<TRelatedAttributes>,
+	>(
+		relatedModel: ModelClass<TRelated, TRelatedAttributes>,
+		options: HasManyRelationOptions = {},
+	): ModelRelation<this, TAttributes, TRelated, TRelatedAttributes> {
+		return new ModelRelation(this, this.getModelClass(), relatedModel, {
+			name: relatedModel.name,
+			type: "hasMany",
+			...options,
+		});
+	}
+
 	relation<
 		TRelatedAttributes extends ModelAttributes,
 		TRelated extends BaseModel<TRelatedAttributes>,
@@ -685,11 +728,38 @@ export abstract class BaseModel<
 		}
 
 		const relation = this.relation<ModelAttributes, BaseModel>(name);
+		if (relation.type === "hasMany") {
+			throw new Error(
+				`Relation [${name}] on model [${this.getModelClass().name}] is a collection relation; use relatedMany()`,
+			);
+		}
+
 		const related = await relation.first();
 		this.loadedRelations.set(name, related);
 		Object.assign(this, { [name]: related });
 
 		return related as TRelated | null;
+	}
+
+	async relatedMany<TRelated extends BaseModel = BaseModel>(
+		name: string,
+	): Promise<readonly TRelated[]> {
+		if (this.loadedRelations.has(name)) {
+			return this.loadedRelations.get(name) as readonly TRelated[];
+		}
+
+		const relation = this.relation<ModelAttributes, BaseModel>(name);
+		if (relation.type !== "hasMany") {
+			throw new Error(
+				`Relation [${name}] on model [${this.getModelClass().name}] is not a collection relation`,
+			);
+		}
+
+		const related = await relation.all();
+		this.loadedRelations.set(name, related);
+		Object.assign(this, { [name]: related });
+
+		return related as readonly TRelated[];
 	}
 
 	toObject(): Partial<TAttributes> {
