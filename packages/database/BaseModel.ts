@@ -43,6 +43,37 @@ export type ColumnDecorator = {
 	(value: undefined, context: ClassFieldDecoratorContext): void;
 };
 
+export type ModelRelationType = "belongsTo" | "hasOne";
+
+export type RelationModelFactory<
+	TRelated extends BaseModel<TRelatedAttributes>,
+	TRelatedAttributes extends ModelAttributes,
+> = () => ModelClass<TRelated, TRelatedAttributes>;
+
+export type BelongsToRelationOptions = {
+	readonly foreignKey?: string;
+	readonly ownerKey?: string;
+};
+
+export type HasOneRelationOptions = {
+	readonly foreignKey?: string;
+	readonly localKey?: string;
+};
+
+export type RelationDecorator = {
+	(target: object, propertyKey: string | symbol): void;
+	(value: undefined, context: ClassFieldDecoratorContext): void;
+};
+
+type StoredRelationDefinition = {
+	readonly name: string;
+	readonly type: ModelRelationType;
+	readonly relatedModel: () => unknown;
+	readonly foreignKey?: string;
+	readonly localKey?: string;
+	readonly ownerKey?: string;
+};
+
 export type ModelPaginatedResult<TModel> = Omit<
 	PaginatedResult<ModelAttributes>,
 	"data"
@@ -58,6 +89,11 @@ const modelColumns = new WeakMap<
 	ConstructorObject,
 	Map<string, ModelColumnDefinition>
 >();
+const modelRelations = new WeakMap<
+	ConstructorObject,
+	Map<string, StoredRelationDefinition>
+>();
+const initializedModelMetadata = new WeakSet<ConstructorObject>();
 const markPersisted = Symbol("markPersisted");
 
 export function column(options: ModelColumnOptions = {}): ColumnDecorator {
@@ -99,6 +135,75 @@ export function column(options: ModelColumnOptions = {}): ColumnDecorator {
 	};
 
 	return decorator as ColumnDecorator;
+}
+
+export function belongsTo<
+	TRelatedAttributes extends ModelAttributes,
+	TRelated extends BaseModel<TRelatedAttributes>,
+>(
+	relatedModel: RelationModelFactory<TRelated, TRelatedAttributes>,
+	options: BelongsToRelationOptions = {},
+): RelationDecorator {
+	return relationDecorator("belongsTo", relatedModel, options);
+}
+
+export function hasOne<
+	TRelatedAttributes extends ModelAttributes,
+	TRelated extends BaseModel<TRelatedAttributes>,
+>(
+	relatedModel: RelationModelFactory<TRelated, TRelatedAttributes>,
+	options: HasOneRelationOptions = {},
+): RelationDecorator {
+	return relationDecorator("hasOne", relatedModel, options);
+}
+
+function relationDecorator(
+	type: ModelRelationType,
+	relatedModel: () => unknown,
+	options: BelongsToRelationOptions & HasOneRelationOptions,
+): RelationDecorator {
+	const decorator = (
+		targetOrValue: object | undefined,
+		propertyOrContext: string | symbol | ClassFieldDecoratorContext,
+	): void => {
+		if (isFieldDecoratorContext(propertyOrContext)) {
+			if (propertyOrContext.private) {
+				throw new Error(`@${type}() cannot be used on private fields`);
+			}
+
+			const propertyKey = normalizePropertyKey(propertyOrContext.name);
+			propertyOrContext.addInitializer(function initializeRelation(
+				this: unknown,
+			) {
+				if (typeof this !== "object" || this === null) {
+					throw new Error(`@${type}() initializer target is invalid`);
+				}
+
+				registerRelation(
+					this.constructor as ConstructorObject,
+					propertyKey,
+					type,
+					relatedModel,
+					options,
+				);
+			});
+			return;
+		}
+
+		if (!targetOrValue) {
+			throw new Error(`@${type}() decorator target is invalid`);
+		}
+
+		registerRelation(
+			targetOrValue.constructor as ConstructorObject,
+			normalizePropertyKey(propertyOrContext),
+			type,
+			relatedModel,
+			options,
+		);
+	};
+
+	return decorator as RelationDecorator;
 }
 
 export class ModelNotFoundException extends BaseException {
@@ -217,6 +322,114 @@ export class ModelQueryBuilder<
 	}
 }
 
+type ResolvedRelationDefinition = {
+	readonly name: string;
+	readonly type: ModelRelationType;
+	readonly foreignKey?: string;
+	readonly localKey?: string;
+	readonly ownerKey?: string;
+};
+
+type RelationQueryKey = {
+	readonly column: string;
+	readonly value: QueryPrimitive;
+	readonly sourceKey: string;
+};
+
+export class ModelRelation<
+	TParent extends BaseModel<TParentAttributes>,
+	TParentAttributes extends ModelAttributes,
+	TRelated extends BaseModel<TRelatedAttributes>,
+	TRelatedAttributes extends ModelAttributes,
+> {
+	readonly type: ModelRelationType;
+
+	constructor(
+		private readonly parent: TParent,
+		private readonly parentModel: ModelClass<TParent, TParentAttributes>,
+		private readonly relatedModel: ModelClass<TRelated, TRelatedAttributes>,
+		private readonly definition: ResolvedRelationDefinition,
+	) {
+		this.type = definition.type;
+	}
+
+	query(): ModelQueryBuilder<TRelated, TRelatedAttributes> {
+		const key = this.resolveQueryKey(true);
+
+		return new ModelQueryBuilder(
+			this.relatedModel,
+			createQueryBuilder(this.relatedModel),
+		).where(key.column as QueryColumn<TRelatedAttributes>, key.value);
+	}
+
+	async first(): Promise<TRelated | null> {
+		const key = this.resolveQueryKey(false);
+		if (!key) {
+			return null;
+		}
+
+		return new ModelQueryBuilder(
+			this.relatedModel,
+			createQueryBuilder(this.relatedModel),
+		)
+			.where(key.column as QueryColumn<TRelatedAttributes>, key.value)
+			.first();
+	}
+
+	private resolveQueryKey(required: true): RelationQueryKey;
+	private resolveQueryKey(required: false): RelationQueryKey | null;
+	private resolveQueryKey(required: boolean): RelationQueryKey | null {
+		const queryKey =
+			this.definition.type === "belongsTo"
+				? this.resolveBelongsToQueryKey()
+				: this.resolveHasOneQueryKey();
+
+		if (queryKey || !required) {
+			return queryKey;
+		}
+
+		throw new Error(
+			`Relation [${this.definition.name}] cannot be queried because key value is missing`,
+		);
+	}
+
+	private resolveBelongsToQueryKey(): RelationQueryKey | null {
+		const foreignKey =
+			this.definition.foreignKey ?? `${lowerFirst(this.relatedModel.name)}Id`;
+		const ownerKey =
+			this.definition.ownerKey ?? resolvePrimaryKey(this.relatedModel);
+		const value = resolveRelationValue(this.parent, foreignKey);
+
+		if (value === null) {
+			return null;
+		}
+
+		return {
+			column: resolveColumnName(this.relatedModel, ownerKey),
+			value,
+			sourceKey: foreignKey,
+		};
+	}
+
+	private resolveHasOneQueryKey(): RelationQueryKey | null {
+		const localKey =
+			this.definition.localKey ?? resolvePrimaryKey(this.parentModel);
+		const foreignKey =
+			this.definition.foreignKey ?? `${lowerFirst(this.parentModel.name)}Id`;
+		const value = resolveRelationValue(this.parent, localKey);
+
+		if (value === null) {
+			return null;
+		}
+
+		return {
+			column: resolveColumnName(this.relatedModel, foreignKey),
+			value,
+			sourceKey: localKey,
+		};
+	}
+}
+
 export abstract class BaseModel<
 	TAttributes extends ModelAttributes = ModelAttributes,
 > {
@@ -230,6 +443,7 @@ export abstract class BaseModel<
 
 	private attributes: Partial<TAttributes> = {};
 	private original: Partial<TAttributes> = {};
+	private loadedRelations = new Map<string, unknown>();
 	private persisted = false;
 
 	constructor(attributes: Partial<TAttributes> = {}) {
@@ -309,6 +523,7 @@ export abstract class BaseModel<
 			...attributes,
 		};
 		Object.assign(this, attributes);
+		this.loadedRelations.clear();
 		return this;
 	}
 
@@ -404,6 +619,77 @@ export abstract class BaseModel<
 
 		this.persisted = false;
 		return true;
+	}
+
+	belongsTo<
+		TRelatedAttributes extends ModelAttributes,
+		TRelated extends BaseModel<TRelatedAttributes>,
+	>(
+		relatedModel: ModelClass<TRelated, TRelatedAttributes>,
+		options: BelongsToRelationOptions = {},
+	): ModelRelation<this, TAttributes, TRelated, TRelatedAttributes> {
+		return new ModelRelation(this, this.getModelClass(), relatedModel, {
+			name: relatedModel.name,
+			type: "belongsTo",
+			...options,
+		});
+	}
+
+	hasOne<
+		TRelatedAttributes extends ModelAttributes,
+		TRelated extends BaseModel<TRelatedAttributes>,
+	>(
+		relatedModel: ModelClass<TRelated, TRelatedAttributes>,
+		options: HasOneRelationOptions = {},
+	): ModelRelation<this, TAttributes, TRelated, TRelatedAttributes> {
+		return new ModelRelation(this, this.getModelClass(), relatedModel, {
+			name: relatedModel.name,
+			type: "hasOne",
+			...options,
+		});
+	}
+
+	relation<
+		TRelatedAttributes extends ModelAttributes,
+		TRelated extends BaseModel<TRelatedAttributes>,
+	>(
+		name: string,
+	): ModelRelation<this, TAttributes, TRelated, TRelatedAttributes> {
+		const definition = resolveRelationDefinition(this.getModelClass(), name);
+		if (definition) {
+			return new ModelRelation(
+				this,
+				this.getModelClass(),
+				resolveRelationModel<TRelated, TRelatedAttributes>(definition),
+				definition,
+			);
+		}
+
+		const relation = this.resolveRelationMethod<TRelatedAttributes, TRelated>(
+			name,
+		);
+		if (relation) {
+			return relation;
+		}
+
+		throw new Error(
+			`Relation [${name}] is not defined on model [${this.getModelClass().name}]`,
+		);
+	}
+
+	async related<TRelated extends BaseModel = BaseModel>(
+		name: string,
+	): Promise<TRelated | null> {
+		if (this.loadedRelations.has(name)) {
+			return this.loadedRelations.get(name) as TRelated | null;
+		}
+
+		const relation = this.relation<ModelAttributes, BaseModel>(name);
+		const related = await relation.first();
+		this.loadedRelations.set(name, related);
+		Object.assign(this, { [name]: related });
+
+		return related as TRelated | null;
 	}
 
 	toObject(): Partial<TAttributes> {
@@ -521,6 +807,32 @@ export abstract class BaseModel<
 		return this.constructor as ModelClass<this, TAttributes>;
 	}
 
+	private resolveRelationMethod<
+		TRelatedAttributes extends ModelAttributes,
+		TRelated extends BaseModel<TRelatedAttributes>,
+	>(
+		name: string,
+	): ModelRelation<this, TAttributes, TRelated, TRelatedAttributes> | null {
+		const candidate = (this as unknown as Record<string, unknown>)[name];
+		if (typeof candidate !== "function") {
+			return null;
+		}
+
+		const relation = candidate.call(this) as unknown;
+		if (relation instanceof ModelRelation) {
+			return relation as ModelRelation<
+				this,
+				TAttributes,
+				TRelated,
+				TRelatedAttributes
+			>;
+		}
+
+		throw new Error(
+			`Relation [${name}] on model [${this.getModelClass().name}] must return a ModelRelation`,
+		);
+	}
+
 	private getAttributeByName(key: string): unknown {
 		return (this.attributes as Record<string, unknown>)[key];
 	}
@@ -533,6 +845,7 @@ export abstract class BaseModel<
 		const attributes = this.attributes as Record<string, unknown>;
 		attributes[key] = value;
 		Object.assign(this, { [key]: value });
+		this.loadedRelations.clear();
 	}
 
 	private [markPersisted](): this {
@@ -633,11 +946,95 @@ function registerColumn(
 	});
 }
 
+function registerRelation(
+	model: ConstructorObject,
+	name: string,
+	type: ModelRelationType,
+	relatedModel: () => unknown,
+	options: BelongsToRelationOptions & HasOneRelationOptions,
+): void {
+	let relations = modelRelations.get(model);
+	if (!relations) {
+		relations = new Map();
+		modelRelations.set(model, relations);
+	}
+
+	relations.set(name, {
+		name,
+		type,
+		relatedModel,
+		foreignKey: options.foreignKey,
+		localKey: options.localKey,
+		ownerKey: options.ownerKey,
+	});
+}
+
 function getColumnDefinitions<
 	TModel extends BaseModel<TAttributes>,
 	TAttributes extends ModelAttributes,
 >(model: ModelClass<TModel, TAttributes>): readonly ModelColumnDefinition[] {
+	ensureModelMetadata(model);
 	const definitions = new Map<string, ModelColumnDefinition>();
+
+	for (const modelConstructor of getModelConstructors(model)) {
+		for (const definition of modelColumns.get(modelConstructor)?.values() ??
+			[]) {
+			definitions.set(definition.propertyKey, definition);
+		}
+	}
+
+	return [...definitions.values()];
+}
+
+function getRelationDefinitions<
+	TModel extends BaseModel<TAttributes>,
+	TAttributes extends ModelAttributes,
+>(model: ModelClass<TModel, TAttributes>): readonly StoredRelationDefinition[] {
+	ensureModelMetadata(model);
+	const definitions = new Map<string, StoredRelationDefinition>();
+
+	for (const modelConstructor of getModelConstructors(model)) {
+		for (const definition of modelRelations.get(modelConstructor)?.values() ??
+			[]) {
+			definitions.set(definition.name, definition);
+		}
+	}
+
+	return [...definitions.values()];
+}
+
+function resolveRelationDefinition<
+	TModel extends BaseModel<TAttributes>,
+	TAttributes extends ModelAttributes,
+>(
+	model: ModelClass<TModel, TAttributes>,
+	name: string,
+): StoredRelationDefinition | undefined {
+	return getRelationDefinitions(model).find(
+		(definition) => definition.name === name,
+	);
+}
+
+function resolveRelationModel<
+	TRelated extends BaseModel<TRelatedAttributes>,
+	TRelatedAttributes extends ModelAttributes,
+>(
+	definition: StoredRelationDefinition,
+): ModelClass<TRelated, TRelatedAttributes> {
+	const relatedModel = definition.relatedModel();
+	if (!isModelClass(relatedModel)) {
+		throw new Error(
+			`Relation [${definition.name}] did not resolve to a BaseModel class`,
+		);
+	}
+
+	return relatedModel as unknown as ModelClass<TRelated, TRelatedAttributes>;
+}
+
+function getModelConstructors<
+	TModel extends BaseModel<TAttributes>,
+	TAttributes extends ModelAttributes,
+>(model: ModelClass<TModel, TAttributes>): readonly ConstructorObject[] {
 	const constructors: ConstructorObject[] = [];
 	let current: ConstructorObject | undefined =
 		model as unknown as ConstructorObject;
@@ -653,14 +1050,51 @@ function getColumnDefinitions<
 				: undefined;
 	}
 
-	for (const modelConstructor of constructors) {
-		for (const definition of modelColumns.get(modelConstructor)?.values() ??
-			[]) {
-			definitions.set(definition.propertyKey, definition);
-		}
+	return constructors;
+}
+
+function ensureModelMetadata<
+	TModel extends BaseModel<TAttributes>,
+	TAttributes extends ModelAttributes,
+>(model: ModelClass<TModel, TAttributes>): void {
+	const modelConstructor = model as unknown as ConstructorObject;
+	if (initializedModelMetadata.has(modelConstructor)) {
+		return;
 	}
 
-	return [...definitions.values()];
+	initializedModelMetadata.add(modelConstructor);
+	new model();
+}
+
+function resolveColumnName<
+	TModel extends BaseModel<TAttributes>,
+	TAttributes extends ModelAttributes,
+>(model: ModelClass<TModel, TAttributes>, key: string): string {
+	return (
+		getColumnDefinitions(model).find(
+			(definition) => definition.propertyKey === key,
+		)?.columnName ?? key
+	);
+}
+
+function resolveRelationValue<TAttributes extends ModelAttributes>(
+	model: BaseModel<TAttributes>,
+	key: string,
+): QueryPrimitive | null {
+	const attributes = model.toObject() as Record<string, unknown>;
+	const value = Object.hasOwn(attributes, key)
+		? attributes[key]
+		: (model as unknown as Record<string, unknown>)[key];
+
+	if (value === undefined || value === null) {
+		return null;
+	}
+
+	if (isQueryPrimitive(value)) {
+		return value;
+	}
+
+	throw new Error(`Relation key [${key}] must be a query primitive`);
 }
 
 function collectModelMutationValues<
@@ -753,6 +1187,18 @@ function isFieldDecoratorContext(
 	value: string | symbol | ClassFieldDecoratorContext,
 ): value is ClassFieldDecoratorContext {
 	return typeof value === "object" && value !== null && "kind" in value;
+}
+
+function isModelClass(
+	value: unknown,
+): value is ModelClass<BaseModel<ModelAttributes>, ModelAttributes> {
+	return typeof value === "function" && value.prototype instanceof BaseModel;
+}
+
+function lowerFirst(value: string): string {
+	return value.length === 0
+		? value
+		: `${value.slice(0, 1).toLowerCase()}${value.slice(1)}`;
 }
 
 function toQueryPrimitive(
