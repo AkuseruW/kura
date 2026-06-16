@@ -24,6 +24,17 @@ async function generatedDirectoryExists(
 	return (await stat(join(root, path))).isDirectory();
 }
 
+async function generatedFileExists(
+	root: string,
+	path: string,
+): Promise<boolean> {
+	try {
+		return (await stat(join(root, path))).isFile();
+	} catch {
+		return false;
+	}
+}
+
 async function findFilesNamed(
 	root: string,
 	name: string,
@@ -134,12 +145,55 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/start/routes.ts")).toContain(
 			'framework: "kura"',
 		);
-		expect(await readGenerated(root, "demo-api/config/database.ts")).toContain(
-			'default: "sqlite"',
+		const appConfig = await readGenerated(root, "demo-api/config/app.ts");
+		expect(appConfig).toContain("export const appUrl");
+		expect(appConfig).toContain("const appConfig = defineConfig");
+		expect(appConfig).toContain("http: {");
+		expect(appConfig).toContain("starter: {");
+		const authConfig = await readGenerated(root, "demo-api/config/auth.ts");
+		expect(authConfig).toContain("const authConfig = defineConfig");
+		expect(authConfig).toContain("guards: {");
+		expect(authConfig).toContain('driver: "jwt"');
+		expect(
+			await readGenerated(root, "demo-api/config/bodyparser.ts"),
+		).toContain("const bodyParserConfig = defineConfig");
+		const databaseConfig = await readGenerated(
+			root,
+			"demo-api/config/database.ts",
 		);
-		expect(await readGenerated(root, "demo-api/.env.example")).toContain(
-			"APP_KEY=",
+		expect(databaseConfig).toContain("const databaseConfig = defineConfig");
+		expect(databaseConfig).toContain('env.get("DB_CONNECTION", "sqlite")');
+		expect(databaseConfig).toContain("connections: {");
+		expect(
+			await readGenerated(root, "demo-api/config/encryption.ts"),
+		).toContain("const encryptionConfig = defineConfig");
+		const hashConfig = await readGenerated(root, "demo-api/config/hash.ts");
+		expect(hashConfig).toContain("const hashConfig = defineConfig");
+		expect(hashConfig).toContain("argon2id");
+		expect(hashConfig).toContain("bcrypt");
+		expect(await readGenerated(root, "demo-api/config/logger.ts")).toContain(
+			"loggers: {",
 		);
+		expect(await readGenerated(root, "demo-api/config/queue.ts")).toContain(
+			'env.get("QUEUE_CONNECTION", "memory")',
+		);
+		expect(await readGenerated(root, "demo-api/config/session.ts")).toContain(
+			'store: env.get("SESSION_DRIVER", "memory")',
+		);
+		expect(await readGenerated(root, "demo-api/config/shield.ts")).toContain(
+			"enabled: false",
+		);
+		expect(await readGenerated(root, "demo-api/config/static.ts")).toContain(
+			"enabled: false",
+		);
+		expect(await generatedFileExists(root, "demo-api/config/vite.ts")).toBe(
+			false,
+		);
+		const envExample = await readGenerated(root, "demo-api/.env.example");
+		expect(envExample).toContain("APP_NAME=Kura API");
+		expect(envExample).toContain("APP_KEY=");
+		expect(envExample).toContain("HASH_DRIVER=bcrypt");
+		expect(envExample).toContain("DB_CONNECTION=sqlite");
 		expect(await readGenerated(root, "demo-api/.env.test")).toContain(
 			"NODE_ENV=test",
 		);
@@ -204,6 +258,12 @@ describe("new app command", () => {
 		expect(output.text()).toContain("Modules: i18n, websockets");
 		expect(await readGenerated(root, "demo-web/config/app.ts")).toContain(
 			'preset: "web"',
+		);
+		expect(await readGenerated(root, "demo-web/config/vite.ts")).toContain(
+			"const viteConfig = defineConfig",
+		);
+		expect(await readGenerated(root, "demo-web/config/shield.ts")).toContain(
+			"enabled: true",
 		);
 		expect(await readGenerated(root, "demo-web/.env.example")).toContain(
 			"REDIS_URL=",
