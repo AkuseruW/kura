@@ -13,8 +13,12 @@ export { ServiceProvider } from "./packages/core/ServiceProvider";
 
 export {
 	BaseModel,
+	type BelongsToRelationOptions,
+	belongsTo,
 	type ColumnDecorator,
 	column,
+	type HasOneRelationOptions,
+	hasOne,
 	type ModelAttributes,
 	type ModelClass,
 	type ModelColumnDefinition,
@@ -22,6 +26,10 @@ export {
 	ModelNotFoundException,
 	type ModelPaginatedResult,
 	ModelQueryBuilder,
+	ModelRelation,
+	type ModelRelationType,
+	type RelationDecorator,
+	type RelationModelFactory,
 } from "./packages/database/BaseModel";
 export {
 	type DatabaseConnection,
