@@ -12,8 +12,13 @@ export { Emitter, Event, type Listener } from "./packages/core/Event";
 export { ServiceProvider } from "./packages/core/ServiceProvider";
 
 export {
+	afterCreate,
+	afterSave,
 	BaseModel,
 	type BelongsToRelationOptions,
+	beforeCreate,
+	beforeDelete,
+	beforeSave,
 	belongsTo,
 	type ColumnDecorator,
 	column,
@@ -26,6 +31,10 @@ export {
 	type ModelClass,
 	type ModelColumnDefinition,
 	type ModelColumnOptions,
+	type ModelHookCallback,
+	type ModelHookDecorator,
+	type ModelHookName,
+	type ModelHookResult,
 	ModelNotFoundException,
 	type ModelPaginatedResult,
 	ModelQueryBuilder,

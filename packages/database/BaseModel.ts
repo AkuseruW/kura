@@ -82,6 +82,28 @@ export type RelationDecorator = {
 	(value: undefined, context: ClassFieldDecoratorContext): void;
 };
 
+export type ModelHookName =
+	| "beforeSave"
+	| "afterSave"
+	| "beforeCreate"
+	| "afterCreate"
+	| "beforeDelete";
+
+export type ModelHookResult = boolean | undefined;
+
+export type ModelHookCallback<TModel extends BaseModel = BaseModel> = (
+	model: TModel,
+) => ModelHookResult | Promise<ModelHookResult>;
+
+export type ModelHookDecorator = {
+	(
+		target: object,
+		propertyKey: string | symbol,
+		descriptor: PropertyDescriptor,
+	): void;
+	(value: ModelHookCallback, context: ClassMethodDecoratorContext): void;
+};
+
 type StoredRelationDefinition = {
 	readonly name: string;
 	readonly type: ModelRelationType;
@@ -99,6 +121,17 @@ type RelationOptions = BelongsToRelationOptions &
 	HasOneRelationOptions &
 	HasManyRelationOptions &
 	Partial<ManyToManyRelationOptions>;
+
+type StoredModelHookDefinition = {
+	readonly name: string;
+	readonly hook: ModelHookName;
+	readonly isStatic: boolean;
+};
+
+type ModelHookInvoker = (
+	this: unknown,
+	model?: unknown,
+) => ModelHookResult | Promise<ModelHookResult>;
 
 export type ModelPaginatedResult<TModel> = Omit<
 	PaginatedResult<ModelAttributes>,
@@ -118,6 +151,10 @@ const modelColumns = new WeakMap<
 const modelRelations = new WeakMap<
 	ConstructorObject,
 	Map<string, StoredRelationDefinition>
+>();
+const modelHooks = new WeakMap<
+	ConstructorObject,
+	Map<ModelHookName, Map<string, StoredModelHookDefinition>>
 >();
 const initializedModelMetadata = new WeakSet<ConstructorObject>();
 const markPersisted = Symbol("markPersisted");
@@ -206,6 +243,26 @@ export function manyToMany<
 	return relationDecorator("manyToMany", relatedModel, options);
 }
 
+export function beforeSave(): ModelHookDecorator {
+	return modelHookDecorator("beforeSave");
+}
+
+export function afterSave(): ModelHookDecorator {
+	return modelHookDecorator("afterSave");
+}
+
+export function beforeCreate(): ModelHookDecorator {
+	return modelHookDecorator("beforeCreate");
+}
+
+export function afterCreate(): ModelHookDecorator {
+	return modelHookDecorator("afterCreate");
+}
+
+export function beforeDelete(): ModelHookDecorator {
+	return modelHookDecorator("beforeDelete");
+}
+
 function relationDecorator(
 	type: ModelRelationType,
 	relatedModel: () => unknown,
@@ -253,6 +310,74 @@ function relationDecorator(
 	};
 
 	return decorator as RelationDecorator;
+}
+
+function modelHookDecorator(hook: ModelHookName): ModelHookDecorator {
+	const decorator = (
+		targetOrValue: object | ModelHookCallback | undefined,
+		propertyOrContext: string | symbol | ClassMethodDecoratorContext,
+		descriptor?: PropertyDescriptor,
+	): void => {
+		if (isMethodDecoratorContext(propertyOrContext)) {
+			if (propertyOrContext.private) {
+				throw new Error(`@${hook}() cannot be used on private methods`);
+			}
+
+			if (propertyOrContext.kind !== "method") {
+				throw new Error(`@${hook}() can only be used on methods`);
+			}
+
+			const methodName = normalizeDecoratorKey(
+				propertyOrContext.name,
+				`@${hook}()`,
+			);
+			propertyOrContext.addInitializer(function initializeModelHook(
+				this: unknown,
+			) {
+				const model = propertyOrContext.static
+					? this
+					: typeof this === "object" && this !== null
+						? this.constructor
+						: undefined;
+
+				if (!isConstructorObject(model)) {
+					throw new Error(`@${hook}() initializer target is invalid`);
+				}
+
+				registerModelHook(model, hook, methodName, propertyOrContext.static);
+			});
+			return;
+		}
+
+		if (!descriptor || typeof descriptor.value !== "function") {
+			throw new Error(`@${hook}() can only be used on methods`);
+		}
+
+		const methodName = normalizeDecoratorKey(propertyOrContext, `@${hook}()`);
+
+		if (typeof targetOrValue === "function") {
+			registerModelHook(
+				targetOrValue as unknown as ConstructorObject,
+				hook,
+				methodName,
+				true,
+			);
+			return;
+		}
+
+		if (!targetOrValue) {
+			throw new Error(`@${hook}() decorator target is invalid`);
+		}
+
+		registerModelHook(
+			targetOrValue.constructor as ConstructorObject,
+			hook,
+			methodName,
+			false,
+		);
+	};
+
+	return decorator as ModelHookDecorator;
 }
 
 export class ModelNotFoundException extends BaseException {
@@ -830,6 +955,10 @@ export abstract class BaseModel<
 			return false;
 		}
 
+		if (!(await this.runHooks("beforeDelete", true))) {
+			return false;
+		}
+
 		const model = this.getModelClass();
 		const primaryKey = resolvePrimaryKey(model);
 		const primaryKeyValue = this.getPersistedPrimaryKey(model);
@@ -980,6 +1109,14 @@ export abstract class BaseModel<
 	private async insertNewModel(
 		model: ModelClass<this, TAttributes>,
 	): Promise<this> {
+		if (!(await this.runHooks("beforeSave", true))) {
+			return this;
+		}
+
+		if (!(await this.runHooks("beforeCreate", true))) {
+			return this;
+		}
+
 		this.applyCreateTimestamps(model);
 
 		const values = collectModelMutationValues(model, this.attributes);
@@ -998,6 +1135,8 @@ export abstract class BaseModel<
 		}
 
 		this[markPersisted]();
+		await this.runHooks("afterCreate");
+		await this.runHooks("afterSave");
 		return this;
 	}
 
@@ -1005,6 +1144,10 @@ export abstract class BaseModel<
 		model: ModelClass<this, TAttributes>,
 	): Promise<this> {
 		if (!this.isDirty()) {
+			return this;
+		}
+
+		if (!(await this.runHooks("beforeSave", true))) {
 			return this;
 		}
 
@@ -1023,7 +1166,39 @@ export abstract class BaseModel<
 			)
 			.update(values);
 		this.syncOriginal();
+		await this.runHooks("afterSave");
 		return this;
+	}
+
+	private async runHooks(
+		hook: ModelHookName,
+		cancellable = false,
+	): Promise<boolean> {
+		for (const definition of getModelHookDefinitions(
+			this.getModelClass(),
+			hook,
+		)) {
+			const host = definition.isStatic ? this.getModelClass() : this;
+			const method = (host as unknown as Record<string, unknown>)[
+				definition.name
+			];
+
+			if (typeof method !== "function") {
+				throw new Error(
+					`Model hook [${definition.hook}] method [${definition.name}] is not defined on model [${this.getModelClass().name}]`,
+				);
+			}
+
+			const result = definition.isStatic
+				? await (method as ModelHookInvoker).call(host, this)
+				: await (method as ModelHookInvoker).call(host);
+
+			if (cancellable && result === false) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	private applyCreateTimestamps(model: ModelClass<this, TAttributes>): void {
@@ -1627,6 +1802,56 @@ function registerRelation(
 	});
 }
 
+function registerModelHook(
+	model: ConstructorObject,
+	hook: ModelHookName,
+	name: string,
+	isStatic: boolean,
+): void {
+	let hooksByName = modelHooks.get(model);
+	if (!hooksByName) {
+		hooksByName = new Map();
+		modelHooks.set(model, hooksByName);
+	}
+
+	let hooks = hooksByName.get(hook);
+	if (!hooks) {
+		hooks = new Map();
+		hooksByName.set(hook, hooks);
+	}
+
+	hooks.set(modelHookKey(name, isStatic), {
+		name,
+		hook,
+		isStatic,
+	});
+}
+
+function getModelHookDefinitions<
+	TModel extends BaseModel<TAttributes>,
+	TAttributes extends ModelAttributes,
+>(
+	model: ModelClass<TModel, TAttributes>,
+	hook: ModelHookName,
+): readonly StoredModelHookDefinition[] {
+	ensureModelMetadata(model);
+	const definitions = new Map<string, StoredModelHookDefinition>();
+
+	for (const modelConstructor of getModelConstructors(model)) {
+		for (const definition of modelHooks
+			.get(modelConstructor)
+			?.get(hook)
+			?.values() ?? []) {
+			definitions.set(
+				modelHookKey(definition.name, definition.isStatic),
+				definition,
+			);
+		}
+	}
+
+	return [...definitions.values()];
+}
+
 function getColumnDefinitions<
 	TModel extends BaseModel<TAttributes>,
 	TAttributes extends ModelAttributes,
@@ -1841,10 +2066,41 @@ function normalizePropertyKey(propertyKey: string | symbol): string {
 	return propertyKey;
 }
 
+function normalizeDecoratorKey(
+	propertyKey: string | symbol,
+	decoratorName: string,
+): string {
+	if (typeof propertyKey === "symbol") {
+		throw new Error(`${decoratorName} cannot be used on symbol methods`);
+	}
+
+	return propertyKey;
+}
+
 function isFieldDecoratorContext(
 	value: string | symbol | ClassFieldDecoratorContext,
 ): value is ClassFieldDecoratorContext {
 	return typeof value === "object" && value !== null && "kind" in value;
+}
+
+function isMethodDecoratorContext(
+	value: string | symbol | ClassMethodDecoratorContext,
+): value is ClassMethodDecoratorContext {
+	return typeof value === "object" && value !== null && "kind" in value;
+}
+
+function isConstructorObject(value: unknown): value is ConstructorObject {
+	const candidate = value as { readonly prototype?: unknown };
+
+	return (
+		typeof value === "function" &&
+		typeof candidate.prototype === "object" &&
+		candidate.prototype !== null
+	);
+}
+
+function modelHookKey(name: string, isStatic: boolean): string {
+	return `${isStatic ? "static" : "instance"}:${name}`;
 }
 
 function isModelClass(
