@@ -50,6 +50,19 @@ export {
 	type QueryRow,
 } from "./packages/database/Database";
 export {
+	ColumnBuilder,
+	type ColumnType,
+	Migration,
+	type MigrationConstructor,
+	type MigrationDefinition,
+	MigrationRunner,
+	type MigrationRunnerOptions,
+	type MigrationRunResult,
+	type MigrationSource,
+	SchemaBuilder,
+	TableBuilder,
+} from "./packages/database/Migration";
+export {
 	type CompiledQuery,
 	type PaginatedResult,
 	QueryBuilder,
