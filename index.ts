@@ -66,6 +66,11 @@ export {
 	parseArgv,
 	TerminalConsoleOutput,
 } from "./packages/console/Console";
+export {
+	createGeneratorCommands,
+	type GeneratorConsoleOptions,
+	registerGeneratorCommands,
+} from "./packages/console/Generators";
 
 export {
 	Application,
