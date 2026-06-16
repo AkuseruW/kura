@@ -122,6 +122,33 @@ describe("Schema", () => {
 		);
 	});
 
+	test("validates file rules", () => {
+		const file = new File(["kura"], "avatar.PNG", { type: "image/png" });
+
+		expect(
+			v
+				.file()
+				.maxSize(4)
+				.mimeTypes(["image/png"])
+				.extensions([".png"])
+				.parse(file),
+		).toBe(file);
+		expect(v.file().extensions(["png"]).parse(file)).toBe(file);
+
+		expect(() => v.file().maxSize(3).parse(file)).toThrow(
+			"Validation failed for file",
+		);
+		expect(() => v.file().mimeTypes(["image/jpeg"]).parse(file)).toThrow(
+			"Validation failed for file",
+		);
+		expect(() => v.file().extensions(["jpg"]).parse(file)).toThrow(
+			"Validation failed for file",
+		);
+		expect(() => v.file().maxSize(-1)).toThrow(
+			"Invalid number for maxSize rule",
+		);
+	});
+
 	test("throws for invalid values", () => {
 		expect(() => v.string().parse(1)).toThrow("Validation failed for string");
 		expect(() => v.array(v.number()).parse([1, "2"])).toThrow(
