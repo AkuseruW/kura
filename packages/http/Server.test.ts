@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { BaseException } from "../core/BaseException";
 import { Router } from "./Router";
 import type { Context } from "./Server";
 import { Server } from "./Server";
@@ -38,5 +39,30 @@ describe("Server", () => {
 
 		expect(response.status).toBe(404);
 		expect(await response.text()).toBe("Not Found");
+	});
+
+	test("renders base exceptions from the fetch pipeline", async () => {
+		const server = new Server({ port: 0 });
+		server.setHandler(() => {
+			throw new BaseException("Policy denied", "E_POLICY_DENIED", 403);
+		});
+		server.start();
+		const instance = (
+			server as unknown as {
+				server: ReturnType<typeof Bun.serve>;
+			}
+		).server;
+
+		try {
+			const response = await fetch(instance.url);
+
+			expect(response.status).toBe(403);
+			expect(await response.json()).toEqual({
+				code: "E_POLICY_DENIED",
+				error: "Policy denied",
+			});
+		} finally {
+			server.stop();
+		}
 	});
 });
