@@ -992,7 +992,8 @@ import env from "#start/env";
  */
 const databaseConfig = defineConfig({
 \tdefault: env.get("DB_CONNECTION", "${defaultConnection}"),
-\tprettyPrintDebugQueries: env.get<string>("NODE_ENV", "development") !== "production",
+\tprettyPrintDebugQueries:
+\t\tenv.get<string>("NODE_ENV", "development") !== "production",
 
 \tconnections: {
 \t\tmemory: {
