@@ -179,8 +179,11 @@ export { type Context, Server } from "./packages/http/Server";
 export {
 	dispatch,
 	Job,
+	type JobConstructorMetadata,
 	type JobContext,
+	type JobFactory,
 	type JobHandleResult,
+	JobRegistry,
 	MemoryQueueDriver,
 	PendingDispatch,
 	type QueueBackoff,
@@ -196,7 +199,17 @@ export {
 	type QueueWorkOptions,
 	type QueueWorkResult,
 	queue,
+	type SerializedJob,
 } from "./packages/queue/Queue";
+export {
+	type RedisQueueClient,
+	RedisQueueDriver,
+	type RedisQueueDriverOptions,
+} from "./packages/queue/RedisQueueDriver";
+export {
+	SQLiteQueueDriver,
+	type SQLiteQueueDriverOptions,
+} from "./packages/queue/SQLiteQueueDriver";
 
 export {
 	type AsyncValidationContext,
