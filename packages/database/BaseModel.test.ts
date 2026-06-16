@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
 	BaseModel,
+	belongsTo,
 	column,
+	hasOne,
 	ModelNotFoundException,
 	type ModelPaginatedResult,
 } from "./BaseModel";
@@ -30,6 +32,18 @@ type SessionAttributes = QueryRow & {
 type ContactAttributes = QueryRow & {
 	id: number;
 	email: string;
+};
+
+type PostAttributes = QueryRow & {
+	id: number;
+	userId: number | null;
+	title: string;
+};
+
+type ProfileAttributes = QueryRow & {
+	id: number;
+	userId: number;
+	bio: string;
 };
 
 function createDatabase(connections = ["primary"]) {
@@ -483,6 +497,195 @@ describe("BaseModel", () => {
 			{
 				sql: 'update "contacts" set "email_address" = ? where "id" = ?',
 				bindings: ["ada@example.com", 1],
+			},
+		]);
+	});
+
+	test("loads belongsTo relations through decorators and caches the result", async () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			declare id: number;
+			declare email: string;
+		}
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+			static override timestamps = false;
+
+			@belongsTo(() => User, { foreignKey: "userId" })
+			declare user: User | null;
+
+			declare id: number;
+			declare userId: number;
+			declare title: string;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Post.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const post: Post = Post.hydrate({
+			id: 10,
+			userId: 1,
+			title: "Relations",
+		} as PostAttributes);
+		connection.queueResult<UserAttributes>({
+			rows: [
+				{
+					id: 1,
+					email: "ada@kura.dev",
+					name: "Ada",
+					active: true,
+				},
+			],
+			affectedRows: 0,
+		});
+
+		const user = await post.related<User>("user");
+		const cached = await post.related<User>("user");
+
+		expect(user).toBeInstanceOf(User);
+		expect(user?.id).toBe(1);
+		expect(post.user).toBe(user);
+		expect(cached).toBe(user);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "users" where "id" = ? limit 1',
+				bindings: [1],
+			},
+		]);
+	});
+
+	test("loads hasOne relations with mapped foreign key columns", async () => {
+		class Profile extends BaseModel<ProfileAttributes> {
+			static override table = "profiles";
+			static override timestamps = false;
+
+			declare id: number;
+
+			@column({ name: "user_id" })
+			declare userId: number;
+
+			@column()
+			declare bio: string;
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			@hasOne(() => Profile, { foreignKey: "userId" })
+			declare profile: Profile | null;
+
+			declare id: number;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Profile.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+		connection.queueResult<ProfileAttributes>({
+			rows: [
+				{
+					id: 5,
+					user_id: 1,
+					bio: "Mathematician",
+				} as unknown as ProfileAttributes,
+			],
+			affectedRows: 0,
+		});
+
+		const profile = await user.related<Profile>("profile");
+
+		expect(profile).toBeInstanceOf(Profile);
+		expect(profile?.userId).toBe(1);
+		expect(profile?.bio).toBe("Mathematician");
+		expect(user.profile).toBe(profile);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "profiles" where "user_id" = ? limit 1',
+				bindings: [1],
+			},
+		]);
+	});
+
+	test("returns null for relations with missing local keys without querying", async () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+		}
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+
+			@belongsTo(() => User, { foreignKey: "userId" })
+			declare user: User | null;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Post.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const post: Post = Post.hydrate({
+			id: 10,
+			userId: null,
+			title: "Draft",
+		} as PostAttributes);
+
+		const user = await post.related<User>("user");
+
+		expect(user).toBeNull();
+		expect(post.user).toBeNull();
+		expect(connection.queries).toEqual([]);
+	});
+
+	test("loads relation methods that return ModelRelation instances", async () => {
+		class Profile extends BaseModel<ProfileAttributes> {
+			static override table = "profiles";
+			static override timestamps = false;
+
+			declare id: number;
+			declare userId: number;
+			declare bio: string;
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			profile() {
+				return this.hasOne(Profile, { foreignKey: "userId" });
+			}
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Profile.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+		connection.queueResult<ProfileAttributes>({
+			rows: [
+				{
+					id: 5,
+					userId: 1,
+					bio: "Mathematician",
+				},
+			],
+			affectedRows: 0,
+		});
+
+		const profile = await user.related<Profile>("profile");
+
+		expect(profile).toBeInstanceOf(Profile);
+		expect(profile?.bio).toBe("Mathematician");
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "profiles" where "userId" = ? limit 1',
+				bindings: [1],
 			},
 		]);
 	});
