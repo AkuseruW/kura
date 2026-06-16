@@ -90,6 +90,29 @@ describe("production build", () => {
 
 			expect(importRuntime.exitCode).toBe(0);
 			expect(importRuntime.stdout.toString()).toContain("function function");
+
+			const localRunner = Bun.spawnSync({
+				cmd: [process.execPath, "kura"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(localRunner.exitCode).toBe(0);
+			expect(localRunner.stdout.toString()).toContain("Kura Console");
+			expect(localRunner.stdout.toString()).toContain("make:controller");
+
+			const makeController = Bun.spawnSync({
+				cmd: [process.execPath, "kura", "make:controller", "Home"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(makeController.exitCode).toBe(0);
+			await expect(
+				access(join(appRoot, "demo/app/controllers/HomeController.ts")),
+			).resolves.toBeNull();
 		} finally {
 			await rm(join(root, "dist"), { force: true, recursive: true });
 			await rm(appRoot, { force: true, recursive: true });

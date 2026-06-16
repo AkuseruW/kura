@@ -65,6 +65,8 @@ export type ServeWatcherFactory = (
 ) => ServeWatcher;
 
 export function createServeCommand(options: ServeConsoleOptions = {}): Command {
+	const defaultPort = options.port ?? readEnvPort() ?? 3333;
+
 	return defineCommand(
 		{
 			name: "serve",
@@ -80,7 +82,7 @@ export function createServeCommand(options: ServeConsoleOptions = {}): Command {
 					name: "port",
 					alias: "p",
 					value: "string",
-					default: String(options.port ?? 3333),
+					default: String(defaultPort),
 					description: "Port to bind",
 				},
 				{
@@ -373,6 +375,12 @@ function parsePort(value: string | undefined): number {
 	}
 
 	return port;
+}
+
+function readEnvPort(): number | undefined {
+	const value = Bun.env.PORT;
+
+	return value === undefined || value === "" ? undefined : Number(value);
 }
 
 function readStringOption(
