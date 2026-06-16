@@ -1,17 +1,43 @@
-export type Context = {
-	request: Request
-}
+import type { Router } from "./Router";
 
-type Handler = (ctx: Context) => Response | Promise<Response>
+export type RequestFormData = Awaited<
+	ReturnType<typeof Bun.readableStreamToFormData>
+>;
+export type RequestFormDataEntry = NonNullable<
+	ReturnType<RequestFormData["get"]>
+>;
+
+export type Context = {
+	request: Request;
+	params?: Record<string, string>;
+	body?: unknown;
+	formData?: RequestFormData;
+	requestId?: string;
+};
+
+type Handler = (ctx: Context) => Response | Promise<Response>;
 
 export class Server {
-	private server: ReturnType<typeof Bun.serve> | null = null
-	private handler: Handler = () => new Response('Not Found', { status: 404 })
+	private server: ReturnType<typeof Bun.serve> | null = null;
+	private handler: Handler = () => new Response("Not Found", { status: 404 });
 
-	constructor(private options: { port: number }) { }
+	constructor(private options: { port: number }) {}
 
 	setHandler(handler: Handler): void {
-		this.handler = handler
+		this.handler = handler;
+	}
+
+	setRouter(router: Router): void {
+		this.handler = async (ctx) => {
+			const url = new URL(ctx.request.url);
+			const match = router.match(ctx.request.method, url.pathname);
+			if (!match) {
+				return new Response("Not Found", { status: 404 });
+			}
+
+			ctx.params = match.params;
+			return match.handler(ctx);
+		};
 	}
 
 	start(): void {
@@ -19,16 +45,16 @@ export class Server {
 			port: this.options.port,
 			fetch: async (request) => {
 				try {
-					const ctx: Context = { request }
-					return await this.handler(ctx)
-				} catch (error) {
-					return new Response('Internal Server Error', { status: 500 })
+					const ctx: Context = { request };
+					return await this.handler(ctx);
+				} catch {
+					return new Response("Internal Server Error", { status: 500 });
 				}
-			}
-		})
+			},
+		});
 	}
 
 	stop(): void {
-		this.server?.stop()
+		this.server?.stop();
 	}
 }

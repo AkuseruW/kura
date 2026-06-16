@@ -1,68 +1,74 @@
-import { Schema } from "../validator/Schema"
+import type { Schema } from "../validator/Schema";
+import { formDataToObject, parseRequestFormData } from "./Body";
+import type { RequestFormData } from "./Server";
 
 export class KuraRequest {
-	private body: Record<string, any> = {}
-	private query: Record<string, string> = {}
-	private formData: FormData | null = null
+	private body: Record<string, unknown> = {};
+	private query: Record<string, string> = {};
+	private formData: RequestFormData | null = null;
 
 	constructor(private request: Request) {
-		const url = new URL(request.url)
+		const url = new URL(request.url);
 		url.searchParams.forEach((value, key) => {
-			this.query[key] = value
-		})
+			this.query[key] = value;
+		});
 	}
 
 	async parse(): Promise<void> {
-		const contentType = this.request.headers.get('content-type')
-		if (contentType?.includes('application/json')) {
-			this.body = await this.request.json() as Record<string, any>
-		} else if (contentType?.includes('multipart/form-data')) {
-			this.formData = await this.request.formData() as unknown as FormData
+		const contentType = this.request.headers.get("content-type");
+		if (contentType?.includes("application/json")) {
+			this.body = (await this.request.json()) as Record<string, unknown>;
+		} else if (contentType?.includes("multipart/form-data")) {
+			this.formData = await parseRequestFormData(this.request, contentType);
+			this.body = formDataToObject(this.formData);
+		} else if (contentType?.includes("application/x-www-form-urlencoded")) {
+			this.formData = await parseRequestFormData(this.request, contentType);
+			this.body = formDataToObject(this.formData);
 		}
 	}
 
 	file(name: string): File | null {
-		const file = this.formData?.get(name)
-		return file instanceof File ? file : null
+		const file = this.formData?.get(name);
+		return file instanceof File ? file : null;
 	}
 
 	files(name: string): File[] {
-		const files = this.formData?.getAll(name) ?? []
-		return files.filter((f): f is File => f instanceof File)
+		const files = this.formData?.getAll(name) ?? [];
+		return files.filter((f): f is File => f instanceof File);
 	}
 
 	header(name: string): string | null {
-		return this.request.headers.get(name)
+		return this.request.headers.get(name);
 	}
 
 	input<T>(key: string, defaultValue?: T): T {
-		return this.body[key] ?? this.query[key] ?? defaultValue
+		return (this.body[key] ?? this.query[key] ?? defaultValue) as T;
 	}
 
-	all(): Record<string, any> {
-		return { ...this.query, ...this.body }
+	all(): Record<string, unknown> {
+		return { ...this.query, ...this.body };
 	}
 
-	only(keys: string[]): Record<string, any> {
-		const result: Record<string, any> = {}
-		const all = this.all()
+	only(keys: string[]): Record<string, unknown> {
+		const result: Record<string, unknown> = {};
+		const all = this.all();
 		for (const key of keys) {
 			if (key in all) {
-				result[key] = all[key]
+				result[key] = all[key];
 			}
 		}
-		return result
+		return result;
 	}
 
-	except(keys: string[]): Record<string, any> {
-		const result = this.all()
+	except(keys: string[]): Record<string, unknown> {
+		const result = this.all();
 		for (const key of keys) {
-			delete result[key]
+			delete result[key];
 		}
-		return result
+		return result;
 	}
 
 	validate<T>(schema: Schema<T>): T {
-		return schema.parse(this.all())
+		return schema.parse(this.all());
 	}
 }
