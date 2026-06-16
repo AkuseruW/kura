@@ -1,3 +1,4 @@
+import { BaseException } from "../core/BaseException";
 import type { Router } from "./Router";
 
 export type RequestFormData = Awaited<
@@ -54,7 +55,16 @@ export class Server {
 				try {
 					const ctx: Context = { request };
 					return await this.handler(ctx);
-				} catch {
+				} catch (error) {
+					if (error instanceof BaseException) {
+						return new Response(
+							JSON.stringify({ code: error.code, error: error.message }),
+							{
+								status: error.status,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
 					return new Response("Internal Server Error", { status: 500 });
 				}
 			},
