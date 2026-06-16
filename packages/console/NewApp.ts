@@ -63,6 +63,7 @@ type NewAppChoices = {
 type NewAppFile = {
 	readonly path: string;
 	readonly content: string;
+	readonly mode?: number;
 };
 
 const appPresets = ["api", "web", "full"] as const;
@@ -200,6 +201,7 @@ export function createNewAppCommand(
 				`  cd ${relative(process.cwd(), targetPath) || "."}`,
 			);
 			context.output.write("  bun install");
+			context.output.write("  bun kura");
 			context.output.write("  bun run dev");
 		},
 	);
@@ -299,7 +301,9 @@ function makeNewAppFiles(options: {
 		{
 			path: ".gitignore",
 			content: `node_modules
+build
 dist
+tmp
 .env
 *.log
 `,
@@ -309,26 +313,146 @@ dist
 			content: makeEnvExample(choices),
 		},
 		{
+			path: "kura",
+			mode: 0o755,
+			content: `#!/usr/bin/env bun
+await import("./bin/console.ts");
+`,
+		},
+		{
+			path: "bin/console.ts",
+			content: `import {
+\tcreateConsole,
+\tregisterGeneratorCommands,
+\tregisterServeCommand,
+} from "kura";
+
+const appConsole = createConsole();
+
+registerGeneratorCommands(appConsole);
+registerServeCommand(appConsole, {
+\tentry: "bin/server.ts",
+});
+
+const exitCode = await appConsole.run(Bun.argv.slice(2));
+process.exit(exitCode);
+`,
+		},
+		{
+			path: "bin/server.ts",
+			content: `import { Server } from "kura";
+import { router } from "../start/routes";
+
+export { router };
+export default router;
+
+export function createServer(): Server {
+\tconst server = new Server({
+\t\tport: Number(Bun.env.PORT ?? 3333),
+\t});
+
+\tserver.setRouter(router);
+
+\treturn server;
+}
+
+if (import.meta.main) {
+\tconst server = createServer();
+\tserver.start();
+\tconsole.log(\`Kura app listening on http://localhost:\${Bun.env.PORT ?? 3333}\`);
+}
+`,
+		},
+		{
+			path: "bin/test.ts",
+			content: `import { router } from "../start/routes";
+
+export { router };
+`,
+		},
+		{
 			path: "config/app.ts",
 			content: makeAppConfig(choices),
 		},
 		{
-			path: "src/routes.ts",
+			path: "start/routes.ts",
 			content: makeRoutes(choices),
 		},
 		{
-			path: "src/server.ts",
-			content: `import { Server } from "kura";
-import { router } from "./routes";
-
-const port = Number(Bun.env.PORT ?? 3000);
-const server = new Server({ port });
-
-server.setRouter(router);
-server.start();
-
-console.log(\`Kura app listening on http://localhost:\${port}\`);
-`,
+			path: "app/controllers/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/events/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/exceptions/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/jobs/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/listeners/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/mails/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/middleware/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/models/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/policies/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/transformers/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/validators/.gitkeep",
+			content: "",
+		},
+		{
+			path: "commands/.gitkeep",
+			content: "",
+		},
+		{
+			path: "database/migrations/.gitkeep",
+			content: "",
+		},
+		{
+			path: "database/seeders/.gitkeep",
+			content: "",
+		},
+		{
+			path: "database/factories/.gitkeep",
+			content: "",
+		},
+		{
+			path: "providers/.gitkeep",
+			content: "",
+		},
+		{
+			path: "tests/.gitkeep",
+			content: "",
+		},
+		{
+			path: "public/.gitkeep",
+			content: "",
+		},
+		{
+			path: "resources/views/.gitkeep",
+			content: "",
 		},
 		{
 			path: "README.md",
@@ -343,11 +467,11 @@ function makePackageJson(appName: string, packageVersion: string) {
 		type: "module",
 		private: true,
 		scripts: {
-			dev: "bun --watch src/server.ts",
-			start: "bun src/server.ts",
+			dev: "bun kura serve --watch",
+			start: "bun kura serve --host 0.0.0.0",
 			typecheck: "tsc --noEmit",
 			build:
-				"bun build src/server.ts --target=bun --outdir=dist --packages=external",
+				"bun build bin/server.ts --target=bun --outdir=build --packages=external",
 		},
 		dependencies: {
 			kura: packageVersion,
@@ -454,7 +578,7 @@ async function resolveFutureRealPath(path: string): Promise<string> {
 }
 
 function makeEnvExample(choices: NewAppChoices): string {
-	const lines = ["PORT=3000"];
+	const lines = ["PORT=3333"];
 
 	if (choices.database !== "none") {
 		lines.push("DATABASE_URL=");
@@ -520,10 +644,11 @@ Generated with Kura.
 
 \`\`\`sh
 bun install
+bun kura
 bun run dev
 \`\`\`
 
-Open http://localhost:3000.
+Open http://localhost:3333.
 `;
 }
 
@@ -545,7 +670,10 @@ async function writeNewApp(
 	for (const file of files) {
 		const path = join(targetPath, file.path);
 		await mkdir(dirname(path), { recursive: true });
-		await writeFile(path, file.content, { flag: force ? "w" : "wx" });
+		await writeFile(path, file.content, {
+			flag: force ? "w" : "wx",
+			mode: file.mode,
+		});
 	}
 }
 

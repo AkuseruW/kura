@@ -326,7 +326,7 @@ const generatorDefinitions: readonly GeneratorDefinition[] = [
 	{
 		commandName: "make:model",
 		description: "Create a model class",
-		directory: "app/Models",
+		directory: "app/models",
 		makeContent: (input) => {
 			const tableName = tableNameFromModel(input.baseName);
 
@@ -349,7 +349,7 @@ export class ${input.className} extends BaseModel<${input.className}Attributes> 
 		commandName: "make:controller",
 		description: "Create an HTTP controller",
 		suffix: "Controller",
-		directory: "app/Controllers",
+		directory: "app/controllers",
 		makeContent: (
 			input,
 		) => `import { BaseController, type Context } from "kura";
@@ -365,7 +365,7 @@ export class ${input.className} extends BaseController {
 		commandName: "make:middleware",
 		description: "Create HTTP middleware",
 		suffix: "Middleware",
-		directory: "app/Middleware",
+		directory: "app/middleware",
 		makeContent: (input) => `import type { Middleware } from "kura";
 
 export const ${input.className}: Middleware = async (_ctx, next) => {
@@ -377,7 +377,7 @@ export const ${input.className}: Middleware = async (_ctx, next) => {
 		commandName: "make:validator",
 		description: "Create a validator schema",
 		suffix: "Validator",
-		directory: "app/Validators",
+		directory: "app/validators",
 		makeContent: (input) => `import { v } from "kura";
 
 export const ${camelCase(input.className)} = v.object({});
@@ -386,7 +386,7 @@ export const ${camelCase(input.className)} = v.object({});
 	{
 		commandName: "make:migration",
 		description: "Create a database migration",
-		directory: "database/Migrations",
+		directory: "database/migrations",
 		makeFileName: (input) => `${input.timestamp}_${migrationName(input)}.ts`,
 		makeContent: (input) => {
 			const tableName = migrationTableName(input);
@@ -412,7 +412,7 @@ export default class ${input.className} extends Migration {
 		commandName: "make:seeder",
 		description: "Create a database seeder",
 		suffix: "Seeder",
-		directory: "database/Seeders",
+		directory: "database/seeders",
 		makeContent: (input) => `import { Seeder, type SeederContext } from "kura";
 
 export default class ${input.className} extends Seeder {
@@ -424,12 +424,12 @@ export default class ${input.className} extends Seeder {
 		commandName: "make:factory",
 		description: "Create a model factory",
 		suffix: "Factory",
-		directory: "database/Factories",
+		directory: "database/factories",
 		makeContent: (input) => {
 			const modelName = input.baseName.replace(/Factory$/, "");
 
 			return `import { defineFactory } from "kura";
-import { ${modelName} } from "../../app/Models/${modelName}";
+import { ${modelName} } from "../../app/models/${modelName}";
 
 export const ${camelCase(input.className)} = defineFactory(${modelName}, ({ sequence }) => ({
 \tname: \`${modelName} \${sequence}\`,
@@ -441,7 +441,7 @@ export const ${camelCase(input.className)} = defineFactory(${modelName}, ({ sequ
 		commandName: "make:event",
 		description: "Create an event class",
 		suffix: "Event",
-		directory: "app/Events",
+		directory: "app/events",
 		makeContent: (input) => `import { Event } from "kura";
 
 export type ${input.className}Payload = Record<string, unknown>;
@@ -457,7 +457,7 @@ export class ${input.className} extends Event<${input.className}Payload> {
 		commandName: "make:listener",
 		description: "Create an event listener",
 		suffix: "Listener",
-		directory: "app/Listeners",
+		directory: "app/listeners",
 		makeContent: (input) => `import type { Event } from "kura";
 
 export class ${input.className} {
@@ -469,7 +469,7 @@ export class ${input.className} {
 		commandName: "make:job",
 		description: "Create a queue job",
 		suffix: "Job",
-		directory: "app/Jobs",
+		directory: "app/jobs",
 		makeContent: (input) => `import { Job, type JobContext } from "kura";
 
 export type ${input.className}Payload = Record<string, unknown>;
@@ -483,7 +483,7 @@ export class ${input.className} extends Job<${input.className}Payload> {
 		commandName: "make:mail",
 		description: "Create a mail class",
 		suffix: "Mail",
-		directory: "app/Mail",
+		directory: "app/mails",
 		makeContent: (
 			input,
 		) => `export type ${input.className}Data = Record<string, unknown>;
@@ -505,7 +505,7 @@ export class ${input.className} {
 		commandName: "make:policy",
 		description: "Create an authorization policy",
 		suffix: "Policy",
-		directory: "app/Policies",
+		directory: "app/policies",
 		makeContent: (input) => `import { BasePolicy, type Context } from "kura";
 
 export class ${input.className} extends BasePolicy {

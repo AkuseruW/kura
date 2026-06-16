@@ -86,6 +86,31 @@ describe("serve console command", () => {
 		expect(await response?.text()).toBe("ok");
 	});
 
+	test("uses PORT from the environment as the default port", async () => {
+		const previousPort = Bun.env.PORT;
+		Bun.env.PORT = "4444";
+
+		try {
+			const output = new MemoryConsoleOutput();
+			const console = new ConsoleKernel(output);
+			const fake = fakeServerFactory();
+			registerServeCommand(console, {
+				handler: () => new Response("ok"),
+				serverFactory: fake.factory,
+				keepAlive: false,
+			});
+
+			expect(await console.run(["serve"])).toBe(0);
+			expect(output.text()).toBe("Server running at http://127.0.0.1:4444/");
+		} finally {
+			if (previousPort === undefined) {
+				delete Bun.env.PORT;
+			} else {
+				Bun.env.PORT = previousPort;
+			}
+		}
+	});
+
 	test("serves a router target", async () => {
 		const output = new MemoryConsoleOutput();
 		const router = new Router();
