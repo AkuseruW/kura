@@ -183,6 +183,36 @@ export class Schema<T = unknown> {
 		return schema;
 	}
 
+	maxSize(this: Schema<File>, bytes: number): Schema<File> {
+		const maxBytes = parseNonNegativeNumber(bytes, "maxSize");
+
+		this.rules.push((v) => v instanceof File && v.size <= maxBytes);
+		return this;
+	}
+
+	mimeTypes(this: Schema<File>, mimeTypes: string[]): Schema<File> {
+		const allowed = new Set(mimeTypes.map((type) => type.toLowerCase()));
+
+		this.rules.push(
+			(v) => v instanceof File && allowed.has(v.type.toLowerCase()),
+		);
+		return this;
+	}
+
+	extensions(this: Schema<File>, extensions: string[]): Schema<File> {
+		const allowed = new Set(extensions.map(normalizeExtension));
+
+		this.rules.push((v) => {
+			if (!(v instanceof File)) {
+				return false;
+			}
+
+			const extension = getFileExtension(v.name);
+			return extension !== null && allowed.has(extension);
+		});
+		return this;
+	}
+
 	enum<U extends string>(values: U[]): Schema<U> {
 		const schema = new Schema<U>();
 		schema._type = "enum";
@@ -263,4 +293,26 @@ function isDateInputBefore(value: unknown, boundary: Date): boolean {
 function isDateInputAfter(value: unknown, boundary: Date): boolean {
 	const date = parseDateInput(value);
 	return date !== null && date.getTime() > boundary.getTime();
+}
+
+function parseNonNegativeNumber(value: number, ruleName: string): number {
+	if (!Number.isFinite(value) || value < 0) {
+		throw new Error(`Invalid number for ${ruleName} rule`);
+	}
+
+	return value;
+}
+
+function normalizeExtension(extension: string): string {
+	return extension.replace(/^\./, "").toLowerCase();
+}
+
+function getFileExtension(filename: string): string | null {
+	const extensionStart = filename.lastIndexOf(".");
+
+	if (extensionStart < 0 || extensionStart === filename.length - 1) {
+		return null;
+	}
+
+	return filename.slice(extensionStart + 1).toLowerCase();
 }
