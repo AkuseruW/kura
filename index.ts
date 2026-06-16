@@ -21,6 +21,7 @@ export {
 	type HasOneRelationOptions,
 	hasMany,
 	hasOne,
+	type ManyToManyRelationOptions,
 	type ModelAttributes,
 	type ModelClass,
 	type ModelColumnDefinition,
@@ -30,6 +31,7 @@ export {
 	ModelQueryBuilder,
 	ModelRelation,
 	type ModelRelationType,
+	manyToMany,
 	type RelationDecorator,
 	type RelationModelFactory,
 } from "./packages/database/BaseModel";

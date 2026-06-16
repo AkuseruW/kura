@@ -43,7 +43,11 @@ export type ColumnDecorator = {
 	(value: undefined, context: ClassFieldDecoratorContext): void;
 };
 
-export type ModelRelationType = "belongsTo" | "hasOne" | "hasMany";
+export type ModelRelationType =
+	| "belongsTo"
+	| "hasOne"
+	| "hasMany"
+	| "manyToMany";
 
 export type RelationModelFactory<
 	TRelated extends BaseModel<TRelatedAttributes>,
@@ -65,6 +69,14 @@ export type HasManyRelationOptions = {
 	readonly localKey?: string;
 };
 
+export type ManyToManyRelationOptions = {
+	readonly pivotTable: string;
+	readonly foreignPivotKey: string;
+	readonly relatedPivotKey: string;
+	readonly localKey?: string;
+	readonly relatedKey?: string;
+};
+
 export type RelationDecorator = {
 	(target: object, propertyKey: string | symbol): void;
 	(value: undefined, context: ClassFieldDecoratorContext): void;
@@ -77,7 +89,16 @@ type StoredRelationDefinition = {
 	readonly foreignKey?: string;
 	readonly localKey?: string;
 	readonly ownerKey?: string;
+	readonly pivotTable?: string;
+	readonly foreignPivotKey?: string;
+	readonly relatedPivotKey?: string;
+	readonly relatedKey?: string;
 };
+
+type RelationOptions = BelongsToRelationOptions &
+	HasOneRelationOptions &
+	HasManyRelationOptions &
+	Partial<ManyToManyRelationOptions>;
 
 export type ModelPaginatedResult<TModel> = Omit<
 	PaginatedResult<ModelAttributes>,
@@ -102,6 +123,7 @@ const initializedModelMetadata = new WeakSet<ConstructorObject>();
 const markPersisted = Symbol("markPersisted");
 const setLoadedRelation = Symbol("setLoadedRelation");
 const relationMetadata = Symbol("relationMetadata");
+const renameRelation = Symbol("renameRelation");
 
 export function column(options: ModelColumnOptions = {}): ColumnDecorator {
 	const decorator = (
@@ -174,10 +196,20 @@ export function hasMany<
 	return relationDecorator("hasMany", relatedModel, options);
 }
 
+export function manyToMany<
+	TRelatedAttributes extends ModelAttributes,
+	TRelated extends BaseModel<TRelatedAttributes>,
+>(
+	relatedModel: RelationModelFactory<TRelated, TRelatedAttributes>,
+	options: ManyToManyRelationOptions,
+): RelationDecorator {
+	return relationDecorator("manyToMany", relatedModel, options);
+}
+
 function relationDecorator(
 	type: ModelRelationType,
 	relatedModel: () => unknown,
-	options: BelongsToRelationOptions & HasOneRelationOptions,
+	options: RelationOptions,
 ): RelationDecorator {
 	const decorator = (
 		targetOrValue: object | undefined,
@@ -370,6 +402,10 @@ type ResolvedRelationDefinition = {
 	readonly foreignKey?: string;
 	readonly localKey?: string;
 	readonly ownerKey?: string;
+	readonly pivotTable?: string;
+	readonly foreignPivotKey?: string;
+	readonly relatedPivotKey?: string;
+	readonly relatedKey?: string;
 };
 
 type RelationQueryKey = {
@@ -388,6 +424,18 @@ type ModelRelationMetadata = {
 	readonly foreignKey?: string;
 	readonly localKey?: string;
 	readonly ownerKey?: string;
+	readonly pivotTable?: string;
+	readonly foreignPivotKey?: string;
+	readonly relatedPivotKey?: string;
+	readonly relatedKey?: string;
+};
+
+type ResolvedManyToManyOptions = {
+	readonly pivotTable: string;
+	readonly foreignPivotKey: string;
+	readonly relatedPivotKey: string;
+	readonly localKey: string;
+	readonly relatedKey: string;
 };
 
 type RelationMetadataProvider = {
@@ -421,6 +469,12 @@ export class ModelRelation<
 	}
 
 	query(): ModelQueryBuilder<TRelated, TRelatedAttributes> {
+		if (this.definition.type === "manyToMany") {
+			throw new Error(
+				`Relation [${this.definition.name}] cannot be queried directly because it uses a pivot table`,
+			);
+		}
+
 		const key = this.resolveQueryKey(true);
 
 		return new ModelQueryBuilder(
@@ -430,6 +484,12 @@ export class ModelRelation<
 	}
 
 	async first(): Promise<TRelated | null> {
+		if (this.definition.type === "manyToMany") {
+			throw new Error(
+				`Relation [${this.definition.name}] is a collection relation; use all()`,
+			);
+		}
+
 		const key = this.resolveQueryKey(false);
 		if (!key) {
 			return null;
@@ -444,6 +504,10 @@ export class ModelRelation<
 	}
 
 	async all(): Promise<readonly TRelated[]> {
+		if (this.definition.type === "manyToMany") {
+			return this.allManyToMany();
+		}
+
 		const key = this.resolveQueryKey(false);
 		if (!key) {
 			return [];
@@ -466,7 +530,74 @@ export class ModelRelation<
 			foreignKey: this.definition.foreignKey,
 			localKey: this.definition.localKey,
 			ownerKey: this.definition.ownerKey,
+			pivotTable: this.definition.pivotTable,
+			foreignPivotKey: this.definition.foreignPivotKey,
+			relatedPivotKey: this.definition.relatedPivotKey,
+			relatedKey: this.definition.relatedKey,
 		};
+	}
+
+	[renameRelation](
+		name: string,
+	): ModelRelation<TParent, TParentAttributes, TRelated, TRelatedAttributes> {
+		return new ModelRelation(this.parent, this.parentModel, this.relatedModel, {
+			...this.definition,
+			name,
+		});
+	}
+
+	private async allManyToMany(): Promise<readonly TRelated[]> {
+		const options = resolveManyToManyOptions(this[relationMetadata]());
+		const localValue = resolveRelationValue(this.parent, options.localKey);
+		if (localValue === null) {
+			return [];
+		}
+
+		const pivotRows = await createPivotQueryBuilder(
+			this.parentModel,
+			options.pivotTable,
+		)
+			.where(options.foreignPivotKey, localValue)
+			.all();
+		const relatedValues = collectPivotValues(
+			pivotRows,
+			options.relatedPivotKey,
+		);
+		const relatedModels =
+			relatedValues.length === 0
+				? []
+				: await new ModelQueryBuilder(
+						this.relatedModel,
+						createQueryBuilder(this.relatedModel),
+					)
+						.where(
+							resolveColumnName(
+								this.relatedModel,
+								options.relatedKey,
+							) as QueryColumn<TRelatedAttributes>,
+							"in",
+							relatedValues,
+						)
+						.all();
+		const relatedByKey = indexModelsByRelationKey(
+			relatedModels,
+			options.relatedKey,
+		);
+		const orderedRelated: TRelated[] = [];
+
+		for (const pivotRow of pivotRows) {
+			const relatedValue = resolvePivotValue(pivotRow, options.relatedPivotKey);
+			if (relatedValue === null) {
+				continue;
+			}
+
+			const related = relatedByKey.get(relationValueKey(relatedValue));
+			if (related) {
+				orderedRelated.push(related);
+			}
+		}
+
+		return orderedRelated;
 	}
 
 	private resolveQueryKey(required: true): RelationQueryKey;
@@ -756,6 +887,20 @@ export abstract class BaseModel<
 		});
 	}
 
+	manyToMany<
+		TRelatedAttributes extends ModelAttributes,
+		TRelated extends BaseModel<TRelatedAttributes>,
+	>(
+		relatedModel: ModelClass<TRelated, TRelatedAttributes>,
+		options: ManyToManyRelationOptions,
+	): ModelRelation<this, TAttributes, TRelated, TRelatedAttributes> {
+		return new ModelRelation(this, this.getModelClass(), relatedModel, {
+			name: relatedModel.name,
+			type: "manyToMany",
+			...options,
+		});
+	}
+
 	relation<
 		TRelatedAttributes extends ModelAttributes,
 		TRelated extends BaseModel<TRelatedAttributes>,
@@ -792,7 +937,7 @@ export abstract class BaseModel<
 		}
 
 		const relation = this.relation<ModelAttributes, BaseModel>(name);
-		if (relation.type === "hasMany") {
+		if (isCollectionRelation(relation.type)) {
 			throw new Error(
 				`Relation [${name}] on model [${this.getModelClass().name}] is a collection relation; use relatedMany()`,
 			);
@@ -812,7 +957,7 @@ export abstract class BaseModel<
 		}
 
 		const relation = this.relation<ModelAttributes, BaseModel>(name);
-		if (relation.type !== "hasMany") {
+		if (!isCollectionRelation(relation.type)) {
 			throw new Error(
 				`Relation [${name}] on model [${this.getModelClass().name}] is not a collection relation`,
 			);
@@ -952,7 +1097,7 @@ export abstract class BaseModel<
 
 		const relation = candidate.call(this) as unknown;
 		if (relation instanceof ModelRelation) {
-			return relation as ModelRelation<
+			return relation[renameRelation](name) as ModelRelation<
 				this,
 				TAttributes,
 				TRelated,
@@ -1002,6 +1147,16 @@ function createQueryBuilder<
 	);
 }
 
+function createPivotQueryBuilder<
+	TModel extends BaseModel<TAttributes>,
+	TAttributes extends ModelAttributes,
+>(
+	model: ModelClass<TModel, TAttributes>,
+	table: string,
+): QueryBuilder<QueryRow> {
+	return resolveDatabase(model).table<QueryRow>(table, model.connection);
+}
+
 function hydrateModel<
 	TModel extends BaseModel<TAttributes>,
 	TAttributes extends ModelAttributes,
@@ -1039,6 +1194,11 @@ async function preloadModelRelation(
 
 	if (metadata.type === "belongsTo") {
 		await preloadBelongsToRelation(models, metadata);
+		return;
+	}
+
+	if (metadata.type === "manyToMany") {
+		await preloadManyToManyRelation(models, metadata);
 		return;
 	}
 
@@ -1123,6 +1283,61 @@ async function preloadForeignKeyRelation(
 	}
 }
 
+async function preloadManyToManyRelation(
+	models: readonly PreloadableModel[],
+	metadata: ModelRelationMetadata,
+): Promise<void> {
+	const options = resolveManyToManyOptions(metadata);
+	const localKeyValues = collectRelationValues(models, options.localKey);
+	const pivotRows =
+		localKeyValues.length === 0
+			? []
+			: await createPivotQueryBuilder(metadata.parentModel, options.pivotTable)
+					.where(options.foreignPivotKey, "in", localKeyValues)
+					.all();
+	const relatedValues = collectPivotValues(pivotRows, options.relatedPivotKey);
+	const relatedModels =
+		relatedValues.length === 0
+			? []
+			: await new ModelQueryBuilder(
+					metadata.relatedModel,
+					createQueryBuilder(metadata.relatedModel),
+				)
+					.where(
+						resolveColumnName(
+							metadata.relatedModel,
+							options.relatedKey,
+						) as QueryColumn<ModelAttributes>,
+						"in",
+						relatedValues,
+					)
+					.all();
+	const relatedByKey = indexModelsByRelationKey(
+		relatedModels,
+		options.relatedKey,
+	);
+	const pivotRowsByLocalKey = groupPivotRowsByKey(
+		pivotRows,
+		options.foreignPivotKey,
+	);
+
+	for (const model of models) {
+		const localKeyValue = resolveRelationValue(model, options.localKey);
+		const matchingPivotRows =
+			localKeyValue === null
+				? []
+				: (pivotRowsByLocalKey.get(relationValueKey(localKeyValue)) ?? []);
+		model[setLoadedRelation](
+			metadata.name,
+			collectRelatedModelsFromPivotRows(
+				matchingPivotRows,
+				options.relatedPivotKey,
+				relatedByKey,
+			),
+		);
+	}
+}
+
 function collectRelationValues(
 	models: readonly RelationValueSource[],
 	key: string,
@@ -1132,6 +1347,31 @@ function collectRelationValues(
 
 	for (const model of models) {
 		const value = resolveRelationValue(model, key);
+		if (value === null) {
+			continue;
+		}
+
+		const indexKey = relationValueKey(value);
+		if (seen.has(indexKey)) {
+			continue;
+		}
+
+		seen.add(indexKey);
+		values.push(value);
+	}
+
+	return values;
+}
+
+function collectPivotValues(
+	rows: readonly QueryRow[],
+	key: string,
+): readonly QueryPrimitive[] {
+	const values: QueryPrimitive[] = [];
+	const seen = new Set<string>();
+
+	for (const row of rows) {
+		const value = resolvePivotValue(row, key);
 		if (value === null) {
 			continue;
 		}
@@ -1189,6 +1429,81 @@ function groupModelsByRelationKey<TModel extends RelationValueSource>(
 	return grouped;
 }
 
+function groupPivotRowsByKey(
+	rows: readonly QueryRow[],
+	key: string,
+): ReadonlyMap<string, readonly QueryRow[]> {
+	const grouped = new Map<string, QueryRow[]>();
+
+	for (const row of rows) {
+		const value = resolvePivotValue(row, key);
+		if (value === null) {
+			continue;
+		}
+
+		const indexKey = relationValueKey(value);
+		const group = grouped.get(indexKey);
+		if (group) {
+			group.push(row);
+			continue;
+		}
+
+		grouped.set(indexKey, [row]);
+	}
+
+	return grouped;
+}
+
+function collectRelatedModelsFromPivotRows<TModel extends RelationValueSource>(
+	pivotRows: readonly QueryRow[],
+	relatedPivotKey: string,
+	relatedByKey: ReadonlyMap<string, TModel>,
+): readonly TModel[] {
+	const relatedModels: TModel[] = [];
+
+	for (const pivotRow of pivotRows) {
+		const relatedValue = resolvePivotValue(pivotRow, relatedPivotKey);
+		if (relatedValue === null) {
+			continue;
+		}
+
+		const related = relatedByKey.get(relationValueKey(relatedValue));
+		if (related) {
+			relatedModels.push(related);
+		}
+	}
+
+	return relatedModels;
+}
+
+function resolveManyToManyOptions(
+	metadata: ModelRelationMetadata,
+): ResolvedManyToManyOptions {
+	return {
+		pivotTable: requireRelationOption(metadata, "pivotTable"),
+		foreignPivotKey: requireRelationOption(metadata, "foreignPivotKey"),
+		relatedPivotKey: requireRelationOption(metadata, "relatedPivotKey"),
+		localKey: metadata.localKey ?? resolvePrimaryKey(metadata.parentModel),
+		relatedKey: metadata.relatedKey ?? resolvePrimaryKey(metadata.relatedModel),
+	};
+}
+
+function requireRelationOption(
+	metadata: ModelRelationMetadata,
+	key: "pivotTable" | "foreignPivotKey" | "relatedPivotKey",
+): string {
+	const value = metadata[key]?.trim();
+	if (!value) {
+		throw new Error(`Relation [${metadata.name}] is missing ${key}`);
+	}
+
+	return value;
+}
+
+function isCollectionRelation(type: ModelRelationType): boolean {
+	return type === "hasMany" || type === "manyToMany";
+}
+
 function relationValueKey(value: QueryPrimitive): string {
 	if (value instanceof Date) {
 		return `date:${value.getTime()}`;
@@ -1199,6 +1514,19 @@ function relationValueKey(value: QueryPrimitive): string {
 	}
 
 	return `${typeof value}:${String(value)}`;
+}
+
+function resolvePivotValue(row: QueryRow, key: string): QueryPrimitive | null {
+	const value = row[key];
+	if (value === undefined || value === null) {
+		return null;
+	}
+
+	if (isQueryPrimitive(value)) {
+		return value;
+	}
+
+	throw new Error(`Pivot key [${key}] must be a query primitive`);
 }
 
 function resolveDatabase<
@@ -1277,7 +1605,7 @@ function registerRelation(
 	name: string,
 	type: ModelRelationType,
 	relatedModel: () => unknown,
-	options: BelongsToRelationOptions & HasOneRelationOptions,
+	options: RelationOptions,
 ): void {
 	let relations = modelRelations.get(model);
 	if (!relations) {
@@ -1292,6 +1620,10 @@ function registerRelation(
 		foreignKey: options.foreignKey,
 		localKey: options.localKey,
 		ownerKey: options.ownerKey,
+		pivotTable: options.pivotTable,
+		foreignPivotKey: options.foreignPivotKey,
+		relatedPivotKey: options.relatedPivotKey,
+		relatedKey: options.relatedKey,
 	});
 }
 
