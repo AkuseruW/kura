@@ -12,6 +12,14 @@ export { Emitter, Event, type Listener } from "./packages/core/Event";
 export { ServiceProvider } from "./packages/core/ServiceProvider";
 
 export {
+	BaseModel,
+	type ModelAttributes,
+	type ModelClass,
+	ModelNotFoundException,
+	type ModelPaginatedResult,
+	ModelQueryBuilder,
+} from "./packages/database/BaseModel";
+export {
 	type DatabaseConnection,
 	type DatabaseConnectionConfig,
 	type DatabaseDriver,
