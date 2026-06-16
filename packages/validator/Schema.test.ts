@@ -1,5 +1,28 @@
 import { describe, expect, test } from "bun:test";
-import { v } from "./Schema";
+import { type Infer, v } from "./Schema";
+
+type Equal<TLeft, TRight> = [TLeft] extends [TRight]
+	? [TRight] extends [TLeft]
+		? true
+		: false
+	: false;
+type Expect<T extends true> = T;
+
+const inferredUserSchema = v.object({
+	age: v.number().integer().optional(),
+	deletedAt: v.date().nullable(),
+	email: v.string().email(),
+	tags: v.array(v.string()),
+});
+
+type InferredUser = Infer<typeof inferredUserSchema>;
+type ExpectedUser = {
+	age?: number;
+	deletedAt: Date | null;
+	email: string;
+	tags: string[];
+};
+type _InferredUserMatches = Expect<Equal<InferredUser, ExpectedUser>>;
 
 describe("Schema", () => {
 	test("validates primitive values", () => {
@@ -147,6 +170,34 @@ describe("Schema", () => {
 		expect(() => v.file().maxSize(-1)).toThrow(
 			"Invalid number for maxSize rule",
 		);
+	});
+
+	test("parses optional and nullable values", () => {
+		expect(v.string().optional().parse(undefined)).toBeUndefined();
+		expect(v.string().optional().parse("kura")).toBe("kura");
+		expect(v.date().nullable().parse(null)).toBeNull();
+
+		expect(() => v.string().optional().parse(null)).toThrow(
+			"Validation failed for string",
+		);
+		expect(() => v.date().nullable().parse(undefined)).toThrow(
+			"Validation failed for date",
+		);
+	});
+
+	test("infers and parses optional object fields", () => {
+		const user: InferredUser = inferredUserSchema.parse({
+			deletedAt: null,
+			email: "dev@kura.dev",
+			tags: ["core", "http"],
+		});
+
+		expect(user).toEqual({
+			age: undefined,
+			deletedAt: null,
+			email: "dev@kura.dev",
+			tags: ["core", "http"],
+		});
 	});
 
 	test("throws for invalid values", () => {
