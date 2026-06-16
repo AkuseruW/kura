@@ -25,6 +25,16 @@ export {
 	type QueryResult,
 	type QueryRow,
 } from "./packages/database/Database";
+export {
+	type CompiledQuery,
+	type PaginatedResult,
+	QueryBuilder,
+	type QueryColumn,
+	type QueryExecutor,
+	type QueryOperator,
+	type QueryValue,
+	type SortDirection,
+} from "./packages/database/QueryBuilder";
 
 export {
 	BaseController,
