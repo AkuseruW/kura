@@ -64,6 +64,24 @@ describe("Schema", () => {
 		});
 	});
 
+	test("validates array rules", () => {
+		expect(v.array(v.number()).min(2).max(3).parse([1, 2])).toEqual([1, 2]);
+		expect(v.array(v.string()).distinct().parse(["api", "http"])).toEqual([
+			"api",
+			"http",
+		]);
+
+		expect(() => v.array(v.number()).min(2).parse([1])).toThrow(
+			"Validation failed for array",
+		);
+		expect(() => v.array(v.number()).max(2).parse([1, 2, 3])).toThrow(
+			"Validation failed for array",
+		);
+		expect(() => v.array(v.string()).distinct().parse(["api", "api"])).toThrow(
+			"Validation failed for array",
+		);
+	});
+
 	test("validates enum values", () => {
 		const schema = v.enum(["draft", "published"]);
 
@@ -78,6 +96,30 @@ describe("Schema", () => {
 
 		expect(date).toBeInstanceOf(Date);
 		expect(date.toISOString()).toBe("2026-01-01T00:00:00.000Z");
+	});
+
+	test("validates date rules", () => {
+		const date = v
+			.date()
+			.after("2026-01-01")
+			.before(new Date("2026-12-31"))
+			.parse("2026-06-01");
+
+		expect(date).toBeInstanceOf(Date);
+		expect(date.toISOString()).toBe("2026-06-01T00:00:00.000Z");
+
+		expect(() => v.date().after("2026-01-01").parse("2026-01-01")).toThrow(
+			"Validation failed for date",
+		);
+		expect(() => v.date().before("2026-01-01").parse("2026-01-01")).toThrow(
+			"Validation failed for date",
+		);
+		expect(() => v.date().after("invalid")).toThrow(
+			"Invalid date for after rule",
+		);
+		expect(() => v.date().parse(new Date("invalid"))).toThrow(
+			"Validation failed for date",
+		);
 	});
 
 	test("throws for invalid values", () => {
