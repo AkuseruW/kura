@@ -29,6 +29,35 @@ type ExpectedUser = {
 };
 type _InferredUserMatches = Expect<Equal<InferredUser, ExpectedUser>>;
 
+const crossFieldSchema = v
+	.object({
+		adminCode: v.string().optional(),
+		backupEmail: v.string().email().optional(),
+		email: v.string().email(),
+		emailConfirmation: v.string().email(),
+		password: v.string(),
+		passwordConfirmation: v.string().optional(),
+		role: v.enum(["admin", "user"]),
+	})
+	.confirmed("password")
+	.same("emailConfirmation", "email")
+	.different("backupEmail", "email")
+	.requiredIf("adminCode", "role", "admin");
+
+type CrossFieldUser = Infer<typeof crossFieldSchema>;
+type ExpectedCrossFieldUser = {
+	adminCode?: string;
+	backupEmail?: string;
+	email: string;
+	emailConfirmation: string;
+	password: string;
+	passwordConfirmation?: string;
+	role: "admin" | "user";
+};
+type _CrossFieldUserMatches = Expect<
+	Equal<CrossFieldUser, ExpectedCrossFieldUser>
+>;
+
 function createDatabase() {
 	const database = new DatabaseManager({
 		default: "primary",
@@ -223,6 +252,157 @@ describe("Schema", () => {
 		});
 	});
 
+	test("validates confirmed object fields", () => {
+		const schema = v
+			.object({
+				password: v.string(),
+				passwordConfirmation: v.string().optional(),
+			})
+			.confirmed("password");
+
+		expect(
+			schema.parse({
+				password: "secret",
+				passwordConfirmation: "secret",
+			}),
+		).toEqual({
+			password: "secret",
+			passwordConfirmation: "secret",
+		});
+		expect(() => schema.parse({ password: "secret" })).toThrow(
+			"Validation failed for object field [passwordConfirmation]",
+		);
+		expect(() =>
+			schema.parse({
+				password: "secret",
+				passwordConfirmation: "different",
+			}),
+		).toThrow("Validation failed for object field [passwordConfirmation]");
+	});
+
+	test("validates explicit same and different object fields", () => {
+		const schema = v
+			.object({
+				backupEmail: v.string().email(),
+				email: v.string().email(),
+				emailConfirmation: v.string().email(),
+			})
+			.same("emailConfirmation", "email")
+			.different("backupEmail", "email");
+
+		expect(
+			schema.parse({
+				backupEmail: "backup@kura.dev",
+				email: "dev@kura.dev",
+				emailConfirmation: "dev@kura.dev",
+			}),
+		).toEqual({
+			backupEmail: "backup@kura.dev",
+			email: "dev@kura.dev",
+			emailConfirmation: "dev@kura.dev",
+		});
+		expect(() =>
+			schema.parse({
+				backupEmail: "backup@kura.dev",
+				email: "dev@kura.dev",
+				emailConfirmation: "other@kura.dev",
+			}),
+		).toThrow("Validation failed for object field [emailConfirmation]");
+		expect(() =>
+			schema.parse({
+				backupEmail: "dev@kura.dev",
+				email: "dev@kura.dev",
+				emailConfirmation: "dev@kura.dev",
+			}),
+		).toThrow("Validation failed for object field [backupEmail]");
+	});
+
+	test("skips comparison rules when the source field is missing", () => {
+		const schema = v
+			.object({
+				backupEmail: v.string().email().optional(),
+				email: v.string().email(),
+				emailConfirmation: v.string().email().optional(),
+				password: v.string().optional(),
+				passwordConfirmation: v.string().optional(),
+			})
+			.confirmed("password")
+			.same("emailConfirmation", "email")
+			.different("backupEmail", "email");
+
+		expect(schema.parse({ email: "dev@kura.dev" })).toEqual({
+			backupEmail: undefined,
+			email: "dev@kura.dev",
+			emailConfirmation: undefined,
+			password: undefined,
+			passwordConfirmation: undefined,
+		});
+	});
+
+	test("validates conditional required object fields", () => {
+		const requiredIfSchema = v
+			.object({
+				adminCode: v.string().optional(),
+				role: v.enum(["admin", "user"]),
+			})
+			.requiredIf("adminCode", "role", "admin");
+		const requiredWithSchema = v
+			.object({
+				contactMethod: v.string().optional(),
+				email: v.string().email().optional(),
+			})
+			.requiredWith("contactMethod", "email");
+		const requiredWithoutSchema = v
+			.object({
+				email: v.string().email().optional(),
+				phone: v.string().optional(),
+			})
+			.requiredWithout("email", "phone");
+
+		expect(requiredIfSchema.parse({ role: "user" })).toEqual({
+			adminCode: undefined,
+			role: "user",
+		});
+		expect(
+			requiredIfSchema.parse({ adminCode: "root", role: "admin" }),
+		).toEqual({
+			adminCode: "root",
+			role: "admin",
+		});
+		expect(() => requiredIfSchema.parse({ role: "admin" })).toThrow(
+			"Validation failed for object field [adminCode]",
+		);
+
+		expect(requiredWithSchema.parse({})).toEqual({
+			contactMethod: undefined,
+			email: undefined,
+		});
+		expect(
+			requiredWithSchema.parse({
+				contactMethod: "email",
+				email: "dev@kura.dev",
+			}),
+		).toEqual({
+			contactMethod: "email",
+			email: "dev@kura.dev",
+		});
+		expect(() => requiredWithSchema.parse({ email: "dev@kura.dev" })).toThrow(
+			"Validation failed for object field [contactMethod]",
+		);
+
+		expect(requiredWithoutSchema.parse({ phone: "123456" })).toEqual({
+			email: undefined,
+			phone: "123456",
+		});
+		expect(requiredWithoutSchema.parse({ email: "dev@kura.dev" })).toEqual({
+			email: "dev@kura.dev",
+			phone: undefined,
+		});
+		expect(() => requiredWithoutSchema.parse({})).toThrow(
+			"Validation failed for object field [email]",
+		);
+	});
+
 	test("runs unique validation with a database manager", async () => {
 		const database = createDatabase();
 		const connection = await memoryConnection(database);
@@ -329,6 +509,57 @@ describe("Schema", () => {
 			{
 				sql: 'select count(*) as "aggregate" from "users" where "email" = ?',
 				bindings: ["taken@kura.dev"],
+			},
+		]);
+	});
+
+	test("runs cross-field rules in async object parsing", async () => {
+		const database = createDatabase();
+		const connection = await memoryConnection(database);
+		connection.queueResult({
+			rows: [{ aggregate: 0 }],
+			affectedRows: 0,
+		});
+		connection.queueResult({
+			rows: [{ aggregate: 0 }],
+			affectedRows: 0,
+		});
+		const schema = v
+			.object({
+				email: v.string().email().unique("users", "email"),
+				emailConfirmation: v.string().email(),
+			})
+			.same("emailConfirmation", "email");
+
+		await expect(
+			schema.parseAsync(
+				{
+					email: "dev@kura.dev",
+					emailConfirmation: "dev@kura.dev",
+				},
+				{ database },
+			),
+		).resolves.toEqual({
+			email: "dev@kura.dev",
+			emailConfirmation: "dev@kura.dev",
+		});
+		await expect(
+			schema.parseAsync(
+				{
+					email: "dev@kura.dev",
+					emailConfirmation: "other@kura.dev",
+				},
+				{ database },
+			),
+		).rejects.toThrow("Validation failed for object field [emailConfirmation]");
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select count(*) as "aggregate" from "users" where "email" = ?',
+				bindings: ["dev@kura.dev"],
+			},
+			{
+				sql: 'select count(*) as "aggregate" from "users" where "email" = ?',
+				bindings: ["dev@kura.dev"],
 			},
 		]);
 	});

@@ -27,6 +27,11 @@ type AsyncParser<T> = (
 	value: unknown,
 	context: AsyncValidationContext,
 ) => Promise<T>;
+type ObjectField<T> = T extends object ? Extract<keyof T, string> : never;
+type CrossFieldValidationRule = {
+	readonly field: string;
+	readonly validate: (value: Record<string, unknown>) => boolean;
+};
 
 export type AsyncValidationContext = {
 	readonly database?: DatabaseManager;
@@ -46,6 +51,7 @@ export class Schema<T = unknown> {
 	private acceptsUndefined = false;
 	private acceptsNull = false;
 	private requiresAsyncRules = false;
+	private crossFieldRules: CrossFieldValidationRule[] = [];
 
 	string(): Schema<string> {
 		const schema = new Schema<string>();
@@ -287,7 +293,7 @@ export class Schema<T = unknown> {
 		return this;
 	}
 
-	enum<U extends string>(values: U[]): Schema<U> {
+	enum<const U extends string>(values: readonly U[]): Schema<U> {
 		const schema = new Schema<U>();
 		schema._type = "enum";
 		schema.rules.push((v) => typeof v === "string" && values.includes(v as U));
@@ -350,6 +356,118 @@ export class Schema<T = unknown> {
 		return this;
 	}
 
+	same<TField extends ObjectField<T>>(
+		field: TField,
+		otherField: ObjectField<T>,
+	): Schema<T> {
+		const fieldName = String(field);
+		const otherFieldName = String(otherField);
+
+		return this.addCrossFieldRule(fieldName, (value) => {
+			const fieldValue = value[fieldName];
+			const otherValue = value[otherFieldName];
+
+			if (!isPresent(fieldValue)) {
+				return true;
+			}
+
+			return isPresent(otherValue) && valuesMatch(fieldValue, otherValue);
+		});
+	}
+
+	different<TField extends ObjectField<T>>(
+		field: TField,
+		otherField: ObjectField<T>,
+	): Schema<T> {
+		const fieldName = String(field);
+		const otherFieldName = String(otherField);
+
+		return this.addCrossFieldRule(fieldName, (value) => {
+			const fieldValue = value[fieldName];
+			const otherValue = value[otherFieldName];
+
+			if (!isPresent(fieldValue)) {
+				return true;
+			}
+
+			return isPresent(otherValue) && !valuesMatch(fieldValue, otherValue);
+		});
+	}
+
+	confirmed<TField extends ObjectField<T>>(
+		field: TField,
+		confirmationField?: ObjectField<T>,
+	): Schema<T> {
+		const fieldName = String(field);
+		const targetField = confirmationField
+			? String(confirmationField)
+			: `${fieldName}Confirmation`;
+
+		return this.addCrossFieldRule(targetField, (value) => {
+			const fieldValue = value[fieldName];
+			const targetValue = value[targetField];
+
+			if (!isPresent(fieldValue)) {
+				return true;
+			}
+
+			return isPresent(targetValue) && valuesMatch(fieldValue, targetValue);
+		});
+	}
+
+	requiredIf<TField extends ObjectField<T>, TOtherField extends ObjectField<T>>(
+		field: TField,
+		otherField: TOtherField,
+		expectedValue: T[TOtherField],
+	): Schema<T> {
+		const fieldName = String(field);
+		const otherFieldName = String(otherField);
+
+		return this.addCrossFieldRule(fieldName, (value) => {
+			if (!valuesMatch(value[otherFieldName], expectedValue)) {
+				return true;
+			}
+
+			return isPresent(value[fieldName]);
+		});
+	}
+
+	requiredWith<TField extends ObjectField<T>>(
+		field: TField,
+		...otherFields: ObjectField<T>[]
+	): Schema<T> {
+		assertHasCompanionFields(otherFields, "requiredWith");
+		const fieldName = String(field);
+		const otherFieldNames = otherFields.map(String);
+
+		return this.addCrossFieldRule(fieldName, (value) => {
+			if (!otherFieldNames.some((otherField) => isPresent(value[otherField]))) {
+				return true;
+			}
+
+			return isPresent(value[fieldName]);
+		});
+	}
+
+	requiredWithout<TField extends ObjectField<T>>(
+		field: TField,
+		...otherFields: ObjectField<T>[]
+	): Schema<T> {
+		assertHasCompanionFields(otherFields, "requiredWithout");
+		const fieldName = String(field);
+		const otherFieldNames = otherFields.map(String);
+
+		return this.addCrossFieldRule(fieldName, (value) => {
+			if (
+				!otherFieldNames.some((otherField) => !isPresent(value[otherField]))
+			) {
+				return true;
+			}
+
+			return isPresent(value[fieldName]);
+		});
+	}
+
 	parse(value: unknown): T {
 		if (value === undefined && this.acceptsUndefined) {
 			return undefined as T;
@@ -368,7 +486,10 @@ export class Schema<T = unknown> {
 				throw new Error(`Validation failed for ${this._type}`);
 			}
 		}
-		return this.parser(value);
+
+		const parsed = this.parser(value);
+		this.validateCrossFields(parsed);
+		return parsed;
 	}
 
 	async parseAsync(
@@ -396,10 +517,14 @@ export class Schema<T = unknown> {
 		}
 
 		if (this.asyncParser) {
-			return this.asyncParser(value, context);
+			const parsed = await this.asyncParser(value, context);
+			this.validateCrossFields(parsed);
+			return parsed;
 		}
 
-		return this.parser(value);
+		const parsed = this.parser(value);
+		this.validateCrossFields(parsed);
+		return parsed;
 	}
 
 	async validateAsync(
@@ -438,12 +563,58 @@ export class Schema<T = unknown> {
 		});
 	}
 
+	private addCrossFieldRule(
+		field: string,
+		validate: (value: Record<string, unknown>) => boolean,
+	): this {
+		this.crossFieldRules.push({ field, validate });
+		return this;
+	}
+
+	private validateCrossFields(value: T): void {
+		if (this.crossFieldRules.length === 0) {
+			return;
+		}
+
+		if (!isRecord(value)) {
+			throw new Error(`Validation failed for ${this._type}`);
+		}
+
+		for (const rule of this.crossFieldRules) {
+			if (!rule.validate(value)) {
+				throw new Error(`Validation failed for object field [${rule.field}]`);
+			}
+		}
+	}
+
 	private requiresAsyncValidation(): boolean {
 		return this.requiresAsyncRules || this.asyncRules.length > 0;
 	}
 }
 
 export const v = new Schema();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPresent(value: unknown): boolean {
+	return value !== undefined && value !== null && value !== "";
+}
+
+function valuesMatch(left: unknown, right: unknown): boolean {
+	if (left instanceof Date && right instanceof Date) {
+		return left.getTime() === right.getTime();
+	}
+
+	return Object.is(left, right);
+}
+
+function assertHasCompanionFields(fields: string[], ruleName: string): void {
+	if (fields.length === 0) {
+		throw new Error(`${ruleName} requires at least one companion field`);
+	}
+}
 
 function isValidDate(value: unknown): value is Date {
 	return value instanceof Date && !Number.isNaN(value.getTime());
