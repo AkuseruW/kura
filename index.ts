@@ -88,6 +88,41 @@ export {
 	type HashMakeOptions,
 	type HashVerifyOptions,
 } from "./packages/core/Hash";
+export {
+	databaseHealthCheck,
+	type HealthCheck,
+	type HealthCheckResult,
+	HealthManager,
+	type HealthReport,
+	type HealthReportCheck,
+	type HealthStatus,
+	type RedisHealthCheckOptions,
+	type RedisHealthClient,
+	redisHealthCheck,
+} from "./packages/core/Health";
+export {
+	ConsoleLogWriter,
+	type LogContext,
+	type LogEntry,
+	type LogLevel,
+	type LogWriter,
+	MemoryLogWriter,
+	StructuredLogger,
+	type StructuredLoggerOptions,
+} from "./packages/core/Logger";
+export {
+	type CounterSample,
+	type HistogramSample,
+	type MetricLabels,
+	type MetricLabelValue,
+	type MetricsObserver,
+	MetricsRegistry,
+	type MetricsSnapshot,
+	type OpenTelemetryCounter,
+	type OpenTelemetryHistogram,
+	type OpenTelemetryMeter,
+	OpenTelemetryMetricsObserver,
+} from "./packages/core/Metrics";
 export { ServiceProvider } from "./packages/core/ServiceProvider";
 
 export {
@@ -193,12 +228,23 @@ export {
 	resolveController,
 } from "./packages/http/Controller";
 export {
+	type HealthRouteOptions,
+	registerHealthRoutes,
+} from "./packages/http/Health";
+export {
 	BodyParser,
 	Cors,
 	type Middleware,
 	MiddlewarePipeline,
 	RequestId,
 } from "./packages/http/Middleware";
+export {
+	RequestLogger,
+	type RequestLoggerOptions,
+	RequestMetrics,
+	type RequestMetricsOptions,
+	registerMetricsRoute,
+} from "./packages/http/Observability";
 export { KuraRequest } from "./packages/http/Request";
 export { KuraResponse } from "./packages/http/Response";
 export {
