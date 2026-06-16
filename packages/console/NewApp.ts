@@ -60,10 +60,18 @@ type NewAppChoices = {
 	readonly install: boolean;
 };
 
-type NewAppFile = {
+type NewAppFile = NewAppRegularFile | NewAppDirectory;
+
+type NewAppRegularFile = {
+	readonly kind?: "file";
 	readonly path: string;
 	readonly content: string;
 	readonly mode?: number;
+};
+
+type NewAppDirectory = {
+	readonly kind: "directory";
+	readonly path: string;
 };
 
 const appPresets = ["api", "web", "full"] as const;
@@ -326,8 +334,7 @@ function makeNewAppFiles(options: {
 node_modules
 build
 dist
-tmp/*
-!tmp/.gitkeep
+tmp/
 
 # Secrets
 .env
@@ -434,7 +441,9 @@ export function createServer(): Server {
 if (import.meta.main) {
 \tconst server = createServer();
 \tserver.start();
-\tconsole.log(\`Kura app listening on http://\${env.get("HOST", "localhost")}:\${env.number("PORT", 3333)}\`);
+\tconsole.log(
+\t\t\`Kura app listening on http://\${env.get("HOST", "localhost")}:\${env.number("PORT", 3333)}\`,
+\t);
 }
 `,
 		},
@@ -468,7 +477,7 @@ export default env;
 		},
 		{
 			path: "start/kernel.ts",
-			content: `import { BodyParser, Cors, RequestId, type Middleware } from "kura";
+			content: `import { BodyParser, Cors, type Middleware, RequestId } from "kura";
 
 export const serverMiddleware: readonly Middleware[] = [RequestId, Cors()];
 
@@ -547,74 +556,25 @@ export const namedMiddleware = {};
 			path: "start/routes.ts",
 			content: makeRoutes(choices),
 		},
-		{
-			path: "app/controllers/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/events/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/exceptions/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/jobs/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/listeners/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/mails/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/middleware/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/models/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/policies/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/services/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/abilities/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/transformers/.gitkeep",
-			content: "",
-		},
-		{
-			path: "app/validators/.gitkeep",
-			content: "",
-		},
-		{
-			path: "commands/.gitkeep",
-			content: "",
-		},
-		{
-			path: "database/migrations/.gitkeep",
-			content: "",
-		},
-		{
-			path: "database/seeders/.gitkeep",
-			content: "",
-		},
-		{
-			path: "database/factories/.gitkeep",
-			content: "",
-		},
+		...makeNewAppDirectories([
+			"app/controllers",
+			"app/events",
+			"app/exceptions",
+			"app/jobs",
+			"app/listeners",
+			"app/mails",
+			"app/middleware",
+			"app/models",
+			"app/policies",
+			"app/services",
+			"app/abilities",
+			"app/transformers",
+			"app/validators",
+			"commands",
+			"database/migrations",
+			"database/seeders",
+			"database/factories",
+		]),
 		{
 			path: "database/schema.ts",
 			content: `export const schema = {};
@@ -625,18 +585,7 @@ export const namedMiddleware = {};
 			content: `export const schemaRules = {};
 `,
 		},
-		{
-			path: "providers/.gitkeep",
-			content: "",
-		},
-		{
-			path: ".kura/server/.gitkeep",
-			content: "",
-		},
-		{
-			path: "tests/.gitkeep",
-			content: "",
-		},
+		...makeNewAppDirectories(["providers", ".kura/server", "tests"]),
 		{
 			path: "tests/bootstrap.ts",
 			content: `export const runnerHooks = {
@@ -645,23 +594,18 @@ export const namedMiddleware = {};
 };
 `,
 		},
-		{
-			path: "tmp/.gitkeep",
-			content: "",
-		},
-		{
-			path: "public/.gitkeep",
-			content: "",
-		},
-		{
-			path: "resources/views/.gitkeep",
-			content: "",
-		},
+		...makeNewAppDirectories(["tmp", "public", "resources/views"]),
 		{
 			path: "README.md",
 			content: makeReadme(appName, choices),
 		},
 	];
+}
+
+function makeNewAppDirectories(
+	paths: readonly string[],
+): readonly NewAppDirectory[] {
+	return paths.map((path) => ({ kind: "directory" as const, path }));
 }
 
 function makePackageJson(appName: string, packageVersion: string) {
@@ -988,6 +932,12 @@ async function writeNewApp(
 
 	for (const file of files) {
 		const path = join(targetPath, file.path);
+
+		if (file.kind === "directory") {
+			await mkdir(path, { recursive: true });
+			continue;
+		}
+
 		await mkdir(dirname(path), { recursive: true });
 		await writeFile(path, file.content, {
 			flag: force ? "w" : "wx",
