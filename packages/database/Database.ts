@@ -1,3 +1,5 @@
+import { QueryBuilder } from "./QueryBuilder";
+
 export type QueryPrimitive =
 	| string
 	| number
@@ -118,6 +120,13 @@ export class DatabaseManager {
 	): Promise<QueryResult<TRow>> {
 		const connection = await this.connection(connectionName);
 		return connection.query<TRow>(sql, bindings);
+	}
+
+	table<TRow extends QueryRow = QueryRow>(
+		tableName: string,
+		connectionName?: string,
+	): QueryBuilder<TRow> {
+		return new QueryBuilder<TRow>(this, tableName, connectionName);
 	}
 
 	async close(name?: string): Promise<void> {
