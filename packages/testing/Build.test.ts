@@ -69,7 +69,7 @@ describe("production build", () => {
 			expect(generatedPackage.dependencies.kura).toStartWith("file:");
 
 			const install = Bun.spawnSync({
-				cmd: [process.execPath, "install", "--production"],
+				cmd: [process.execPath, "install"],
 				cwd: join(appRoot, "demo"),
 				stderr: "pipe",
 				stdout: "pipe",
@@ -90,6 +90,15 @@ describe("production build", () => {
 
 			expect(importRuntime.exitCode).toBe(0);
 			expect(importRuntime.stdout.toString()).toContain("function function");
+
+			const appTypecheck = Bun.spawnSync({
+				cmd: [process.execPath, "run", "typecheck"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(appTypecheck.exitCode).toBe(0);
 
 			const appBuild = Bun.spawnSync({
 				cmd: [process.execPath, "run", "build"],
@@ -129,7 +138,7 @@ describe("production build", () => {
 			await rm(join(root, "dist"), { force: true, recursive: true });
 			await rm(appRoot, { force: true, recursive: true });
 		}
-	});
+	}, 15000);
 });
 
 async function expectFile(path: string): Promise<void> {

@@ -492,66 +492,56 @@ export const namedMiddleware = {};
 		},
 		{
 			path: "config/auth.ts",
-			content: makeSimpleConfig("auth", {
-				guard: choices.auth,
-			}),
+			content: makeAuthConfig(choices),
 		},
 		{
 			path: "config/bodyparser.ts",
-			content: makeSimpleConfig("bodyparser", {
-				json: true,
-				form: true,
-				multipart: true,
-			}),
+			content: makeBodyParserConfig(),
 		},
 		{
 			path: "config/cache.ts",
-			content: makeSimpleConfig("cache", {
-				default: choices.cache,
-			}),
+			content: makeCacheConfig(choices),
 		},
 		{
 			path: "config/database.ts",
-			content: makeSimpleConfig("database", {
-				default: choices.database,
-			}),
+			content: makeDatabaseConfig(choices),
+		},
+		{
+			path: "config/encryption.ts",
+			content: makeEncryptionConfig(),
 		},
 		{
 			path: "config/hash.ts",
-			content: makeSimpleConfig("hash", {
-				driver: "bcrypt",
-			}),
+			content: makeHashConfig(),
 		},
 		{
 			path: "config/logger.ts",
-			content: makeSimpleConfig("logger", {
-				level: "info",
-			}),
+			content: makeLoggerConfig(),
 		},
 		{
 			path: "config/queue.ts",
-			content: makeSimpleConfig("queue", {
-				default: choices.queue,
-			}),
+			content: makeQueueConfig(choices),
 		},
 		{
 			path: "config/session.ts",
-			content: makeSimpleConfig("session", {
-				driver: choices.auth === "session" ? "cookie" : "memory",
-			}),
+			content: makeSessionConfig(choices),
 		},
 		{
 			path: "config/shield.ts",
-			content: makeSimpleConfig("shield", {
-				enabled: choices.preset !== "api",
-			}),
+			content: makeShieldConfig(choices),
 		},
 		{
 			path: "config/static.ts",
-			content: makeSimpleConfig("static", {
-				enabled: choices.preset !== "api",
-			}),
+			content: makeStaticConfig(choices),
 		},
+		...(choices.preset === "api"
+			? []
+			: [
+					{
+						path: "config/vite.ts",
+						content: makeViteConfig(),
+					},
+				]),
 		{
 			path: "start/routes.ts",
 			content: makeRoutes(choices),
@@ -759,6 +749,7 @@ function makeEnv(choices: NewAppChoices): string {
 
 function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 	const lines = [
+		`APP_NAME=${choices.preset === "api" ? "Kura API" : "Kura"}`,
 		"TZ=UTC",
 		"PORT=3333",
 		"HOST=localhost",
@@ -766,14 +757,16 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 		"LOG_LEVEL=info",
 		`APP_KEY=${appKey}`,
 		`APP_URL=http://\${HOST}:\${PORT}`,
+		"HASH_DRIVER=bcrypt",
+		`CACHE_STORE=${choices.cache}`,
+		`QUEUE_CONNECTION=${choices.queue}`,
+		`SESSION_DRIVER=${choices.auth === "session" ? "cookie" : "memory"}`,
+		`AUTH_GUARD=${choices.auth === "session" ? "web" : choices.auth === "jwt" ? "api" : "none"}`,
 	];
 
 	if (choices.database !== "none") {
+		lines.push(`DB_CONNECTION=${choices.database}`);
 		lines.push("DATABASE_URL=");
-	}
-
-	if (choices.auth !== "none") {
-		lines.push("APP_KEY=");
 	}
 
 	if (choices.cache === "redis" || choices.queue === "redis") {
@@ -826,32 +819,472 @@ export default defineConfig({
 `;
 }
 
-function makeSimpleConfig(
-	name: string,
-	values: Record<string, string | boolean>,
-): string {
+function makeAppConfig(choices: NewAppChoices): string {
 	return `import { defineConfig } from "kura";
+import env from "#start/env";
 
-export default defineConfig({
-\tname: "${name}",
-${Object.entries(values)
-	.map(([key, value]) => `\t${key}: ${JSON.stringify(value)},`)
-	.join("\n")}
+/**
+ * The app URL is used whenever Kura needs to build absolute URLs.
+ */
+export const appUrl = env.get("APP_URL", "http://localhost:3333");
+
+/**
+ * Application and HTTP server configuration.
+ */
+const appConfig = defineConfig({
+\tname: env.get("APP_NAME", "Kura"),
+\tenvironment: env.get<string>("NODE_ENV", "development"),
+\tappKey: env.required("APP_KEY"),
+\turl: appUrl,
+
+\thttp: {
+\t\tgenerateRequestId: true,
+\t\tallowMethodSpoofing: ${choices.preset === "api" ? "false" : "true"},
+\t\tuseAsyncLocalStorage: false,
+\t\tredirect: {
+\t\t\tforwardQueryString: true,
+\t\t},
+\t\tcookie: {
+\t\t\tdomain: "",
+\t\t\tpath: "/",
+\t\t\tmaxAge: "2h",
+\t\t\thttpOnly: true,
+\t\t\tsecure: env.get<string>("NODE_ENV", "development") === "production",
+\t\t\tsameSite: "lax",
+\t\t},
+\t},
+
+\tstarter: {
+\t\tpreset: "${choices.preset}",
+\t\tdatabase: "${choices.database}",
+\t\tauth: "${choices.auth}",
+\t\tcache: "${choices.cache}",
+\t\tqueue: "${choices.queue}",
+\t\tmodules: ${JSON.stringify(choices.modules)},
+\t},
 });
+
+export default appConfig;
 `;
 }
 
-function makeAppConfig(choices: NewAppChoices): string {
+function makeAuthConfig(choices: NewAppChoices): string {
+	return `import { defineConfig } from "kura";
+import env from "#start/env";
+
+/**
+ * Authentication configuration.
+ */
+const authConfig = defineConfig({
+\tenabled: ${choices.auth === "none" ? "false" : "true"},
+\tdefault: env.get("AUTH_GUARD", "${choices.auth === "session" ? "web" : choices.auth === "jwt" ? "api" : "none"}"),
+
+\tguards: {
+\t\tweb: {
+\t\t\tdriver: "session",
+\t\t\tuseRememberMeTokens: false,
+\t\t\tprovider: {
+\t\t\t\ttype: "model",
+\t\t\t\tmodel: "#models/user",
+\t\t\t},
+\t\t},
+
+\t\tapi: {
+\t\t\tdriver: "jwt",
+\t\t\ttoken: {
+\t\t\t\texpiresIn: "2h",
+\t\t\t\tsecret: env.required("APP_KEY"),
+\t\t\t},
+\t\t\tprovider: {
+\t\t\t\ttype: "model",
+\t\t\t\tmodel: "#models/user",
+\t\t\t},
+\t\t},
+\t},
+});
+
+export default authConfig;
+`;
+}
+
+function makeBodyParserConfig(): string {
 	return `import { defineConfig } from "kura";
 
-export default defineConfig({
-\tpreset: "${choices.preset}",
-\tdatabase: "${choices.database}",
-\tauth: "${choices.auth}",
-\tcache: "${choices.cache}",
-\tqueue: "${choices.queue}",
-\tmodules: ${JSON.stringify(choices.modules)},
+/**
+ * Body parser configuration.
+ */
+const bodyParserConfig = defineConfig({
+\tallowedMethods: ["POST", "PUT", "PATCH", "DELETE"],
+
+\tform: {
+\t\tconvertEmptyStringsToNull: true,
+\t\ttrimWhitespaces: true,
+\t\ttypes: ["application/x-www-form-urlencoded"],
+\t},
+
+\tjson: {
+\t\tconvertEmptyStringsToNull: true,
+\t\ttrimWhitespaces: true,
+\t\ttypes: [
+\t\t\t"application/json",
+\t\t\t"application/json-patch+json",
+\t\t\t"application/vnd.api+json",
+\t\t\t"application/csp-report",
+\t\t],
+\t},
+
+\tmultipart: {
+\t\tautoProcess: true,
+\t\tconvertEmptyStringsToNull: true,
+\t\ttrimWhitespaces: true,
+\t\tprocessManually: [],
+\t\tlimit: "20mb",
+\t\ttypes: ["multipart/form-data"],
+\t},
 });
+
+export default bodyParserConfig;
+`;
+}
+
+function makeCacheConfig(choices: NewAppChoices): string {
+	return `import { defineConfig } from "kura";
+import env from "#start/env";
+
+/**
+ * Cache configuration.
+ */
+const cacheConfig = defineConfig({
+\tdefault: env.get("CACHE_STORE", "${choices.cache}"),
+
+\tstores: {
+\t\tmemory: {
+\t\t\tdriver: "memory",
+\t\t},
+
+\t\tfile: {
+\t\t\tdriver: "file",
+\t\t\tdirectory: "tmp/cache",
+\t\t\tprefix: env.get("APP_NAME", "kura"),
+\t\t},
+
+\t\tredis: {
+\t\t\tdriver: "redis",
+\t\t\turl: env.get("REDIS_URL", "redis://localhost:6379"),
+\t\t\tprefix: env.get("APP_NAME", "kura"),
+\t\t},
+\t},
+});
+
+export default cacheConfig;
+`;
+}
+
+function makeDatabaseConfig(choices: NewAppChoices): string {
+	const defaultConnection =
+		choices.database === "none" ? "memory" : choices.database;
+
+	return `import { defineConfig } from "kura";
+import env from "#start/env";
+
+/**
+ * Database configuration.
+ */
+const databaseConfig = defineConfig({
+\tdefault: env.get("DB_CONNECTION", "${defaultConnection}"),
+\tprettyPrintDebugQueries: env.get<string>("NODE_ENV", "development") !== "production",
+
+\tconnections: {
+\t\tmemory: {
+\t\t\tdriver: "memory",
+\t\t},
+
+\t\tsqlite: {
+\t\t\tdriver: "sqlite",
+\t\t\tfilename: "database/database.sqlite",
+\t\t\tmigrations: {
+\t\t\t\tnaturalSort: true,
+\t\t\t\tpaths: ["database/migrations"],
+\t\t\t},
+\t\t\tdebug: env.get<string>("NODE_ENV", "development") === "development",
+\t\t},
+
+\t\tpostgres: {
+\t\t\tdriver: "postgres",
+\t\t\turl: env.get("DATABASE_URL", ""),
+\t\t\tmigrations: {
+\t\t\t\tnaturalSort: true,
+\t\t\t\tpaths: ["database/migrations"],
+\t\t\t},
+\t\t\tdebug: env.get<string>("NODE_ENV", "development") === "development",
+\t\t},
+
+\t\tmysql: {
+\t\t\tdriver: "mysql",
+\t\t\turl: env.get("DATABASE_URL", ""),
+\t\t\tmigrations: {
+\t\t\t\tnaturalSort: true,
+\t\t\t\tpaths: ["database/migrations"],
+\t\t\t},
+\t\t\tdebug: env.get<string>("NODE_ENV", "development") === "development",
+\t\t},
+\t},
+});
+
+export default databaseConfig;
+`;
+}
+
+function makeEncryptionConfig(): string {
+	return `import { defineConfig } from "kura";
+import env from "#start/env";
+
+/**
+ * Encryption configuration.
+ */
+const encryptionConfig = defineConfig({
+\tdefault: "gcm",
+
+\tlist: {
+\t\tgcm: {
+\t\t\tdriver: "aes-256-gcm",
+\t\t\tkeys: [env.required("APP_KEY")],
+\t\t\tid: "gcm",
+\t\t},
+\t},
+});
+
+export default encryptionConfig;
+`;
+}
+
+function makeHashConfig(): string {
+	return `import { defineConfig } from "kura";
+import env from "#start/env";
+
+/**
+ * Hashing configuration.
+ */
+const hashConfig = defineConfig({
+\tdefault: env.get("HASH_DRIVER", "bcrypt"),
+
+\tlist: {
+\t\tbcrypt: {
+\t\t\tdriver: "bcrypt",
+\t\t\talgorithm: "bcrypt",
+\t\t\tcost: 12,
+\t\t},
+
+\t\targon2id: {
+\t\t\tdriver: "argon2id",
+\t\t\talgorithm: "argon2id",
+\t\t\tmemoryCost: 65536,
+\t\t\ttimeCost: 3,
+\t\t\tparallelism: 4,
+\t\t},
+
+\t\targon2i: {
+\t\t\tdriver: "argon2i",
+\t\t\talgorithm: "argon2i",
+\t\t\tmemoryCost: 65536,
+\t\t\ttimeCost: 3,
+\t\t\tparallelism: 4,
+\t\t},
+\t},
+});
+
+export default hashConfig;
+`;
+}
+
+function makeLoggerConfig(): string {
+	return `import { defineConfig } from "kura";
+import env from "#start/env";
+
+/**
+ * Logger configuration.
+ */
+const loggerConfig = defineConfig({
+\tdefault: "app",
+
+\tloggers: {
+\t\tapp: {
+\t\t\tenabled: true,
+\t\t\tname: env.get("APP_NAME", "kura"),
+\t\t\tlevel: env.get("LOG_LEVEL", "info"),
+\t\t\ttransport: {
+\t\t\t\ttargets: [
+\t\t\t\t\t{
+\t\t\t\t\t\ttarget: "stdout",
+\t\t\t\t\t\tlevel: env.get("LOG_LEVEL", "info"),
+\t\t\t\t\t},
+\t\t\t\t],
+\t\t\t},
+\t\t},
+\t},
+});
+
+export default loggerConfig;
+`;
+}
+
+function makeQueueConfig(choices: NewAppChoices): string {
+	return `import { defineConfig } from "kura";
+import env from "#start/env";
+
+/**
+ * Queue configuration.
+ */
+const queueConfig = defineConfig({
+\tdefault: env.get("QUEUE_CONNECTION", "${choices.queue}"),
+
+\tconnections: {
+\t\tnone: {
+\t\t\tdriver: "none",
+\t\t},
+
+\t\tmemory: {
+\t\t\tdriver: "memory",
+\t\t\tqueue: "default",
+\t\t},
+
+\t\tsqlite: {
+\t\t\tdriver: "sqlite",
+\t\t\tfilename: "database/queue.sqlite",
+\t\t\ttable: "jobs",
+\t\t\tqueue: "default",
+\t\t},
+
+\t\tredis: {
+\t\t\tdriver: "redis",
+\t\t\turl: env.get("REDIS_URL", "redis://localhost:6379"),
+\t\t\tqueue: "default",
+\t\t},
+\t},
+});
+
+export default queueConfig;
+`;
+}
+
+function makeSessionConfig(choices: NewAppChoices): string {
+	return `import { defineConfig } from "kura";
+import env from "#start/env";
+
+/**
+ * Session configuration.
+ */
+const sessionConfig = defineConfig({
+\tenabled: ${choices.auth === "session" ? "true" : "false"},
+\tcookieName: env.get("SESSION_COOKIE_NAME", "kura-session"),
+\tclearWithBrowser: false,
+\tage: "2h",
+
+\tcookie: {
+\t\tpath: "/",
+\t\thttpOnly: true,
+\t\tsecure: env.get<string>("NODE_ENV", "development") === "production",
+\t\tsameSite: "lax",
+\t},
+
+\tstore: env.get("SESSION_DRIVER", "${choices.auth === "session" ? "cookie" : "memory"}"),
+
+\tstores: {
+\t\tmemory: {
+\t\t\tdriver: "memory",
+\t\t},
+
+\t\tcookie: {
+\t\t\tdriver: "cookie",
+\t\t},
+
+\t\tdatabase: {
+\t\t\tdriver: "database",
+\t\t\tconnection: env.get("DB_CONNECTION", "sqlite"),
+\t\t\ttable: "sessions",
+\t\t},
+\t},
+});
+
+export default sessionConfig;
+`;
+}
+
+function makeShieldConfig(choices: NewAppChoices): string {
+	return `import { defineConfig } from "kura";
+
+/**
+ * Security header and CSRF configuration.
+ */
+const shieldConfig = defineConfig({
+\tenabled: ${choices.preset === "api" ? "false" : "true"},
+
+\tcsp: {
+\t\tenabled: false,
+\t\tdirectives: {},
+\t\treportOnly: false,
+\t},
+
+\tcsrf: {
+\t\tenabled: ${choices.preset === "api" ? "false" : "true"},
+\t\texceptRoutes: [],
+\t\tenableXsrfCookie: false,
+\t\tmethods: ["POST", "PUT", "PATCH", "DELETE"],
+\t},
+
+\txFrame: {
+\t\tenabled: true,
+\t\taction: "DENY",
+\t},
+
+\thsts: {
+\t\tenabled: true,
+\t\tmaxAge: "180 days",
+\t},
+
+\tcontentTypeSniffing: {
+\t\tenabled: true,
+\t},
+});
+
+export default shieldConfig;
+`;
+}
+
+function makeStaticConfig(choices: NewAppChoices): string {
+	return `import { defineConfig } from "kura";
+
+/**
+ * Static file server configuration.
+ */
+const staticServerConfig = defineConfig({
+\tenabled: ${choices.preset === "api" ? "false" : "true"},
+\troot: "public",
+\tetag: true,
+\tlastModified: true,
+\tdotFiles: "ignore",
+});
+
+export default staticServerConfig;
+`;
+}
+
+function makeViteConfig(): string {
+	return `import { defineConfig } from "kura";
+
+/**
+ * Frontend asset pipeline configuration.
+ */
+const viteConfig = defineConfig({
+\tbuildDirectory: "public/assets",
+\tmanifestFile: "public/assets/.vite/manifest.json",
+\tassetsUrl: "/assets",
+\tscriptAttributes: {
+\t\tdefer: true,
+\t},
+});
+
+export default viteConfig;
 `;
 }
 
