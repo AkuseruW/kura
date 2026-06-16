@@ -3,6 +3,7 @@ import {
 	BaseModel,
 	belongsTo,
 	column,
+	hasMany,
 	hasOne,
 	ModelNotFoundException,
 	type ModelPaginatedResult,
@@ -688,6 +689,174 @@ describe("BaseModel", () => {
 				bindings: [1],
 			},
 		]);
+	});
+
+	test("loads hasMany relations through decorators and caches the collection", async () => {
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+			static override timestamps = false;
+
+			declare id: number;
+
+			@column({ name: "user_id" })
+			declare userId: number;
+
+			@column()
+			declare title: string;
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			@hasMany(() => Post, { foreignKey: "userId" })
+			declare posts: readonly Post[];
+
+			declare id: number;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Post.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+		connection.queueResult<PostAttributes>({
+			rows: [
+				{
+					id: 10,
+					user_id: 1,
+					title: "Relations",
+				} as unknown as PostAttributes,
+				{
+					id: 11,
+					user_id: 1,
+					title: "Collections",
+				} as unknown as PostAttributes,
+			],
+			affectedRows: 0,
+		});
+
+		const posts = await user.relatedMany<Post>("posts");
+		const cached = await user.relatedMany<Post>("posts");
+
+		expect(posts).toHaveLength(2);
+		expect(posts[0]).toBeInstanceOf(Post);
+		expect(posts[0]?.userId).toBe(1);
+		expect(posts[1]?.title).toBe("Collections");
+		expect(user.posts).toBe(posts);
+		expect(cached).toBe(posts);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "posts" where "user_id" = ?',
+				bindings: [1],
+			},
+		]);
+	});
+
+	test("loads hasMany relation methods", async () => {
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+			static override timestamps = false;
+
+			declare id: number;
+			declare userId: number;
+			declare title: string;
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			posts() {
+				return this.hasMany(Post, { foreignKey: "userId" });
+			}
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Post.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+		connection.queueResult<PostAttributes>({
+			rows: [
+				{
+					id: 10,
+					userId: 1,
+					title: "Relations",
+				},
+			],
+			affectedRows: 0,
+		});
+
+		const posts = await user.relatedMany<Post>("posts");
+
+		expect(posts).toHaveLength(1);
+		expect(posts[0]).toBeInstanceOf(Post);
+		expect(posts[0]?.title).toBe("Relations");
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "posts" where "userId" = ?',
+				bindings: [1],
+			},
+		]);
+	});
+
+	test("returns an empty collection for hasMany relations with missing local keys", async () => {
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			@hasMany(() => Post, { foreignKey: "userId" })
+			declare posts: readonly Post[];
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Post.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		} as UserAttributes);
+
+		const posts = await user.relatedMany<Post>("posts");
+
+		expect(posts).toEqual([]);
+		expect(user.posts).toBe(posts);
+		expect(connection.queries).toEqual([]);
+	});
+
+	test("rejects loading collection relations through related()", async () => {
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			@hasMany(() => Post, { foreignKey: "userId" })
+			declare posts: readonly Post[];
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Post.useDatabase(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+
+		await expect(user.related("posts")).rejects.toThrow(
+			"Relation [posts] on model [User] is a collection relation; use relatedMany()",
+		);
 	});
 
 	test("throws when model database or table configuration is missing", async () => {
