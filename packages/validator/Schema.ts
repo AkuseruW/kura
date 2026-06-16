@@ -1,7 +1,29 @@
+export type Infer<TSchema> =
+	TSchema extends Schema<infer TValue> ? TValue : never;
+
+type ObjectShape = Record<string, Schema<unknown>>;
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
+type OptionalShapeKeys<TShape extends ObjectShape> = {
+	[K in keyof TShape]: undefined extends Infer<TShape[K]> ? K : never;
+}[keyof TShape];
+type RequiredShapeKeys<TShape extends ObjectShape> = Exclude<
+	keyof TShape,
+	OptionalShapeKeys<TShape>
+>;
+type InferObject<TShape extends ObjectShape> = Simplify<
+	{
+		[K in RequiredShapeKeys<TShape>]: Infer<TShape[K]>;
+	} & {
+		[K in OptionalShapeKeys<TShape>]?: Exclude<Infer<TShape[K]>, undefined>;
+	}
+>;
+
 export class Schema<T = unknown> {
 	private rules: ((value: unknown) => boolean)[] = [];
 	private _type: string = "unknown";
 	private parser: (value: unknown) => T = (value) => value as T;
+	private acceptsUndefined = false;
+	private acceptsNull = false;
 
 	string(): Schema<string> {
 		const schema = new Schema<string>();
@@ -114,6 +136,16 @@ export class Schema<T = unknown> {
 		return this;
 	}
 
+	optional(): Schema<T | undefined> {
+		this.acceptsUndefined = true;
+		return this as Schema<T | undefined>;
+	}
+
+	nullable(): Schema<T | null> {
+		this.acceptsNull = true;
+		return this as Schema<T | null>;
+	}
+
 	boolean(): Schema<boolean> {
 		const schema = new Schema<boolean>();
 		schema._type = "boolean";
@@ -147,10 +179,8 @@ export class Schema<T = unknown> {
 		return this;
 	}
 
-	object<U extends Record<string, Schema<unknown>>>(
-		shape: U,
-	): Schema<{ [K in keyof U]: U[K] extends Schema<infer V> ? V : never }> {
-		type Result = { [K in keyof U]: U[K] extends Schema<infer V> ? V : never };
+	object<U extends ObjectShape>(shape: U): Schema<InferObject<U>> {
+		type Result = InferObject<U>;
 		const schema = new Schema<Result>();
 		schema._type = "object";
 		schema.rules.push((v) => typeof v === "object" && v !== null);
@@ -247,6 +277,14 @@ export class Schema<T = unknown> {
 	}
 
 	parse(value: unknown): T {
+		if (value === undefined && this.acceptsUndefined) {
+			return undefined as T;
+		}
+
+		if (value === null && this.acceptsNull) {
+			return null as T;
+		}
+
 		for (const rule of this.rules) {
 			if (!rule(value)) {
 				throw new Error(`Validation failed for ${this._type}`);
