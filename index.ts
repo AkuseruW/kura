@@ -45,6 +45,25 @@ export {
 } from "./packages/auth/SessionGuard";
 
 export {
+	type CacheDriver,
+	CacheException,
+	type CacheFactory,
+	CacheManager,
+	type CacheManagerOptions,
+	type CachePutOptions,
+	type CacheStoreOptions,
+	type CacheTtl,
+	cache,
+	FileCacheDriver,
+	type FileCacheDriverOptions,
+	MemoryCacheDriver,
+	type RedisCacheClient,
+	RedisCacheDriver,
+	type RedisCacheDriverOptions,
+	TaggedCache,
+} from "./packages/cache/Cache";
+
+export {
 	Command,
 	type CommandArgumentDefinition,
 	type CommandContext,
