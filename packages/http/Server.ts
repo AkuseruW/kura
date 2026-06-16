@@ -13,6 +13,13 @@ export type Context = {
 	body?: unknown;
 	formData?: RequestFormData;
 	requestId?: string;
+	auth?: {
+		guard: string;
+		user?: unknown;
+		sessionId?: string;
+		token?: string;
+		claims?: Record<string, unknown>;
+	};
 };
 
 type Handler = (ctx: Context) => Response | Promise<Response>;
