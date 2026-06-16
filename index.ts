@@ -22,6 +22,22 @@ export {
 	type JwtSecretResolver,
 } from "./packages/auth/JwtGuard";
 export {
+	AuthorizationException,
+	authorize,
+	authorizeMiddleware,
+	BasePolicy,
+	type CanDecorator,
+	can,
+	type PolicyAction,
+	type PolicyBeforeHandler,
+	type PolicyBeforeResult,
+	type PolicyConstructor,
+	type PolicyHandler,
+	type PolicyInput,
+	type PolicyResourceResolver,
+	type PolicyResult,
+} from "./packages/auth/Policy";
+export {
 	SessionGuard,
 	type SessionGuardOptions,
 	type SessionResolver,
