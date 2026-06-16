@@ -90,6 +90,13 @@ export {
 	type GeneratorConsoleOptions,
 	registerGeneratorCommands,
 } from "./packages/console/Generators";
+export {
+	createNewAppCommand,
+	type NewAppConsoleOptions,
+	type NewAppInstaller,
+	type NewAppPrompt,
+	registerNewAppCommand,
+} from "./packages/console/NewApp";
 
 export {
 	Application,
