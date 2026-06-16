@@ -91,6 +91,18 @@ describe("production build", () => {
 			expect(importRuntime.exitCode).toBe(0);
 			expect(importRuntime.stdout.toString()).toContain("function function");
 
+			const appBuild = Bun.spawnSync({
+				cmd: [process.execPath, "run", "build"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(appBuild.exitCode).toBe(0);
+			await expect(
+				access(join(appRoot, "demo/build/server.js")),
+			).resolves.toBeNull();
+
 			const localRunner = Bun.spawnSync({
 				cmd: [process.execPath, "kura"],
 				cwd: join(appRoot, "demo"),
