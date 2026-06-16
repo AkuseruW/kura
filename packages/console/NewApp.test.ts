@@ -81,6 +81,24 @@ describe("new app command", () => {
 		);
 	});
 
+	test("uses the local framework package when generated from the Kura repo", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerNewAppCommand(console, { root });
+
+		const exitCode = await console.run(["new", "demo", "--yes"]);
+
+		expect(exitCode).toBe(0);
+		expect(output.text()).toContain("Framework: file:");
+
+		const packageJson = JSON.parse(
+			await readGenerated(root, "demo/package.json"),
+		) as { dependencies: { kura: string } };
+		expect(packageJson.dependencies.kura).toStartWith("file:");
+		expect(packageJson.dependencies.kura).not.toBe("latest");
+	});
+
 	test("uses injected prompts for interactive generation", async () => {
 		const root = await makeRoot();
 		const output = new MemoryConsoleOutput();

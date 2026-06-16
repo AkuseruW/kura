@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { access, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -7,6 +8,8 @@ const root = process.cwd();
 
 describe("production build", () => {
 	test("emits optimized runtime bundles, source maps, and declarations", async () => {
+		const appRoot = await mkdtemp(join(tmpdir(), "kura-built-app-"));
+
 		await rm(join(root, "dist"), { force: true, recursive: true });
 
 		try {
@@ -42,8 +45,54 @@ describe("production build", () => {
 			expect(cli.stdout.toString()).toContain(
 				"serve - Start the development HTTP server",
 			);
+
+			const newApp = Bun.spawnSync({
+				cmd: [
+					process.execPath,
+					"dist/bin/kura.js",
+					"new",
+					"demo",
+					"--yes",
+					"--root",
+					appRoot,
+				],
+				cwd: root,
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(newApp.exitCode).toBe(0);
+
+			const generatedPackage = JSON.parse(
+				await readFile(join(appRoot, "demo/package.json"), "utf8"),
+			) as { dependencies: { kura: string } };
+			expect(generatedPackage.dependencies.kura).toStartWith("file:");
+
+			const install = Bun.spawnSync({
+				cmd: [process.execPath, "install", "--production"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(install.exitCode).toBe(0);
+
+			const importRuntime = Bun.spawnSync({
+				cmd: [
+					process.execPath,
+					"-e",
+					"import { Router, Server } from 'kura'; console.log(typeof Router, typeof Server);",
+				],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(importRuntime.exitCode).toBe(0);
+			expect(importRuntime.stdout.toString()).toContain("function function");
 		} finally {
 			await rm(join(root, "dist"), { force: true, recursive: true });
+			await rm(appRoot, { force: true, recursive: true });
 		}
 	});
 });

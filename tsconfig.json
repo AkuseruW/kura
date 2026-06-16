@@ -23,5 +23,7 @@
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false
-	}
+	},
+	"include": ["index.ts", "bin/**/*.ts", "packages/**/*.ts", "scripts/**/*.ts"],
+	"exclude": ["dist", "node_modules"]
 }
