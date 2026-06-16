@@ -1,4 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import {
+	DatabaseManager,
+	type MemoryDatabaseConnection,
+	MemoryDatabaseDriver,
+} from "../database/Database";
 import { type Infer, v } from "./Schema";
 
 type Equal<TLeft, TRight> = [TLeft] extends [TRight]
@@ -23,6 +28,24 @@ type ExpectedUser = {
 	tags: string[];
 };
 type _InferredUserMatches = Expect<Equal<InferredUser, ExpectedUser>>;
+
+function createDatabase() {
+	const database = new DatabaseManager({
+		default: "primary",
+		connections: {
+			primary: { driver: "memory" },
+		},
+	});
+	database.extend("memory", new MemoryDatabaseDriver());
+
+	return database;
+}
+
+async function memoryConnection(
+	database: DatabaseManager,
+): Promise<MemoryDatabaseConnection> {
+	return database.connection<MemoryDatabaseConnection>();
+}
 
 describe("Schema", () => {
 	test("validates primitive values", () => {
@@ -198,6 +221,136 @@ describe("Schema", () => {
 			email: "dev@kura.dev",
 			tags: ["core", "http"],
 		});
+	});
+
+	test("runs unique validation with a database manager", async () => {
+		const database = createDatabase();
+		const connection = await memoryConnection(database);
+		connection.queueResult({
+			rows: [{ aggregate: 0 }],
+			affectedRows: 0,
+		});
+		connection.queueResult({
+			rows: [{ aggregate: 1 }],
+			affectedRows: 0,
+		});
+		const schema = v.string().email().unique("users", "email", { database });
+
+		await expect(schema.parseAsync("dev@kura.dev")).resolves.toBe(
+			"dev@kura.dev",
+		);
+		await expect(schema.parseAsync("taken@kura.dev")).rejects.toThrow(
+			"Validation failed for string",
+		);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select count(*) as "aggregate" from "users" where "email" = ?',
+				bindings: ["dev@kura.dev"],
+			},
+			{
+				sql: 'select count(*) as "aggregate" from "users" where "email" = ?',
+				bindings: ["taken@kura.dev"],
+			},
+		]);
+	});
+
+	test("runs exists validation with a database manager from context", async () => {
+		const database = createDatabase();
+		const connection = await memoryConnection(database);
+		connection.queueResult({
+			rows: [{ aggregate: 1 }],
+			affectedRows: 0,
+		});
+		connection.queueResult({
+			rows: [{ aggregate: 0 }],
+			affectedRows: 0,
+		});
+		const schema = v.number().integer().exists("users", "id");
+
+		await expect(schema.parseAsync(1, { database })).resolves.toBe(1);
+		await expect(schema.parseAsync(2, { database })).rejects.toThrow(
+			"Validation failed for number",
+		);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select count(*) as "aggregate" from "users" where "id" = ?',
+				bindings: [1],
+			},
+			{
+				sql: 'select count(*) as "aggregate" from "users" where "id" = ?',
+				bindings: [2],
+			},
+		]);
+	});
+
+	test("returns booleans from validateAsync", async () => {
+		const database = createDatabase();
+		const connection = await memoryConnection(database);
+		connection.queueResult({
+			rows: [{ aggregate: 0 }],
+			affectedRows: 0,
+		});
+		connection.queueResult({
+			rows: [{ aggregate: 1 }],
+			affectedRows: 0,
+		});
+		const schema = v.string().unique("users", "email", { database });
+
+		await expect(schema.validateAsync("new@kura.dev")).resolves.toBe(true);
+		await expect(schema.validateAsync("taken@kura.dev")).resolves.toBe(false);
+	});
+
+	test("runs async validation in object and array schemas", async () => {
+		const database = createDatabase();
+		const connection = await memoryConnection(database);
+		connection.queueResult({
+			rows: [{ aggregate: 0 }],
+			affectedRows: 0,
+		});
+		connection.queueResult({
+			rows: [{ aggregate: 1 }],
+			affectedRows: 0,
+		});
+		const schema = v.object({
+			emails: v.array(v.string().email().unique("users", "email")),
+		});
+
+		await expect(
+			schema.parseAsync(
+				{ emails: ["new@kura.dev", "taken@kura.dev"] },
+				{ database },
+			),
+		).rejects.toThrow("Validation failed for string");
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select count(*) as "aggregate" from "users" where "email" = ?',
+				bindings: ["new@kura.dev"],
+			},
+			{
+				sql: 'select count(*) as "aggregate" from "users" where "email" = ?',
+				bindings: ["taken@kura.dev"],
+			},
+		]);
+	});
+
+	test("requires parseAsync for async rules", () => {
+		const database = createDatabase();
+		const schema = v.object({
+			email: v.string().unique("users", "email", { database }),
+		});
+
+		expect(() => schema.parse({ email: "dev@kura.dev" })).toThrow(
+			"Async validation rules require parseAsync()",
+		);
+	});
+
+	test("requires a database manager for database validation rules", async () => {
+		await expect(
+			v.string().unique("users", "email").parseAsync("dev@kura.dev"),
+		).rejects.toThrow("Database manager is required for unique validation");
+		await expect(
+			v.number().exists("users", "id").parseAsync(1),
+		).rejects.toThrow("Database manager is required for exists validation");
 	});
 
 	test("throws for invalid values", () => {

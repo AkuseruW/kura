@@ -1,3 +1,5 @@
+import type { DatabaseManager, QueryPrimitive } from "../database/Database";
+
 export type Infer<TSchema> =
 	TSchema extends Schema<infer TValue> ? TValue : never;
 
@@ -17,13 +19,33 @@ type InferObject<TShape extends ObjectShape> = Simplify<
 		[K in OptionalShapeKeys<TShape>]?: Exclude<Infer<TShape[K]>, undefined>;
 	}
 >;
+type AsyncValidationRule = (
+	value: unknown,
+	context: AsyncValidationContext,
+) => Promise<boolean>;
+type AsyncParser<T> = (
+	value: unknown,
+	context: AsyncValidationContext,
+) => Promise<T>;
+
+export type AsyncValidationContext = {
+	readonly database?: DatabaseManager;
+};
+
+export type DatabaseValidationOptions = {
+	readonly database?: DatabaseManager;
+	readonly connection?: string;
+};
 
 export class Schema<T = unknown> {
 	private rules: ((value: unknown) => boolean)[] = [];
+	private asyncRules: AsyncValidationRule[] = [];
 	private _type: string = "unknown";
 	private parser: (value: unknown) => T = (value) => value as T;
+	private asyncParser?: AsyncParser<T>;
 	private acceptsUndefined = false;
 	private acceptsNull = false;
+	private requiresAsyncRules = false;
 
 	string(): Schema<string> {
 		const schema = new Schema<string>();
@@ -158,18 +180,25 @@ export class Schema<T = unknown> {
 		schema._type = "array";
 		schema.rules.push((v) => Array.isArray(v));
 		if (itemSchema) {
-			schema.rules.push((v) =>
-				(v as unknown[]).every((item) => {
-					try {
-						itemSchema.parse(item);
-						return true;
-					} catch {
-						return false;
-					}
-				}),
-			);
+			schema.requiresAsyncRules = itemSchema.requiresAsyncValidation();
+			if (!itemSchema.requiresAsyncValidation()) {
+				schema.rules.push((v) =>
+					(v as unknown[]).every((item) => {
+						try {
+							itemSchema.parse(item);
+							return true;
+						} catch {
+							return false;
+						}
+					}),
+				);
+			}
 			schema.parser = (v) =>
 				(v as unknown[]).map((item) => itemSchema.parse(item));
+			schema.asyncParser = async (v, context) =>
+				Promise.all(
+					(v as unknown[]).map((item) => itemSchema.parseAsync(item, context)),
+				);
 		}
 		return schema;
 	}
@@ -183,10 +212,17 @@ export class Schema<T = unknown> {
 		type Result = InferObject<U>;
 		const schema = new Schema<Result>();
 		schema._type = "object";
+		schema.requiresAsyncRules = Object.values(shape).some((fieldSchema) =>
+			fieldSchema.requiresAsyncValidation(),
+		);
 		schema.rules.push((v) => typeof v === "object" && v !== null);
 		schema.rules.push((v) => {
 			const obj = v as Record<string, unknown>;
 			for (const [key, fieldSchema] of Object.entries(shape)) {
+				if (fieldSchema.requiresAsyncValidation()) {
+					continue;
+				}
+
 				try {
 					fieldSchema.parse(obj[key]);
 				} catch {
@@ -200,6 +236,14 @@ export class Schema<T = unknown> {
 			const result: Record<string, unknown> = { ...obj };
 			for (const [key, fieldSchema] of Object.entries(shape)) {
 				result[key] = fieldSchema.parse(obj[key]);
+			}
+			return result as Result;
+		};
+		schema.asyncParser = async (v, context) => {
+			const obj = v as Record<string, unknown>;
+			const result: Record<string, unknown> = { ...obj };
+			for (const [key, fieldSchema] of Object.entries(shape)) {
+				result[key] = await fieldSchema.parseAsync(obj[key], context);
 			}
 			return result as Result;
 		};
@@ -276,7 +320,61 @@ export class Schema<T = unknown> {
 		return this;
 	}
 
+	unique(
+		table: string,
+		column: string,
+		options: DatabaseValidationOptions = {},
+	): this {
+		this.addDatabaseRule(
+			"unique",
+			table,
+			column,
+			options,
+			(count) => count === 0,
+		);
+		return this;
+	}
+
+	exists(
+		table: string,
+		column: string,
+		options: DatabaseValidationOptions = {},
+	): this {
+		this.addDatabaseRule(
+			"exists",
+			table,
+			column,
+			options,
+			(count) => count > 0,
+		);
+		return this;
+	}
+
 	parse(value: unknown): T {
+		if (value === undefined && this.acceptsUndefined) {
+			return undefined as T;
+		}
+
+		if (value === null && this.acceptsNull) {
+			return null as T;
+		}
+
+		if (this.requiresAsyncValidation()) {
+			throw new Error("Async validation rules require parseAsync()");
+		}
+
+		for (const rule of this.rules) {
+			if (!rule(value)) {
+				throw new Error(`Validation failed for ${this._type}`);
+			}
+		}
+		return this.parser(value);
+	}
+
+	async parseAsync(
+		value: unknown,
+		context: AsyncValidationContext = {},
+	): Promise<T> {
 		if (value === undefined && this.acceptsUndefined) {
 			return undefined as T;
 		}
@@ -290,7 +388,58 @@ export class Schema<T = unknown> {
 				throw new Error(`Validation failed for ${this._type}`);
 			}
 		}
+
+		for (const rule of this.asyncRules) {
+			if (!(await rule(value, context))) {
+				throw new Error(`Validation failed for ${this._type}`);
+			}
+		}
+
+		if (this.asyncParser) {
+			return this.asyncParser(value, context);
+		}
+
 		return this.parser(value);
+	}
+
+	async validateAsync(
+		value: unknown,
+		context: AsyncValidationContext = {},
+	): Promise<boolean> {
+		try {
+			await this.parseAsync(value, context);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	private addDatabaseRule(
+		ruleName: "unique" | "exists",
+		table: string,
+		column: string,
+		options: DatabaseValidationOptions,
+		predicate: (count: number) => boolean,
+	): void {
+		this.requiresAsyncRules = true;
+		this.asyncRules.push(async (value, context) => {
+			const database = options.database ?? context.database;
+			if (!database) {
+				throw new Error(
+					`Database manager is required for ${ruleName} validation`,
+				);
+			}
+
+			const count = await database
+				.table(table, options.connection)
+				.where(column, toQueryPrimitive(value))
+				.count();
+			return predicate(count);
+		});
+	}
+
+	private requiresAsyncValidation(): boolean {
+		return this.requiresAsyncRules || this.asyncRules.length > 0;
 	}
 }
 
@@ -353,4 +502,20 @@ function getFileExtension(filename: string): string | null {
 	}
 
 	return filename.slice(extensionStart + 1).toLowerCase();
+}
+
+function toQueryPrimitive(value: unknown): QueryPrimitive {
+	if (
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		typeof value === "bigint" ||
+		value === null ||
+		value instanceof Date ||
+		value instanceof Uint8Array
+	) {
+		return value;
+	}
+
+	throw new Error("Database validation value must be a query primitive");
 }

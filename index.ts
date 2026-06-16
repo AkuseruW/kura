@@ -61,4 +61,10 @@ export {
 } from "./packages/http/Router";
 export { type Context, Server } from "./packages/http/Server";
 
-export { type Infer, Schema, v } from "./packages/validator/Schema";
+export {
+	type AsyncValidationContext,
+	type DatabaseValidationOptions,
+	type Infer,
+	Schema,
+	v,
+} from "./packages/validator/Schema";
