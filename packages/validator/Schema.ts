@@ -56,7 +56,11 @@ export class Schema<T = unknown> {
 
 	min(this: Schema<string>, value: number): Schema<string>;
 	min(this: Schema<number>, value: number): Schema<number>;
-	min(this: Schema<string> | Schema<number>, value: number) {
+	min<U>(this: Schema<U[]>, value: number): Schema<U[]>;
+	min(
+		this: Schema<string> | Schema<number> | Schema<unknown[]>,
+		value: number,
+	): Schema<string> | Schema<number> | Schema<unknown[]> {
 		this.rules.push((v) => {
 			if (typeof v === "string") {
 				return v.length >= value;
@@ -66,6 +70,10 @@ export class Schema<T = unknown> {
 				return v >= value;
 			}
 
+			if (Array.isArray(v)) {
+				return v.length >= value;
+			}
+
 			return false;
 		});
 		return this;
@@ -73,7 +81,11 @@ export class Schema<T = unknown> {
 
 	max(this: Schema<string>, value: number): Schema<string>;
 	max(this: Schema<number>, value: number): Schema<number>;
-	max(this: Schema<string> | Schema<number>, value: number) {
+	max<U>(this: Schema<U[]>, value: number): Schema<U[]>;
+	max(
+		this: Schema<string> | Schema<number> | Schema<unknown[]>,
+		value: number,
+	): Schema<string> | Schema<number> | Schema<unknown[]> {
 		this.rules.push((v) => {
 			if (typeof v === "string") {
 				return v.length <= value;
@@ -81,6 +93,10 @@ export class Schema<T = unknown> {
 
 			if (typeof v === "number") {
 				return v <= value;
+			}
+
+			if (Array.isArray(v)) {
+				return v.length <= value;
 			}
 
 			return false;
@@ -124,6 +140,11 @@ export class Schema<T = unknown> {
 				(v as unknown[]).map((item) => itemSchema.parse(item));
 		}
 		return schema;
+	}
+
+	distinct<U>(this: Schema<U[]>): Schema<U[]> {
+		this.rules.push((v) => Array.isArray(v) && new Set(v).size === v.length);
+		return this;
 	}
 
 	object<U extends Record<string, Schema<unknown>>>(
@@ -174,11 +195,25 @@ export class Schema<T = unknown> {
 		schema._type = "date";
 		schema.rules.push(
 			(v) =>
-				v instanceof Date ||
+				isValidDate(v) ||
 				(typeof v === "string" && !Number.isNaN(Date.parse(v))),
 		);
 		schema.parser = (v) => (v instanceof Date ? v : new Date(v as string));
 		return schema;
+	}
+
+	before(this: Schema<Date>, date: Date | string): Schema<Date> {
+		const boundary = parseDateRule(date, "before");
+
+		this.rules.push((v) => isDateInputBefore(v, boundary));
+		return this;
+	}
+
+	after(this: Schema<Date>, date: Date | string): Schema<Date> {
+		const boundary = parseDateRule(date, "after");
+
+		this.rules.push((v) => isDateInputAfter(v, boundary));
+		return this;
 	}
 
 	parse(value: unknown): T {
@@ -192,3 +227,40 @@ export class Schema<T = unknown> {
 }
 
 export const v = new Schema();
+
+function isValidDate(value: unknown): value is Date {
+	return value instanceof Date && !Number.isNaN(value.getTime());
+}
+
+function parseDateRule(value: Date | string, ruleName: string): Date {
+	const date = value instanceof Date ? value : new Date(value);
+
+	if (!isValidDate(date)) {
+		throw new Error(`Invalid date for ${ruleName} rule`);
+	}
+
+	return date;
+}
+
+function parseDateInput(value: unknown): Date | null {
+	if (isValidDate(value)) {
+		return value;
+	}
+
+	if (typeof value !== "string") {
+		return null;
+	}
+
+	const date = new Date(value);
+	return isValidDate(date) ? date : null;
+}
+
+function isDateInputBefore(value: unknown, boundary: Date): boolean {
+	const date = parseDateInput(value);
+	return date !== null && date.getTime() < boundary.getTime();
+}
+
+function isDateInputAfter(value: unknown, boundary: Date): boolean {
+	const date = parseDateInput(value);
+	return date !== null && date.getTime() > boundary.getTime();
+}
