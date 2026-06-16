@@ -45,6 +45,29 @@ export {
 } from "./packages/auth/SessionGuard";
 
 export {
+	Command,
+	type CommandArgumentDefinition,
+	type CommandContext,
+	type CommandHandler,
+	type CommandOptionDefinition,
+	type CommandResult,
+	ConsoleException,
+	ConsoleKernel,
+	type ConsoleOptions,
+	type ConsoleOptionValue,
+	type ConsoleOutput,
+	type ConsoleRunOptions,
+	createConsole,
+	type DefineCommandOptions,
+	defineCommand,
+	type EmptyCommandResult,
+	MemoryConsoleOutput,
+	type ParsedArgv,
+	parseArgv,
+	TerminalConsoleOutput,
+} from "./packages/console/Console";
+
+export {
 	Application,
 	type ApplicationLifecycleEventName,
 	type ApplicationLifecycleEventPayload,
