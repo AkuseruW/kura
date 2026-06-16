@@ -14,9 +14,29 @@ export type QueueFailure = {
 	stack?: string;
 };
 
+export type SerializedJob = {
+	name: string;
+	payload: string;
+};
+
+type SerializedPayload = {
+	value?: unknown;
+};
+
+export type JobFactory<
+	TPayload = unknown,
+	TJob extends Job<TPayload> = Job<TPayload>,
+> = (payload: TPayload | undefined) => TJob;
+
+export type JobConstructorMetadata = {
+	name: string;
+	jobName?: string;
+};
+
 export type QueuedJob<TJob extends Job = Job> = {
 	id: string;
 	queue: string;
+	name: string;
 	job: TJob;
 	attempts: number;
 	maxAttempts: number;
@@ -58,8 +78,15 @@ export type QueueWorkResult = {
 };
 
 export interface QueueDriver {
-	push<TJob extends Job>(job: QueuedJob<TJob>): Promise<QueuedJob<TJob>>;
-	pop(queue: string, now: Date): Promise<QueuedJob | null>;
+	push<TJob extends Job>(
+		job: QueuedJob<TJob>,
+		registry: JobRegistry,
+	): Promise<QueuedJob<TJob>>;
+	pop(
+		queue: string,
+		now: Date,
+		registry: JobRegistry,
+	): Promise<QueuedJob | null>;
 	complete(id: string, now: Date): Promise<void>;
 	release(id: string, delay: QueueDelay, now: Date): Promise<void>;
 	fail(id: string, failure: QueueFailure, now: Date): Promise<void>;
@@ -108,6 +135,42 @@ export class QueueException extends BaseException {
 			"E_QUEUE_JOB_NOT_FOUND",
 		);
 	}
+
+	static unregisteredJob(name: string): QueueException {
+		return new QueueException(
+			`Queue job [${name}] is not registered`,
+			"E_QUEUE_UNREGISTERED_JOB",
+			500,
+			"Register persistent jobs with queue.registerJob(name, factory).",
+		);
+	}
+
+	static invalidJobName(name: string): QueueException {
+		return new QueueException(
+			`Invalid queue job name [${name}]`,
+			"E_QUEUE_INVALID_JOB_NAME",
+			500,
+			"Queue job names must not be empty.",
+		);
+	}
+
+	static serializationFailed(name: string, error: unknown): QueueException {
+		const reason = error instanceof Error ? error.message : String(error);
+
+		return new QueueException(
+			`Queue job [${name}] could not be serialized: ${reason}`,
+			"E_QUEUE_SERIALIZATION_FAILED",
+		);
+	}
+
+	static deserializationFailed(name: string, error: unknown): QueueException {
+		const reason = error instanceof Error ? error.message : String(error);
+
+		return new QueueException(
+			`Queue job [${name}] could not be deserialized: ${reason}`,
+			"E_QUEUE_DESERIALIZATION_FAILED",
+		);
+	}
 }
 
 export abstract class Job<TPayload = unknown> {
@@ -118,6 +181,70 @@ export abstract class Job<TPayload = unknown> {
 	constructor(public readonly payload?: TPayload) {}
 
 	abstract handle(ctx: JobContext<TPayload>): JobHandleResult;
+}
+
+export class JobRegistry {
+	private readonly factories = new Map<string, (payload: unknown) => Job>();
+
+	register<TPayload, TJob extends Job<TPayload>>(
+		name: string,
+		factory: JobFactory<TPayload, TJob>,
+	): this {
+		const normalizedName = normalizeJobName(name);
+
+		this.factories.set(normalizedName, (payload) =>
+			factory(payload as TPayload | undefined),
+		);
+
+		return this;
+	}
+
+	has(name: string): boolean {
+		return this.factories.has(normalizeJobName(name));
+	}
+
+	make(name: string, payload: unknown): Job {
+		const normalizedName = normalizeJobName(name);
+		const factory = this.factories.get(normalizedName);
+
+		if (!factory) {
+			throw QueueException.unregisteredJob(normalizedName);
+		}
+
+		return factory(payload);
+	}
+
+	serialize(job: Job): SerializedJob {
+		const name = resolveJobName(job);
+
+		try {
+			return {
+				name,
+				payload: JSON.stringify({
+					value: job.payload,
+				} satisfies SerializedPayload),
+			};
+		} catch (error) {
+			throw QueueException.serializationFailed(name, error);
+		}
+	}
+
+	deserialize(serializedJob: SerializedJob): Job {
+		try {
+			const parsed = JSON.parse(serializedJob.payload) as SerializedPayload;
+			const payload =
+				typeof parsed === "object" && parsed !== null && "value" in parsed
+					? parsed.value
+					: undefined;
+
+			return this.make(serializedJob.name, payload);
+		} catch (error) {
+			if (error instanceof QueueException) {
+				throw error;
+			}
+			throw QueueException.deserializationFailed(serializedJob.name, error);
+		}
+	}
 }
 
 export class PendingDispatch<TJob extends Job = Job> {
@@ -153,7 +280,18 @@ export class PendingDispatch<TJob extends Job = Job> {
 }
 
 export class QueueManager {
-	constructor(public readonly driver: QueueDriver = new MemoryQueueDriver()) {}
+	constructor(
+		public readonly driver: QueueDriver = new MemoryQueueDriver(),
+		public readonly registry: JobRegistry = new JobRegistry(),
+	) {}
+
+	registerJob<TPayload, TJob extends Job<TPayload>>(
+		name: string,
+		factory: JobFactory<TPayload, TJob>,
+	): this {
+		this.registry.register(name, factory);
+		return this;
+	}
 
 	dispatch<TJob extends Job>(job: TJob): PendingDispatch<TJob> {
 		return new PendingDispatch(this, job);
@@ -169,16 +307,20 @@ export class QueueManager {
 			options.maxAttempts ?? job.maxAttempts,
 		);
 
-		return this.driver.push({
-			id: options.id ?? crypto.randomUUID(),
-			queue,
-			job,
-			attempts: 0,
-			maxAttempts,
-			status: "queued",
-			availableAt: resolveAvailableAt(options.delay, now),
-			createdAt: copyDate(now),
-		});
+		return this.driver.push(
+			{
+				id: options.id ?? crypto.randomUUID(),
+				queue,
+				name: resolveJobName(job),
+				job,
+				attempts: 0,
+				maxAttempts,
+				status: "queued",
+				availableAt: resolveAvailableAt(options.delay, now),
+				createdAt: copyDate(now),
+			},
+			this.registry,
+		);
 	}
 
 	work(options: QueueWorkOptions = {}): Promise<QueueWorkResult> {
@@ -201,7 +343,11 @@ export class QueueWorker {
 		};
 
 		for (let processed = 0; processed < limit; processed++) {
-			const queuedJob = await this.manager.driver.pop(queue, now);
+			const queuedJob = await this.manager.driver.pop(
+				queue,
+				now,
+				this.manager.registry,
+			);
 
 			if (!queuedJob) {
 				break;
@@ -271,7 +417,10 @@ export class MemoryQueueDriver implements QueueDriver {
 	private readonly jobs = new Map<string, QueuedJob>();
 	private readonly order: string[] = [];
 
-	async push<TJob extends Job>(job: QueuedJob<TJob>): Promise<QueuedJob<TJob>> {
+	async push<TJob extends Job>(
+		job: QueuedJob<TJob>,
+		_registry: JobRegistry,
+	): Promise<QueuedJob<TJob>> {
 		const storedJob = copyQueuedJob(job);
 
 		this.jobs.set(storedJob.id, storedJob);
@@ -280,7 +429,11 @@ export class MemoryQueueDriver implements QueueDriver {
 		return copyQueuedJob(storedJob);
 	}
 
-	async pop(queue: string, now: Date): Promise<QueuedJob | null> {
+	async pop(
+		queue: string,
+		now: Date,
+		_registry: JobRegistry,
+	): Promise<QueuedJob | null> {
 		for (const id of this.order) {
 			const job = this.jobs.get(id);
 
@@ -363,6 +516,22 @@ function normalizeQueueName(queue: string): string {
 	}
 
 	return normalized;
+}
+
+function normalizeJobName(name: string): string {
+	const normalized = name.trim();
+
+	if (!normalized) {
+		throw QueueException.invalidJobName(name);
+	}
+
+	return normalized;
+}
+
+function resolveJobName(job: Job): string {
+	const jobConstructor = job.constructor as JobConstructorMetadata;
+
+	return normalizeJobName(jobConstructor.jobName ?? jobConstructor.name);
 }
 
 function normalizeMaxAttempts(maxAttempts: number): number {
