@@ -133,6 +133,11 @@ export {
 	type QueryRow,
 } from "./packages/database/Database";
 export {
+	createDatabaseCommands,
+	type DatabaseConsoleOptions,
+	registerDatabaseCommands,
+} from "./packages/database/DatabaseConsole";
+export {
 	defineFactory,
 	Factory,
 	type FactoryAttributes,
