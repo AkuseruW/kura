@@ -68,23 +68,48 @@ describe("new app command", () => {
 			await readGenerated(root, "demo-api/package.json"),
 		) as {
 			dependencies: { kura: string };
-			scripts: { dev: string; build: string };
+			imports: Record<string, string>;
+			scripts: { build: string; dev: string; kura: string; test: string };
 		};
 		expect(packageJson.dependencies.kura).toBe("file:../kura");
-		expect(packageJson.scripts.dev).toBe("bun kura serve --watch");
+		expect(packageJson.scripts.kura).toBe("bun bin/console.ts");
+		expect(packageJson.scripts.dev).toBe("bun bin/console.ts serve --watch");
+		expect(packageJson.scripts.test).toBe("bun bin/test.ts");
 		expect(packageJson.scripts.build).toContain("--target=bun");
 		expect(packageJson.scripts.build).toContain("bin/server.ts");
-		expect(await readGenerated(root, "demo-api/kura")).toContain(
-			"./bin/console.ts",
+		expect(packageJson.imports["#controllers/*"]).toBe(
+			"./app/controllers/*.ts",
+		);
+		expect(packageJson.imports["#start/*"]).toBe("./start/*.ts");
+		expect(await readGenerated(root, "demo-api/kura.config.ts")).toContain(
+			'preloads: ["#start/env", "#start/kernel", "#start/routes"]',
+		);
+		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
+			'await import("#start/env")',
 		);
 		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
 			'entry: "bin/server.ts"',
 		);
+		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
+			'import env from "#start/env"',
+		);
+		expect(await readGenerated(root, "demo-api/start/env.ts")).toContain(
+			"new Env()",
+		);
+		expect(await readGenerated(root, "demo-api/start/kernel.ts")).toContain(
+			"serverMiddleware",
+		);
 		expect(await readGenerated(root, "demo-api/start/routes.ts")).toContain(
 			'framework: "kura"',
 		);
+		expect(await readGenerated(root, "demo-api/config/database.ts")).toContain(
+			'default: "sqlite"',
+		);
 		expect(await readGenerated(root, "demo-api/.env.example")).toContain(
 			"APP_KEY=",
+		);
+		expect(await readGenerated(root, "demo-api/.env.test")).toContain(
+			"NODE_ENV=test",
 		);
 	});
 

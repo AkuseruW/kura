@@ -291,21 +291,84 @@ function makeNewAppFiles(options: {
 \t\t"target": "ESNext",
 \t\t"module": "Preserve",
 \t\t"moduleResolution": "bundler",
+\t\t"baseUrl": ".",
+\t\t"paths": {
+\t\t\t"#controllers/*": ["app/controllers/*"],
+\t\t\t"#exceptions/*": ["app/exceptions/*"],
+\t\t\t"#models/*": ["app/models/*"],
+\t\t\t"#mails/*": ["app/mails/*"],
+\t\t\t"#services/*": ["app/services/*"],
+\t\t\t"#listeners/*": ["app/listeners/*"],
+\t\t\t"#generated/*": [".kura/server/*"],
+\t\t\t"#events/*": ["app/events/*"],
+\t\t\t"#middleware/*": ["app/middleware/*"],
+\t\t\t"#validators/*": ["app/validators/*"],
+\t\t\t"#providers/*": ["providers/*"],
+\t\t\t"#policies/*": ["app/policies/*"],
+\t\t\t"#database/*": ["database/*"],
+\t\t\t"#tests/*": ["tests/*"],
+\t\t\t"#start/*": ["start/*"],
+\t\t\t"#config/*": ["config/*"]
+\t\t},
+\t\t"experimentalDecorators": true,
 \t\t"strict": true,
+\t\t"noEmit": true,
 \t\t"skipLibCheck": true,
 \t\t"types": ["bun"]
-\t}
+\t},
+\t"include": ["**/*.ts"]
 }
 `,
 		},
 		{
 			path: ".gitignore",
-			content: `node_modules
+			content: `# Dependencies and Kura build
+node_modules
 build
 dist
-tmp
+tmp/*
+!tmp/.gitkeep
+
+# Secrets
 .env
+.env.local
+.env.production.local
+.env.development.local
+
+# Build logs
 *.log
+
+# Editors
+.fleet
+.idea
+.vscode
+
+# Platform
+.DS_Store
+`,
+		},
+		{
+			path: ".editorconfig",
+			content: `# http://editorconfig.org
+
+[*]
+indent_style = tab
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.md]
+trim_trailing_whitespace = false
+`,
+		},
+		{
+			path: ".prettierignore",
+			content: `.kura
+node_modules
+build
+dist
 `,
 		},
 		{
@@ -313,11 +376,20 @@ tmp
 			content: makeEnvExample(choices),
 		},
 		{
-			path: "kura",
-			mode: 0o755,
-			content: `#!/usr/bin/env bun
-await import("./bin/console.ts");
+			path: ".env",
+			content: makeEnv(choices),
+		},
+		{
+			path: ".env.test",
+			content: `NODE_ENV=test
+PORT=3333
+HOST=localhost
+LOG_LEVEL=silent
 `,
+		},
+		{
+			path: "kura.config.ts",
+			content: makeKuraConfig(),
 		},
 		{
 			path: "bin/console.ts",
@@ -326,6 +398,8 @@ await import("./bin/console.ts");
 \tregisterGeneratorCommands,
 \tregisterServeCommand,
 } from "kura";
+
+await import("#start/env");
 
 const appConsole = createConsole();
 
@@ -341,14 +415,15 @@ process.exit(exitCode);
 		{
 			path: "bin/server.ts",
 			content: `import { Server } from "kura";
-import { router } from "../start/routes";
+import env from "#start/env";
+import { router } from "#start/routes";
 
 export { router };
 export default router;
 
 export function createServer(): Server {
 \tconst server = new Server({
-\t\tport: Number(Bun.env.PORT ?? 3333),
+\t\tport: env.number("PORT", 3333) ?? 3333,
 \t});
 
 \tserver.setRouter(router);
@@ -359,20 +434,114 @@ export function createServer(): Server {
 if (import.meta.main) {
 \tconst server = createServer();
 \tserver.start();
-\tconsole.log(\`Kura app listening on http://localhost:\${Bun.env.PORT ?? 3333}\`);
+\tconsole.log(\`Kura app listening on http://\${env.get("HOST", "localhost")}:\${env.number("PORT", 3333)}\`);
 }
 `,
 		},
 		{
 			path: "bin/test.ts",
-			content: `import { router } from "../start/routes";
+			content: `Bun.env.NODE_ENV = "test";
+
+await import("#start/env");
+const { router } = await import("#start/routes");
 
 export { router };
 `,
 		},
 		{
+			path: "start/env.ts",
+			content: `import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Env } from "kura";
+
+const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const env = new Env();
+
+await env.load(resolve(appRoot, ".env")).catch(() => undefined);
+
+if (Bun.env.NODE_ENV === "test") {
+\tawait env.load(resolve(appRoot, ".env.test")).catch(() => undefined);
+}
+
+export default env;
+`,
+		},
+		{
+			path: "start/kernel.ts",
+			content: `import { BodyParser, Cors, RequestId, type Middleware } from "kura";
+
+export const serverMiddleware: readonly Middleware[] = [RequestId, Cors()];
+
+export const routerMiddleware: readonly Middleware[] = [BodyParser];
+
+export const namedMiddleware = {};
+`,
+		},
+		{
 			path: "config/app.ts",
 			content: makeAppConfig(choices),
+		},
+		{
+			path: "config/auth.ts",
+			content: makeSimpleConfig("auth", {
+				guard: choices.auth,
+			}),
+		},
+		{
+			path: "config/bodyparser.ts",
+			content: makeSimpleConfig("bodyparser", {
+				json: true,
+				form: true,
+				multipart: true,
+			}),
+		},
+		{
+			path: "config/cache.ts",
+			content: makeSimpleConfig("cache", {
+				default: choices.cache,
+			}),
+		},
+		{
+			path: "config/database.ts",
+			content: makeSimpleConfig("database", {
+				default: choices.database,
+			}),
+		},
+		{
+			path: "config/hash.ts",
+			content: makeSimpleConfig("hash", {
+				driver: "bcrypt",
+			}),
+		},
+		{
+			path: "config/logger.ts",
+			content: makeSimpleConfig("logger", {
+				level: "info",
+			}),
+		},
+		{
+			path: "config/queue.ts",
+			content: makeSimpleConfig("queue", {
+				default: choices.queue,
+			}),
+		},
+		{
+			path: "config/session.ts",
+			content: makeSimpleConfig("session", {
+				driver: choices.auth === "session" ? "cookie" : "memory",
+			}),
+		},
+		{
+			path: "config/shield.ts",
+			content: makeSimpleConfig("shield", {
+				enabled: choices.preset !== "api",
+			}),
+		},
+		{
+			path: "config/static.ts",
+			content: makeSimpleConfig("static", {
+				enabled: choices.preset !== "api",
+			}),
 		},
 		{
 			path: "start/routes.ts",
@@ -415,6 +584,14 @@ export { router };
 			content: "",
 		},
 		{
+			path: "app/services/.gitkeep",
+			content: "",
+		},
+		{
+			path: "app/abilities/.gitkeep",
+			content: "",
+		},
+		{
 			path: "app/transformers/.gitkeep",
 			content: "",
 		},
@@ -439,11 +616,37 @@ export { router };
 			content: "",
 		},
 		{
+			path: "database/schema.ts",
+			content: `export const schema = {};
+`,
+		},
+		{
+			path: "database/schema_rules.ts",
+			content: `export const schemaRules = {};
+`,
+		},
+		{
 			path: "providers/.gitkeep",
 			content: "",
 		},
 		{
+			path: ".kura/server/.gitkeep",
+			content: "",
+		},
+		{
 			path: "tests/.gitkeep",
+			content: "",
+		},
+		{
+			path: "tests/bootstrap.ts",
+			content: `export const runnerHooks = {
+\tsetup: [],
+\tteardown: [],
+};
+`,
+		},
+		{
+			path: "tmp/.gitkeep",
 			content: "",
 		},
 		{
@@ -464,14 +667,39 @@ export { router };
 function makePackageJson(appName: string, packageVersion: string) {
 	return {
 		name: slugify(appName),
+		version: "0.0.0",
 		type: "module",
 		private: true,
+		license: "UNLICENSED",
+		engines: {
+			bun: ">=1.3.0",
+		},
 		scripts: {
-			dev: "bun kura serve --watch",
-			start: "bun kura serve --host 0.0.0.0",
+			kura: "bun bin/console.ts",
+			dev: "bun bin/console.ts serve --watch",
+			start: "bun bin/console.ts serve --host 0.0.0.0",
+			test: "bun bin/test.ts",
 			typecheck: "tsc --noEmit",
 			build:
 				"bun build bin/server.ts --target=bun --outdir=build --packages=external",
+		},
+		imports: {
+			"#controllers/*": "./app/controllers/*.ts",
+			"#exceptions/*": "./app/exceptions/*.ts",
+			"#models/*": "./app/models/*.ts",
+			"#mails/*": "./app/mails/*.ts",
+			"#services/*": "./app/services/*.ts",
+			"#listeners/*": "./app/listeners/*.ts",
+			"#generated/*": "./.kura/server/*.ts",
+			"#events/*": "./app/events/*.ts",
+			"#middleware/*": "./app/middleware/*.ts",
+			"#validators/*": "./app/validators/*.ts",
+			"#providers/*": "./providers/*.ts",
+			"#policies/*": "./app/policies/*.ts",
+			"#database/*": "./database/*.ts",
+			"#tests/*": "./tests/*.ts",
+			"#start/*": "./start/*.ts",
+			"#config/*": "./config/*.ts",
 		},
 		dependencies: {
 			kura: packageVersion,
@@ -578,7 +806,23 @@ async function resolveFutureRealPath(path: string): Promise<string> {
 }
 
 function makeEnvExample(choices: NewAppChoices): string {
-	const lines = ["PORT=3333"];
+	return makeEnvFile(choices, "change-me-in-production");
+}
+
+function makeEnv(choices: NewAppChoices): string {
+	return makeEnvFile(choices, "local-development-key");
+}
+
+function makeEnvFile(choices: NewAppChoices, appKey: string): string {
+	const lines = [
+		"TZ=UTC",
+		"PORT=3333",
+		"HOST=localhost",
+		"NODE_ENV=development",
+		"LOG_LEVEL=info",
+		`APP_KEY=${appKey}`,
+		`APP_URL=http://\${HOST}:\${PORT}`,
+	];
 
 	if (choices.database !== "none") {
 		lines.push("DATABASE_URL=");
@@ -593,6 +837,64 @@ function makeEnvExample(choices: NewAppChoices): string {
 	}
 
 	return `${lines.join("\n")}\n`;
+}
+
+function makeKuraConfig(): string {
+	return `import { defineConfig } from "kura";
+
+export default defineConfig({
+\tcommands: ["./commands"],
+\tproviders: ["./providers"],
+\tpreloads: ["#start/env", "#start/kernel", "#start/routes"],
+\ttests: {
+\t\tsuites: [
+\t\t\t{
+\t\t\t\tfiles: ["tests/unit/**/*.test.ts"],
+\t\t\t\tname: "unit",
+\t\t\t\ttimeout: 2000,
+\t\t\t},
+\t\t\t{
+\t\t\t\tfiles: ["tests/functional/**/*.test.ts"],
+\t\t\t\tname: "functional",
+\t\t\t\ttimeout: 30000,
+\t\t\t},
+\t\t],
+\t},
+\taliases: {
+\t\tcontrollers: "#controllers/*",
+\t\texceptions: "#exceptions/*",
+\t\tmodels: "#models/*",
+\t\tmails: "#mails/*",
+\t\tservices: "#services/*",
+\t\tlisteners: "#listeners/*",
+\t\tgenerated: "#generated/*",
+\t\tevents: "#events/*",
+\t\tmiddleware: "#middleware/*",
+\t\tvalidators: "#validators/*",
+\t\tproviders: "#providers/*",
+\t\tpolicies: "#policies/*",
+\t\tdatabase: "#database/*",
+\t\ttests: "#tests/*",
+\t\tstart: "#start/*",
+\t\tconfig: "#config/*",
+\t},
+});
+`;
+}
+
+function makeSimpleConfig(
+	name: string,
+	values: Record<string, string | boolean>,
+): string {
+	return `import { defineConfig } from "kura";
+
+export default defineConfig({
+\tname: "${name}",
+${Object.entries(values)
+	.map(([key, value]) => `\t${key}: ${JSON.stringify(value)},`)
+	.join("\n")}
+});
+`;
 }
 
 function makeAppConfig(choices: NewAppChoices): string {
@@ -649,6 +951,23 @@ bun run dev
 \`\`\`
 
 Open http://localhost:3333.
+
+## Commands
+
+\`\`\`sh
+bun kura
+bun kura make:controller Home
+bun kura serve --watch
+\`\`\`
+
+## Structure
+
+- \`app/\`: controllers, middleware, models, policies, validators, and domain code.
+- \`bin/\`: console, server, and test entrypoints.
+- \`config/\`: application and module configuration.
+- \`database/\`: migrations, seeders, factories, and generated schema metadata.
+- \`start/\`: environment, kernel, and routes loaded during boot.
+- \`kura.config.ts\`: Kura application manifest.
 `;
 }
 
