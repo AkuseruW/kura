@@ -859,6 +859,338 @@ describe("BaseModel", () => {
 		);
 	});
 
+	test("preloads belongsTo relations in batches and caches the result", async () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			declare id: number;
+			declare email: string;
+			declare name: string;
+			declare active: boolean;
+		}
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+			static override timestamps = false;
+
+			@belongsTo(() => User, { foreignKey: "userId" })
+			declare user: User | null;
+
+			declare id: number;
+			declare userId: number | null;
+			declare title: string;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Post.useDatabase(database);
+		const connection = await memoryConnection(database);
+		connection.queueResult<PostAttributes>({
+			rows: [
+				{ id: 10, userId: 1, title: "Relations" },
+				{ id: 11, userId: 2, title: "Preloads" },
+				{ id: 12, userId: null, title: "Draft" },
+			],
+			affectedRows: 0,
+		});
+		connection.queueResult<UserAttributes>({
+			rows: [
+				{
+					id: 1,
+					email: "ada@kura.dev",
+					name: "Ada",
+					active: true,
+				},
+				{
+					id: 2,
+					email: "grace@kura.dev",
+					name: "Grace",
+					active: true,
+				},
+			],
+			affectedRows: 0,
+		});
+
+		const posts = await Post.query().preload("user").orderBy("id").all();
+		const cached = await posts[0]?.related<User>("user");
+
+		expect(posts).toHaveLength(3);
+		expect(posts[0]?.user).toBeInstanceOf(User);
+		expect(posts[0]?.user?.name).toBe("Ada");
+		expect(posts[1]?.user?.name).toBe("Grace");
+		expect(posts[2]?.user).toBeNull();
+		expect(cached).toBe(posts[0]?.user);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "posts" order by "id" asc',
+				bindings: [],
+			},
+			{
+				sql: 'select * from "users" where "id" in (?, ?)',
+				bindings: [1, 2],
+			},
+		]);
+	});
+
+	test("preloads hasOne and hasMany relations in batches", async () => {
+		class Profile extends BaseModel<ProfileAttributes> {
+			static override table = "profiles";
+			static override timestamps = false;
+
+			declare id: number;
+			declare userId: number;
+			declare bio: string;
+		}
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+			static override timestamps = false;
+
+			declare id: number;
+
+			@column({ name: "user_id" })
+			declare userId: number;
+
+			@column()
+			declare title: string;
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			@hasOne(() => Profile, { foreignKey: "userId" })
+			declare profile: Profile | null;
+
+			@hasMany(() => Post, { foreignKey: "userId" })
+			declare posts: readonly Post[];
+
+			declare id: number;
+			declare email: string;
+			declare name: string;
+			declare active: boolean;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Profile.useDatabase(database);
+		Post.useDatabase(database);
+		const connection = await memoryConnection(database);
+		connection.queueResult<UserAttributes>({
+			rows: [
+				{
+					id: 1,
+					email: "ada@kura.dev",
+					name: "Ada",
+					active: true,
+				},
+				{
+					id: 2,
+					email: "grace@kura.dev",
+					name: "Grace",
+					active: true,
+				},
+			],
+			affectedRows: 0,
+		});
+		connection.queueResult<ProfileAttributes>({
+			rows: [{ id: 5, userId: 1, bio: "Mathematician" }],
+			affectedRows: 0,
+		});
+		connection.queueResult<PostAttributes>({
+			rows: [
+				{
+					id: 10,
+					user_id: 1,
+					title: "Relations",
+				} as unknown as PostAttributes,
+				{
+					id: 11,
+					user_id: 1,
+					title: "Collections",
+				} as unknown as PostAttributes,
+				{
+					id: 12,
+					user_id: 2,
+					title: "Preloads",
+				} as unknown as PostAttributes,
+			],
+			affectedRows: 0,
+		});
+
+		const users = await User.query().preload("profile").preload("posts").all();
+		const cachedProfile = await users[0]?.related<Profile>("profile");
+		const cachedPosts = await users[0]?.relatedMany<Post>("posts");
+
+		expect(users[0]?.profile).toBeInstanceOf(Profile);
+		expect(users[0]?.profile?.bio).toBe("Mathematician");
+		expect(users[1]?.profile).toBeNull();
+		expect(users[0]?.posts.map((post) => post.title)).toEqual([
+			"Relations",
+			"Collections",
+		]);
+		expect(users[1]?.posts.map((post) => post.title)).toEqual(["Preloads"]);
+		expect(cachedProfile).toBe(users[0]?.profile);
+		expect(cachedPosts).toBe(users[0]?.posts);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "users"',
+				bindings: [],
+			},
+			{
+				sql: 'select * from "profiles" where "userId" in (?, ?)',
+				bindings: [1, 2],
+			},
+			{
+				sql: 'select * from "posts" where "user_id" in (?, ?)',
+				bindings: [1, 2],
+			},
+		]);
+	});
+
+	test("preloads relations on first and paginated results", async () => {
+		class Profile extends BaseModel<ProfileAttributes> {
+			static override table = "profiles";
+			static override timestamps = false;
+
+			declare id: number;
+			declare userId: number;
+			declare bio: string;
+		}
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+			static override timestamps = false;
+
+			declare id: number;
+			declare userId: number;
+			declare title: string;
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			@hasOne(() => Profile, { foreignKey: "userId" })
+			declare profile: Profile | null;
+
+			@hasMany(() => Post, { foreignKey: "userId" })
+			declare posts: readonly Post[];
+
+			declare id: number;
+			declare email: string;
+			declare name: string;
+			declare active: boolean;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Profile.useDatabase(database);
+		Post.useDatabase(database);
+		const connection = await memoryConnection(database);
+		connection.queueResult<UserAttributes>({
+			rows: [
+				{
+					id: 1,
+					email: "ada@kura.dev",
+					name: "Ada",
+					active: true,
+				},
+			],
+			affectedRows: 0,
+		});
+		connection.queueResult<PostAttributes>({
+			rows: [{ id: 10, userId: 1, title: "Relations" }],
+			affectedRows: 0,
+		});
+		connection.queueResult({
+			rows: [{ aggregate: 12 }],
+			affectedRows: 0,
+		});
+		connection.queueResult<UserAttributes>({
+			rows: [
+				{
+					id: 2,
+					email: "grace@kura.dev",
+					name: "Grace",
+					active: true,
+				},
+			],
+			affectedRows: 0,
+		});
+		connection.queueResult<ProfileAttributes>({
+			rows: [{ id: 5, userId: 2, bio: "Compiler pioneer" }],
+			affectedRows: 0,
+		});
+
+		const firstUser = await User.query().preload("posts").first();
+		const page = await User.query().preload("profile").paginate(2, 10);
+
+		expect(firstUser?.posts).toHaveLength(1);
+		expect(firstUser?.posts[0]?.title).toBe("Relations");
+		expect(page.total).toBe(12);
+		expect(page.data[0]?.profile?.bio).toBe("Compiler pioneer");
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "users" limit 1',
+				bindings: [],
+			},
+			{
+				sql: 'select * from "posts" where "userId" in (?)',
+				bindings: [1],
+			},
+			{
+				sql: 'select count(*) as "aggregate" from "users"',
+				bindings: [],
+			},
+			{
+				sql: 'select * from "users" limit 10 offset 10',
+				bindings: [],
+			},
+			{
+				sql: 'select * from "profiles" where "userId" in (?)',
+				bindings: [2],
+			},
+		]);
+	});
+
+	test("does not query relations when preloading empty results", async () => {
+		class Post extends BaseModel<PostAttributes> {
+			static override table = "posts";
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			@hasMany(() => Post, { foreignKey: "userId" })
+			declare posts: readonly Post[];
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Post.useDatabase(database);
+		const connection = await memoryConnection(database);
+		connection.queueResult<UserAttributes>({
+			rows: [],
+			affectedRows: 0,
+		});
+
+		const users = await User.query().preload("posts").all();
+
+		expect(users).toEqual([]);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "users"',
+				bindings: [],
+			},
+		]);
+	});
+
+	test("rejects empty preload relation names", () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+		}
+		User.useDatabase(createDatabase());
+
+		expect(() => User.query().preload("")).toThrow(
+			"preload() relation name cannot be empty",
+		);
+		expect(() => User.query().preload("   ")).toThrow(
+			"preload() relation name cannot be empty",
+		);
+	});
+
 	test("throws when model database or table configuration is missing", async () => {
 		class MissingDatabase extends BaseModel<UserAttributes> {
 			static override table = "users";
