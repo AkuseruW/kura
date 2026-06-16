@@ -37,5 +37,5 @@ function extractMultipartBoundary(
 		throw new Error("Missing multipart form boundary");
 	}
 
-	return boundary.replace(/^--/, "");
+	return boundary;
 }
