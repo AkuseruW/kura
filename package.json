@@ -3,6 +3,9 @@
 	"module": "index.ts",
 	"type": "module",
 	"private": true,
+	"bin": {
+		"kura": "./bin/kura.ts"
+	},
 	"scripts": {
 		"lint": "biome check .",
 		"format": "biome format . --write",
