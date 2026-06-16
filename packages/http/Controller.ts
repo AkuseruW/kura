@@ -14,7 +14,7 @@ export abstract class BaseController {
 	}
 }
 
-type ControllerConstructor = (new () => BaseController) & {
+export type ControllerConstructor = (new () => BaseController) & {
 	middleware?: Middleware[];
 	middlewareFor?: Record<string, Middleware[]>;
 };

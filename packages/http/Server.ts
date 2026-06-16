@@ -1,7 +1,17 @@
+import type { Router } from "./Router";
+
+export type RequestFormData = Awaited<
+	ReturnType<typeof Bun.readableStreamToFormData>
+>;
+export type RequestFormDataEntry = NonNullable<
+	ReturnType<RequestFormData["get"]>
+>;
+
 export type Context = {
 	request: Request;
 	params?: Record<string, string>;
 	body?: unknown;
+	formData?: RequestFormData;
 	requestId?: string;
 };
 
@@ -17,6 +27,19 @@ export class Server {
 		this.handler = handler;
 	}
 
+	setRouter(router: Router): void {
+		this.handler = async (ctx) => {
+			const url = new URL(ctx.request.url);
+			const match = router.match(ctx.request.method, url.pathname);
+			if (!match) {
+				return new Response("Not Found", { status: 404 });
+			}
+
+			ctx.params = match.params;
+			return match.handler(ctx);
+		};
+	}
+
 	start(): void {
 		this.server = Bun.serve({
 			port: this.options.port,
@@ -24,7 +47,7 @@ export class Server {
 				try {
 					const ctx: Context = { request };
 					return await this.handler(ctx);
-				} catch (error) {
+				} catch {
 					return new Response("Internal Server Error", { status: 500 });
 				}
 			},

@@ -1,6 +1,7 @@
 export class Schema<T = unknown> {
 	private rules: ((value: unknown) => boolean)[] = [];
 	private _type: string = "unknown";
+	private parser: (value: unknown) => T = (value) => value as T;
 
 	string(): Schema<string> {
 		const schema = new Schema<string>();
@@ -38,11 +39,13 @@ export class Schema<T = unknown> {
 					}
 				}),
 			);
+			schema.parser = (v) =>
+				(v as unknown[]).map((item) => itemSchema.parse(item));
 		}
 		return schema;
 	}
 
-	object<U extends Record<string, Schema<any>>>(
+	object<U extends Record<string, Schema<unknown>>>(
 		shape: U,
 	): Schema<{ [K in keyof U]: U[K] extends Schema<infer V> ? V : never }> {
 		type Result = { [K in keyof U]: U[K] extends Schema<infer V> ? V : never };
@@ -60,6 +63,14 @@ export class Schema<T = unknown> {
 			}
 			return true;
 		});
+		schema.parser = (v) => {
+			const obj = v as Record<string, unknown>;
+			const result: Record<string, unknown> = { ...obj };
+			for (const [key, fieldSchema] of Object.entries(shape)) {
+				result[key] = fieldSchema.parse(obj[key]);
+			}
+			return result as Result;
+		};
 		return schema;
 	}
 
@@ -82,8 +93,10 @@ export class Schema<T = unknown> {
 		schema._type = "date";
 		schema.rules.push(
 			(v) =>
-				v instanceof Date || (typeof v === "string" && !isNaN(Date.parse(v))),
+				v instanceof Date ||
+				(typeof v === "string" && !Number.isNaN(Date.parse(v))),
 		);
+		schema.parser = (v) => (v instanceof Date ? v : new Date(v as string));
 		return schema;
 	}
 
@@ -93,7 +106,7 @@ export class Schema<T = unknown> {
 				throw new Error(`Validation failed for ${this._type}`);
 			}
 		}
-		return value as T;
+		return this.parser(value);
 	}
 }
 

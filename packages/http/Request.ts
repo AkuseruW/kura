@@ -1,9 +1,11 @@
 import type { Schema } from "../validator/Schema";
+import { formDataToObject, parseRequestFormData } from "./Body";
+import type { RequestFormData } from "./Server";
 
 export class KuraRequest {
-	private body: Record<string, any> = {};
+	private body: Record<string, unknown> = {};
 	private query: Record<string, string> = {};
-	private formData: FormData | null = null;
+	private formData: RequestFormData | null = null;
 
 	constructor(private request: Request) {
 		const url = new URL(request.url);
@@ -15,15 +17,13 @@ export class KuraRequest {
 	async parse(): Promise<void> {
 		const contentType = this.request.headers.get("content-type");
 		if (contentType?.includes("application/json")) {
-			this.body = (await this.request.json()) as Record<string, any>;
+			this.body = (await this.request.json()) as Record<string, unknown>;
 		} else if (contentType?.includes("multipart/form-data")) {
-			this.formData = (await this.request.formData()) as unknown as FormData;
+			this.formData = await parseRequestFormData(this.request, contentType);
+			this.body = formDataToObject(this.formData);
 		} else if (contentType?.includes("application/x-www-form-urlencoded")) {
-			const text = await this.request.text();
-			const params = new URLSearchParams(text);
-			params.forEach((value, key) => {
-				this.body[key] = value;
-			});
+			this.formData = await parseRequestFormData(this.request, contentType);
+			this.body = formDataToObject(this.formData);
 		}
 	}
 
@@ -42,15 +42,15 @@ export class KuraRequest {
 	}
 
 	input<T>(key: string, defaultValue?: T): T {
-		return this.body[key] ?? this.query[key] ?? defaultValue;
+		return (this.body[key] ?? this.query[key] ?? defaultValue) as T;
 	}
 
-	all(): Record<string, any> {
+	all(): Record<string, unknown> {
 		return { ...this.query, ...this.body };
 	}
 
-	only(keys: string[]): Record<string, any> {
-		const result: Record<string, any> = {};
+	only(keys: string[]): Record<string, unknown> {
+		const result: Record<string, unknown> = {};
 		const all = this.all();
 		for (const key of keys) {
 			if (key in all) {
@@ -60,7 +60,7 @@ export class KuraRequest {
 		return result;
 	}
 
-	except(keys: string[]): Record<string, any> {
+	except(keys: string[]): Record<string, unknown> {
 		const result = this.all();
 		for (const key of keys) {
 			delete result[key];

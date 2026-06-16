@@ -1,31 +1,42 @@
-export class Config {
-	private items: Record<string, any> = {};
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
-	constructor(items: Record<string, any> = {}) {
+export class Config {
+	private items: Record<string, unknown> = {};
+
+	constructor(items: Record<string, unknown> = {}) {
 		this.items = items;
 	}
 
-	get<T>(key: string, defaultValue?: T): T {
+	get<T>(key: string): T | undefined;
+	get<T>(key: string, defaultValue: T): T;
+	get<T>(key: string, defaultValue?: T): T | undefined {
 		const parts = key.split(".");
-		let result: any = this.items;
+		let result: unknown = this.items;
 
 		for (const part of parts) {
+			if (!isRecord(result)) {
+				return defaultValue;
+			}
 			result = result[part];
 		}
 
-		return result ?? defaultValue;
+		return (result as T | undefined) ?? defaultValue;
 	}
 
-	set(key: string, value: any): void {
+	set(key: string, value: unknown): void {
 		const parts = key.split(".");
-		const lastKey = parts.pop()!;
+		const lastKey = parts.pop();
+		if (!lastKey) {
+			throw new Error("Config key cannot be empty");
+		}
 		let current = this.items;
 
 		for (const part of parts) {
-			if (!current[part]) {
+			if (!isRecord(current[part])) {
 				current[part] = {};
 			}
-			current = current[part];
+			current = current[part] as Record<string, unknown>;
 		}
 
 		current[lastKey] = value;
@@ -33,9 +44,12 @@ export class Config {
 
 	has(key: string): boolean {
 		const parts = key.split(".");
-		let result: any = this.items;
+		let result: unknown = this.items;
 
 		for (const part of parts) {
+			if (!isRecord(result)) {
+				return false;
+			}
 			if (result[part] === undefined) {
 				return false;
 			}
@@ -50,7 +64,8 @@ export class Config {
 
 		for await (const file of glob.scan(path)) {
 			const name = file.replace(".ts", "");
-			const module = await import(`${path}/${file}.ts`);
+			const modulePath = pathToFileURL(resolve(path, file)).href;
+			const module = await import(modulePath);
 			this.items[name] = module.default;
 		}
 	}
@@ -58,4 +73,8 @@ export class Config {
 
 export function defineConfig<T>(config: T): T {
 	return config;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }

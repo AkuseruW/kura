@@ -1,3 +1,4 @@
+import { formDataToObject, parseRequestFormData } from "./Body";
 import type { Context } from "./Server";
 
 export type Middleware = (
@@ -30,6 +31,14 @@ export const BodyParser: Middleware = async (ctx, next) => {
 	const contentType = ctx.request.headers.get("content-type");
 	if (contentType?.includes("application/json")) {
 		ctx.body = await ctx.request.json();
+	} else if (contentType?.includes("multipart/form-data")) {
+		const formData = await parseRequestFormData(ctx.request, contentType);
+		ctx.formData = formData;
+		ctx.body = formDataToObject(formData);
+	} else if (contentType?.includes("application/x-www-form-urlencoded")) {
+		const formData = await parseRequestFormData(ctx.request, contentType);
+		ctx.formData = formData;
+		ctx.body = formDataToObject(formData);
 	}
 	return next();
 };
@@ -40,7 +49,7 @@ export const Cors = (
 	const origin = options.origin ?? "*";
 	const methods = options.methods ?? ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
-	return async (ctx, next) => {
+	return async (_ctx, next) => {
 		const response = await next();
 		response.headers.set("Access-Control-Allow-Origin", origin);
 		response.headers.set("Access-Control-Allow-Methods", methods.join(", "));

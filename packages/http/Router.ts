@@ -1,12 +1,14 @@
+import {
+	type ControllerConstructor,
+	getControllerMiddleware,
+	resolveController,
+} from "./Controller";
+import type { Middleware } from "./Middleware";
 import type { Context } from "./Server";
 
-type RouteHandler = (ctx: Context) => Response | Promise<Response>;
-type Middleware = (
-	ctx: Context,
-	next: () => Promise<Response>,
-) => Response | Promise<Response>;
+export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
 
-type ResourceController = {
+export type ResourceController = {
 	index?: RouteHandler;
 	show?: RouteHandler;
 	store?: RouteHandler;
@@ -14,7 +16,8 @@ type ResourceController = {
 	destroy?: RouteHandler;
 };
 
-type ResourceAction = "index" | "show" | "store" | "update" | "destroy";
+export type ResourceAction = "index" | "show" | "store" | "update" | "destroy";
+type ResourceControllerInput = ResourceController | string;
 
 type Route = {
 	method: string;
@@ -43,12 +46,18 @@ export class Router {
 		if (!path) {
 			throw new Error(`Route [${name}] not found`);
 		}
-		return path.replace(/:(\w+)/g, (_, key) => String(params[key] ?? ""));
+		return path.replace(/:(\w+)/g, (_, key) => {
+			if (!(key in params)) {
+				throw new Error(`Missing route parameter [${key}] for route [${name}]`);
+			}
+			return String(params[key]);
+		});
 	}
 
 	private pathToRegex(path: string): { pattern: RegExp; params: string[] } {
 		const params: string[] = [];
-		const pattern = path.replace(/:(\w+)/g, (_, name) => {
+		const escapedPath = escapeRegex(path);
+		const pattern = escapedPath.replace(/:(\w+)/g, (_, name) => {
 			params.push(name);
 			return "([^/]+)";
 		});
@@ -93,7 +102,7 @@ export class Router {
 		return null;
 	}
 
-	resource(name: string, controller: ResourceController): ResourceBuilder {
+	resource(name: string, controller: ResourceControllerInput): ResourceBuilder {
 		return new ResourceBuilder(this, name, controller);
 	}
 
@@ -125,7 +134,7 @@ class ResourceBuilder {
 	constructor(
 		private router: Router,
 		private name: string,
-		private controller: ResourceController,
+		private controller: ResourceControllerInput,
 	) {}
 
 	only(actions: ResourceAction[]): this {
@@ -139,24 +148,52 @@ class ResourceBuilder {
 	}
 
 	register(): void {
-		const basePath = `/${this.name}`;
-		const paramPath = `/${this.name}/:id`;
+		const basePath = normalizePath(this.name);
+		const paramPath = joinPaths(basePath, ":id");
 
-		if (this.actions.includes("index") && this.controller.index) {
-			this.router.get(basePath, this.controller.index);
+		const index = this.resolveHandler("index");
+		if (this.actions.includes("index") && index) {
+			this.router.get(basePath, index);
 		}
-		if (this.actions.includes("show") && this.controller.show) {
-			this.router.get(paramPath, this.controller.show);
+		const show = this.resolveHandler("show");
+		if (this.actions.includes("show") && show) {
+			this.router.get(paramPath, show);
 		}
-		if (this.actions.includes("store") && this.controller.store) {
-			this.router.post(basePath, this.controller.store);
+		const store = this.resolveHandler("store");
+		if (this.actions.includes("store") && store) {
+			this.router.post(basePath, store);
 		}
-		if (this.actions.includes("update") && this.controller.update) {
-			this.router.put(paramPath, this.controller.update);
+		const update = this.resolveHandler("update");
+		if (this.actions.includes("update") && update) {
+			this.router.put(paramPath, update);
 		}
-		if (this.actions.includes("destroy") && this.controller.destroy) {
-			this.router.delete(paramPath, this.controller.destroy);
+		const destroy = this.resolveHandler("destroy");
+		if (this.actions.includes("destroy") && destroy) {
+			this.router.delete(paramPath, destroy);
 		}
+	}
+
+	private resolveHandler(action: ResourceAction): RouteHandler | null {
+		if (typeof this.controller !== "string") {
+			return this.controller[action] ?? null;
+		}
+
+		const Controller = resolveController(this.controller);
+		const method = (Controller.prototype as Record<string, unknown>)[action];
+		if (typeof method !== "function") {
+			return null;
+		}
+
+		const handler: RouteHandler = async (ctx) => {
+			const instance = new Controller();
+			instance.setContext(ctx);
+			return method.call(instance, ctx) as Response | Promise<Response>;
+		};
+
+		return applyMiddlewares(
+			handler,
+			getControllerMiddleware(Controller as ControllerConstructor, action),
+		);
 	}
 }
 
@@ -168,7 +205,7 @@ class GroupBuilder {
 	constructor(private router: Router) {}
 
 	prefix(prefix: string): this {
-		this._prefix = prefix;
+		this._prefix = normalizePath(prefix);
 		return this;
 	}
 
@@ -202,25 +239,12 @@ class GroupRouter {
 	) {}
 
 	private wrapHandler(handler: RouteHandler): RouteHandler {
-		if (this.middlewares.length === 0) {
-			return handler;
-		}
-		return async (ctx: Context) => {
-			let index = 0;
-			const next = async (): Promise<Response> => {
-				const middleware = this.middlewares[index++];
-				if (middleware) {
-					return middleware(ctx, next);
-				}
-				return handler(ctx);
-			};
-			return next();
-		};
+		return applyMiddlewares(handler, this.middlewares);
 	}
 
 	get(path: string, handler: RouteHandler): GroupRouteBuilder {
 		const routeBuilder = this.router.get(
-			this.prefix + path,
+			joinPaths(this.prefix, path),
 			this.wrapHandler(handler),
 		);
 		return new GroupRouteBuilder(routeBuilder, this.namePrefix);
@@ -228,7 +252,7 @@ class GroupRouter {
 
 	post(path: string, handler: RouteHandler): GroupRouteBuilder {
 		const routeBuilder = this.router.post(
-			this.prefix + path,
+			joinPaths(this.prefix, path),
 			this.wrapHandler(handler),
 		);
 		return new GroupRouteBuilder(routeBuilder, this.namePrefix);
@@ -236,7 +260,7 @@ class GroupRouter {
 
 	put(path: string, handler: RouteHandler): GroupRouteBuilder {
 		const routeBuilder = this.router.put(
-			this.prefix + path,
+			joinPaths(this.prefix, path),
 			this.wrapHandler(handler),
 		);
 		return new GroupRouteBuilder(routeBuilder, this.namePrefix);
@@ -244,7 +268,7 @@ class GroupRouter {
 
 	patch(path: string, handler: RouteHandler): GroupRouteBuilder {
 		const routeBuilder = this.router.patch(
-			this.prefix + path,
+			joinPaths(this.prefix, path),
 			this.wrapHandler(handler),
 		);
 		return new GroupRouteBuilder(routeBuilder, this.namePrefix);
@@ -252,7 +276,7 @@ class GroupRouter {
 
 	delete(path: string, handler: RouteHandler): GroupRouteBuilder {
 		const routeBuilder = this.router.delete(
-			this.prefix + path,
+			joinPaths(this.prefix, path),
 			this.wrapHandler(handler),
 		);
 		return new GroupRouteBuilder(routeBuilder, this.namePrefix);
@@ -268,4 +292,48 @@ class GroupRouteBuilder {
 	as(name: string): void {
 		this.routeBuilder.as(this.namePrefix + name);
 	}
+}
+
+function escapeRegex(value: string): string {
+	return value.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizePath(path: string): string {
+	const trimmed = path.replace(/^\/+|\/+$/g, "");
+	return trimmed ? `/${trimmed}` : "";
+}
+
+function joinPaths(prefix: string, path: string): string {
+	const normalizedPrefix = normalizePath(prefix);
+	const normalizedPath = normalizePath(path);
+	if (!normalizedPrefix && !normalizedPath) {
+		return "/";
+	}
+	return `${normalizedPrefix}${normalizedPath}`;
+}
+
+function applyMiddlewares(
+	handler: RouteHandler,
+	middlewares: Middleware[],
+): RouteHandler {
+	if (middlewares.length === 0) {
+		return handler;
+	}
+
+	return async (ctx) => {
+		let index = -1;
+		const dispatch = async (position: number): Promise<Response> => {
+			if (position <= index) {
+				throw new Error("next() called multiple times");
+			}
+			index = position;
+			const middleware = middlewares[position];
+			if (middleware) {
+				return middleware(ctx, () => dispatch(position + 1));
+			}
+			return handler(ctx);
+		};
+
+		return dispatch(0);
+	};
 }
