@@ -1,4 +1,33 @@
 export {
+	AuthManager,
+	auth,
+	GuardAuthenticator,
+} from "./packages/auth/AuthManager";
+export {
+	type AuthContext,
+	type Guard,
+	type GuardInput,
+	type GuardOptions,
+	type GuardResolver,
+	type GuardResult,
+	guard,
+} from "./packages/auth/Guard";
+export {
+	type JwtAlgorithm,
+	type JwtClaims,
+	JwtGuard,
+	type JwtGuardOptions,
+	type JwtHeader,
+	type JwtSecret,
+	type JwtSecretResolver,
+} from "./packages/auth/JwtGuard";
+export {
+	SessionGuard,
+	type SessionGuardOptions,
+	type SessionResolver,
+	type SessionResolverResult,
+} from "./packages/auth/SessionGuard";
+export {
 	Application,
 	type ApplicationLifecycleEventName,
 	type ApplicationLifecycleEventPayload,
