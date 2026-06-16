@@ -12,6 +12,21 @@ export { Emitter, Event, type Listener } from "./packages/core/Event";
 export { ServiceProvider } from "./packages/core/ServiceProvider";
 
 export {
+	type DatabaseConnection,
+	type DatabaseConnectionConfig,
+	type DatabaseDriver,
+	DatabaseManager,
+	type DatabaseManagerOptions,
+	type ExecutedQuery,
+	MemoryDatabaseConnection,
+	MemoryDatabaseDriver,
+	type QueryBindings,
+	type QueryPrimitive,
+	type QueryResult,
+	type QueryRow,
+} from "./packages/database/Database";
+
+export {
 	BaseController,
 	type ControllerAction,
 	type ControllerConstructor,
