@@ -221,6 +221,22 @@ export {
 	type ServeWatcherFactory,
 } from "./packages/http/ServeConsole";
 export { type Context, Server } from "./packages/http/Server";
+export {
+	createTestClient,
+	type TestBodyInit,
+	TestClient,
+	type TestClientHandler,
+	type TestClientOptions,
+	type TestClientTarget,
+	type TestCookieValue,
+	type TestFormValue,
+	type TestHeadersInit,
+	type TestLoginOptions,
+	type TestQueryValue,
+	type TestRequestOptions,
+	TestResponse,
+	type TestSessionOptions,
+} from "./packages/http/TestClient";
 
 export {
 	dispatch,
