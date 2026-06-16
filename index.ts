@@ -9,6 +9,11 @@ export { Config, defineConfig } from "./packages/core/Config";
 export { Container } from "./packages/core/Container";
 export { Env } from "./packages/core/Env";
 export { Emitter, Event, type Listener } from "./packages/core/Event";
+export {
+	Hash,
+	type HashMakeOptions,
+	type HashVerifyOptions,
+} from "./packages/core/Hash";
 export { ServiceProvider } from "./packages/core/ServiceProvider";
 
 export {
