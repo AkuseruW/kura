@@ -5,8 +5,10 @@ import {
 	column,
 	hasMany,
 	hasOne,
+	type ManyToManyRelationOptions,
 	ModelNotFoundException,
 	type ModelPaginatedResult,
+	manyToMany,
 } from "./BaseModel";
 import {
 	DatabaseManager,
@@ -45,6 +47,16 @@ type ProfileAttributes = QueryRow & {
 	id: number;
 	userId: number;
 	bio: string;
+};
+
+type RoleAttributes = QueryRow & {
+	id: number;
+	name: string;
+};
+
+type PermissionAttributes = QueryRow & {
+	code: string;
+	label: string;
 };
 
 function createDatabase(connections = ["primary"]) {
@@ -859,6 +871,204 @@ describe("BaseModel", () => {
 		);
 	});
 
+	test("loads manyToMany relations through decorators and caches the collection", async () => {
+		class Role extends BaseModel<RoleAttributes> {
+			static override table = "roles";
+			static override timestamps = false;
+
+			declare id: number;
+			declare name: string;
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			@manyToMany(() => Role, {
+				pivotTable: "role_user",
+				foreignPivotKey: "user_id",
+				relatedPivotKey: "role_id",
+			})
+			declare roles: readonly Role[];
+
+			declare id: number;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Role.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+		connection.queueResult<QueryRow>({
+			rows: [
+				{ user_id: 1, role_id: 2 },
+				{ user_id: 1, role_id: 3 },
+			],
+			affectedRows: 0,
+		});
+		connection.queueResult<RoleAttributes>({
+			rows: [
+				{ id: 3, name: "editor" },
+				{ id: 2, name: "admin" },
+			],
+			affectedRows: 0,
+		});
+
+		const roles = await user.relatedMany<Role>("roles");
+		const cached = await user.relatedMany<Role>("roles");
+
+		expect(roles.map((role) => role.name)).toEqual(["admin", "editor"]);
+		expect(user.roles).toBe(roles);
+		expect(cached).toBe(roles);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "role_user" where "user_id" = ?',
+				bindings: [1],
+			},
+			{
+				sql: 'select * from "roles" where "id" in (?, ?)',
+				bindings: [2, 3],
+			},
+		]);
+	});
+
+	test("loads manyToMany relation methods with custom keys", async () => {
+		class Permission extends BaseModel<PermissionAttributes> {
+			static override table = "permissions";
+			static override primaryKey = "code";
+			static override timestamps = false;
+
+			declare code: string;
+			declare label: string;
+		}
+		class Team extends BaseModel<QueryRow> {
+			static override table = "teams";
+			static override primaryKey = "uuid";
+			static override timestamps = false;
+
+			declare uuid: string;
+
+			permissions() {
+				return this.manyToMany(Permission, {
+					pivotTable: "permission_team",
+					foreignPivotKey: "team_uuid",
+					relatedPivotKey: "permission_code",
+					localKey: "uuid",
+					relatedKey: "code",
+				});
+			}
+		}
+		const database = createDatabase();
+		Team.useDatabase(database);
+		Permission.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const team = Team.hydrate({
+			uuid: "team-1",
+			name: "Core",
+		});
+		connection.queueResult<QueryRow>({
+			rows: [
+				{ team_uuid: "team-1", permission_code: "deploy" },
+				{ team_uuid: "team-1", permission_code: "review" },
+			],
+			affectedRows: 0,
+		});
+		connection.queueResult<PermissionAttributes>({
+			rows: [
+				{ code: "review", label: "Review pull requests" },
+				{ code: "deploy", label: "Deploy releases" },
+			],
+			affectedRows: 0,
+		});
+
+		const permissions = await team.relatedMany<Permission>("permissions");
+
+		expect(permissions.map((permission) => permission.code)).toEqual([
+			"deploy",
+			"review",
+		]);
+		expect(
+			(
+				team as unknown as {
+					readonly permissions: readonly Permission[];
+				}
+			).permissions,
+		).toBe(permissions);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "permission_team" where "team_uuid" = ?',
+				bindings: ["team-1"],
+			},
+			{
+				sql: 'select * from "permissions" where "code" in (?, ?)',
+				bindings: ["deploy", "review"],
+			},
+		]);
+	});
+
+	test("returns an empty collection for manyToMany relations with missing local keys", async () => {
+		class Role extends BaseModel<RoleAttributes> {
+			static override table = "roles";
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			@manyToMany(() => Role, {
+				pivotTable: "role_user",
+				foreignPivotKey: "user_id",
+				relatedPivotKey: "role_id",
+			})
+			declare roles: readonly Role[];
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Role.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		} as UserAttributes);
+
+		const roles = await user.relatedMany<Role>("roles");
+
+		expect(roles).toEqual([]);
+		expect(user.roles).toBe(roles);
+		expect(connection.queries).toEqual([]);
+	});
+
+	test("rejects loading manyToMany relations through related()", async () => {
+		class Role extends BaseModel<RoleAttributes> {
+			static override table = "roles";
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			@manyToMany(() => Role, {
+				pivotTable: "role_user",
+				foreignPivotKey: "user_id",
+				relatedPivotKey: "role_id",
+			})
+			declare roles: readonly Role[];
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Role.useDatabase(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+
+		await expect(user.related("roles")).rejects.toThrow(
+			"Relation [roles] on model [User] is a collection relation; use relatedMany()",
+		);
+	});
+
 	test("preloads belongsTo relations in batches and caches the result", async () => {
 		class User extends BaseModel<UserAttributes> {
 			static override table = "users";
@@ -1145,6 +1355,128 @@ describe("BaseModel", () => {
 				bindings: [2],
 			},
 		]);
+	});
+
+	test("preloads manyToMany relations in batches and caches the collection", async () => {
+		class Role extends BaseModel<RoleAttributes> {
+			static override table = "roles";
+			static override timestamps = false;
+
+			declare id: number;
+			declare name: string;
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			@manyToMany(() => Role, {
+				pivotTable: "role_user",
+				foreignPivotKey: "user_id",
+				relatedPivotKey: "role_id",
+			})
+			declare roles: readonly Role[];
+
+			declare id: number;
+			declare email: string;
+			declare name: string;
+			declare active: boolean;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Role.useDatabase(database);
+		const connection = await memoryConnection(database);
+		connection.queueResult<UserAttributes>({
+			rows: [
+				{
+					id: 1,
+					email: "ada@kura.dev",
+					name: "Ada",
+					active: true,
+				},
+				{
+					id: 2,
+					email: "grace@kura.dev",
+					name: "Grace",
+					active: true,
+				},
+				{
+					id: 3,
+					email: "katherine@kura.dev",
+					name: "Katherine",
+					active: true,
+				},
+			],
+			affectedRows: 0,
+		});
+		connection.queueResult<QueryRow>({
+			rows: [
+				{ user_id: 1, role_id: 2 },
+				{ user_id: 1, role_id: 3 },
+				{ user_id: 2, role_id: 3 },
+			],
+			affectedRows: 0,
+		});
+		connection.queueResult<RoleAttributes>({
+			rows: [
+				{ id: 2, name: "admin" },
+				{ id: 3, name: "editor" },
+			],
+			affectedRows: 0,
+		});
+
+		const users = await User.query().preload("roles").all();
+		const cached = await users[0]?.relatedMany<Role>("roles");
+
+		expect(users[0]?.roles.map((role) => role.name)).toEqual([
+			"admin",
+			"editor",
+		]);
+		expect(users[1]?.roles.map((role) => role.name)).toEqual(["editor"]);
+		expect(users[2]?.roles).toEqual([]);
+		expect(cached).toBe(users[0]?.roles);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'select * from "users"',
+				bindings: [],
+			},
+			{
+				sql: 'select * from "role_user" where "user_id" in (?, ?, ?)',
+				bindings: [1, 2, 3],
+			},
+			{
+				sql: 'select * from "roles" where "id" in (?, ?)',
+				bindings: [2, 3],
+			},
+		]);
+	});
+
+	test("throws for misconfigured manyToMany relations", async () => {
+		class Role extends BaseModel<RoleAttributes> {
+			static override table = "roles";
+		}
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			roles() {
+				return this.manyToMany(
+					Role,
+					{} as unknown as ManyToManyRelationOptions,
+				);
+			}
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		Role.useDatabase(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+
+		await expect(user.relatedMany("roles")).rejects.toThrow(
+			"Relation [roles] is missing pivotTable",
+		);
 	});
 
 	test("does not query relations when preloading empty results", async () => {
