@@ -28,6 +28,13 @@ export type SortDirection = "asc" | "desc";
 
 export type QueryValue = QueryPrimitive | readonly QueryPrimitive[];
 
+export type QueryMutationValues<TRow extends QueryRow = QueryRow> = Partial<{
+	readonly [TKey in Extract<
+		keyof TRow,
+		string
+	>]: TRow[TKey] extends QueryPrimitive ? TRow[TKey] : QueryPrimitive;
+}>;
+
 export type CompiledQuery = {
 	readonly sql: string;
 	readonly bindings: QueryBindings;
@@ -74,6 +81,11 @@ type SelectCompileOptions = {
 type WhereCompileResult = {
 	readonly sql: string;
 	readonly bindings: QueryPrimitive[];
+};
+
+type MutationEntry = {
+	readonly column: string;
+	readonly value: QueryPrimitive;
 };
 
 type AggregateRow = QueryRow & {
@@ -211,6 +223,18 @@ export class QueryBuilder<TRow extends QueryRow = QueryRow> {
 		return this.aggregate("avg", column);
 	}
 
+	insert(values: QueryMutationValues<TRow>): Promise<QueryResult<TRow>> {
+		return this.execute<TRow>(this.compileInsert(values));
+	}
+
+	update(values: QueryMutationValues<TRow>): Promise<QueryResult<TRow>> {
+		return this.execute<TRow>(this.compileUpdate(values));
+	}
+
+	delete(): Promise<QueryResult<TRow>> {
+		return this.execute<TRow>(this.compileDelete());
+	}
+
 	private addWhereCondition(
 		boolean: BooleanOperator,
 		column: QueryColumn<TRow>,
@@ -291,6 +315,56 @@ export class QueryBuilder<TRow extends QueryRow = QueryRow> {
 		return {
 			sql: segments.join(" "),
 			bindings,
+		};
+	}
+
+	private compileInsert(values: QueryMutationValues<TRow>): CompiledQuery {
+		const entries = collectMutationEntries(values, "insert()");
+		const columns = entries
+			.map((entry) => escapeIdentifier(entry.column))
+			.join(", ");
+		const placeholders = entries.map(() => "?").join(", ");
+
+		return {
+			sql: `insert into ${escapeIdentifier(this.tableName)} (${columns}) values (${placeholders})`,
+			bindings: entries.map((entry) => entry.value),
+		};
+	}
+
+	private compileUpdate(values: QueryMutationValues<TRow>): CompiledQuery {
+		const entries = collectMutationEntries(values, "update()");
+		const where = this.compileWhereConditions();
+		const bindings = [
+			...entries.map((entry) => entry.value),
+			...where.bindings,
+		];
+		const segments = [
+			`update ${escapeIdentifier(this.tableName)} set ${entries
+				.map((entry) => `${escapeIdentifier(entry.column)} = ?`)
+				.join(", ")}`,
+		];
+
+		if (where.sql) {
+			segments.push(`where ${where.sql}`);
+		}
+
+		return {
+			sql: segments.join(" "),
+			bindings,
+		};
+	}
+
+	private compileDelete(): CompiledQuery {
+		const where = this.compileWhereConditions();
+		const segments = [`delete from ${escapeIdentifier(this.tableName)}`];
+
+		if (where.sql) {
+			segments.push(`where ${where.sql}`);
+		}
+
+		return {
+			sql: segments.join(" "),
+			bindings: where.bindings,
 		};
 	}
 
@@ -407,6 +481,30 @@ function compileNullWhereCondition(
 		sql: `${column} ${operator} ?`,
 		bindings: [null],
 	};
+}
+
+function collectMutationEntries<TRow extends QueryRow>(
+	values: QueryMutationValues<TRow>,
+	label: string,
+): MutationEntry[] {
+	const entries: MutationEntry[] = [];
+
+	for (const column of Object.keys(values)) {
+		const key = column as Extract<keyof TRow, string>;
+		const value = values[key];
+
+		if (value === undefined) {
+			throw new Error(`${label} values cannot contain undefined`);
+		}
+
+		entries.push({ column, value });
+	}
+
+	if (entries.length === 0) {
+		throw new Error(`${label} requires at least one value`);
+	}
+
+	return entries;
 }
 
 function parseAggregateValue(row: AggregateRow | undefined): number | null {

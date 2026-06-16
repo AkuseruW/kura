@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	BaseModel,
+	column,
 	ModelNotFoundException,
 	type ModelPaginatedResult,
 } from "./BaseModel";
@@ -16,11 +17,19 @@ type UserAttributes = QueryRow & {
 	email: string;
 	name: string;
 	active: boolean;
+	createdAt?: Date;
+	updatedAt?: Date;
+	ignored?: string;
 };
 
 type SessionAttributes = QueryRow & {
 	uuid: string;
 	user_id: number;
+};
+
+type ContactAttributes = QueryRow & {
+	id: number;
+	email: string;
 };
 
 function createDatabase(connections = ["primary"]) {
@@ -281,6 +290,201 @@ describe("BaseModel", () => {
 			name: "Ada",
 			active: true,
 		});
+	});
+
+	test("creates models with decorated columns, timestamps, and insert ids", async () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			@column()
+			declare email: string;
+
+			@column()
+			declare name: string;
+
+			@column()
+			declare active: boolean;
+
+			declare id: number;
+			declare createdAt: Date;
+			declare updatedAt: Date;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		connection.queueResult<UserAttributes>({
+			rows: [],
+			affectedRows: 1,
+			insertId: 12,
+		});
+
+		const user = await User.create({
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+			ignored: "not persisted",
+		});
+
+		expect(user.id).toBe(12);
+		expect(user.createdAt).toBeInstanceOf(Date);
+		expect(user.updatedAt).toBeInstanceOf(Date);
+		expect(user.isPersisted()).toBe(true);
+		expect(user.isDirty()).toBe(false);
+		expect(user.getOriginal("email")).toBe("ada@kura.dev");
+		expect(connection.queries).toHaveLength(1);
+		expect(connection.queries[0]?.sql).toBe(
+			'insert into "users" ("email", "name", "active", "createdAt", "updatedAt") values (?, ?, ?, ?, ?)',
+		);
+		expect(connection.queries[0]?.bindings.slice(0, 3)).toEqual([
+			"ada@kura.dev",
+			"Ada",
+			true,
+		]);
+		expect(connection.queries[0]?.bindings[3]).toBeInstanceOf(Date);
+		expect(connection.queries[0]?.bindings[4]).toBeInstanceOf(Date);
+	});
+
+	test("saves dirty persisted models with an updated timestamp", async () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+
+			@column()
+			declare name: string;
+
+			declare id: number;
+			declare updatedAt: Date;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const originalUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+			updatedAt: originalUpdatedAt,
+		});
+		connection.queueResult<UserAttributes>({
+			rows: [],
+			affectedRows: 1,
+		});
+
+		user.setAttribute("name", "Ada Lovelace");
+
+		expect(user.isDirty()).toBe(true);
+		expect(user.isDirty("name")).toBe(true);
+		await user.save();
+
+		expect(user.isDirty()).toBe(false);
+		expect(user.getOriginal("name")).toBe("Ada Lovelace");
+		expect(user.updatedAt).toBeInstanceOf(Date);
+		expect(user.updatedAt.getTime()).not.toBe(originalUpdatedAt.getTime());
+		expect(connection.queries).toHaveLength(1);
+		expect(connection.queries[0]?.sql).toBe(
+			'update "users" set "name" = ?, "updatedAt" = ? where "id" = ?',
+		);
+		expect(connection.queries[0]?.bindings[0]).toBe("Ada Lovelace");
+		expect(connection.queries[0]?.bindings[1]).toBeInstanceOf(Date);
+		expect(connection.queries[0]?.bindings[2]).toBe(1);
+	});
+
+	test("does not save clean persisted models", async () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+
+		await user.save();
+
+		expect(user.isDirty()).toBe(false);
+		expect(connection.queries).toEqual([]);
+	});
+
+	test("deletes persisted models by primary key", async () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = User.hydrate({
+			id: 1,
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+		connection.queueResult<UserAttributes>({
+			rows: [],
+			affectedRows: 1,
+		});
+
+		await expect(user.delete()).resolves.toBe(true);
+
+		expect(user.isPersisted()).toBe(false);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'delete from "users" where "id" = ?',
+				bindings: [1],
+			},
+		]);
+	});
+
+	test("returns false when deleting unsaved models", async () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const user = new User({ email: "ada@kura.dev" });
+
+		await expect(user.delete()).resolves.toBe(false);
+
+		expect(connection.queries).toEqual([]);
+	});
+
+	test("maps decorated property names to database column names", async () => {
+		class Contact extends BaseModel<ContactAttributes> {
+			static override table = "contacts";
+			static override timestamps = false;
+
+			@column({ name: "email_address" })
+			declare email: string;
+
+			declare id: number;
+		}
+		const database = createDatabase();
+		Contact.useDatabase(database);
+		const connection = await memoryConnection(database);
+		const contact = Contact.hydrate({
+			id: 1,
+			email_address: "ada@kura.dev",
+		} as unknown as ContactAttributes);
+		connection.queueResult<ContactAttributes>({
+			rows: [],
+			affectedRows: 1,
+		});
+
+		contact.setAttribute("email", "ada@example.com");
+		await contact.save();
+
+		expect(contact.email).toBe("ada@example.com");
+		expect(contact.getOriginal("email")).toBe("ada@example.com");
+		expect(connection.queries).toEqual([
+			{
+				sql: 'update "contacts" set "email_address" = ? where "id" = ?',
+				bindings: ["ada@example.com", 1],
+			},
+		]);
 	});
 
 	test("throws when model database or table configuration is missing", async () => {
