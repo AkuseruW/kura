@@ -298,6 +298,56 @@ describe("QueryBuilder", () => {
 		]);
 	});
 
+	test("executes insert, update, and delete mutations", async () => {
+		const manager = createDatabase();
+		const connection = await memoryConnection(manager);
+		connection.queueResult<UserRow>({
+			rows: [],
+			affectedRows: 1,
+			insertId: 7,
+		});
+		connection.queueResult<UserRow>({
+			rows: [],
+			affectedRows: 1,
+		});
+		connection.queueResult<UserRow>({
+			rows: [],
+			affectedRows: 1,
+		});
+
+		const inserted = await manager.table<UserRow>("users").insert({
+			name: "Ada",
+			email: "ada@example.com",
+			active: true,
+		});
+		const updated = await manager
+			.table<UserRow>("users")
+			.where("id", 7)
+			.update({ name: "Ada Lovelace", active: false });
+		const deleted = await manager
+			.table<UserRow>("users")
+			.where("id", 7)
+			.delete();
+
+		expect(inserted.insertId).toBe(7);
+		expect(updated.affectedRows).toBe(1);
+		expect(deleted.affectedRows).toBe(1);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'insert into "users" ("name", "email", "active") values (?, ?, ?)',
+				bindings: ["Ada", "ada@example.com", true],
+			},
+			{
+				sql: 'update "users" set "name" = ?, "active" = ? where "id" = ?',
+				bindings: ["Ada Lovelace", false, 7],
+			},
+			{
+				sql: 'delete from "users" where "id" = ?',
+				bindings: [7],
+			},
+		]);
+	});
+
 	test("rejects invalid query inputs", () => {
 		const manager = createDatabase();
 
@@ -313,6 +363,17 @@ describe("QueryBuilder", () => {
 		expect(() => manager.table<UserRow>("").toSQL()).toThrow(
 			"Invalid query identifier []",
 		);
+		expect(() => manager.table<UserRow>("users").insert({})).toThrow(
+			"insert() requires at least one value",
+		);
+		expect(() => manager.table<UserRow>("users").update({})).toThrow(
+			"update() requires at least one value",
+		);
+		expect(() =>
+			manager
+				.table<UserRow>("users")
+				.insert({ name: undefined } as unknown as { name: string }),
+		).toThrow("insert() values cannot contain undefined");
 	});
 
 	test("rejects invalid pagination arguments", async () => {

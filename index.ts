@@ -13,8 +13,12 @@ export { ServiceProvider } from "./packages/core/ServiceProvider";
 
 export {
 	BaseModel,
+	type ColumnDecorator,
+	column,
 	type ModelAttributes,
 	type ModelClass,
+	type ModelColumnDefinition,
+	type ModelColumnOptions,
 	ModelNotFoundException,
 	type ModelPaginatedResult,
 	ModelQueryBuilder,
@@ -39,6 +43,7 @@ export {
 	QueryBuilder,
 	type QueryColumn,
 	type QueryExecutor,
+	type QueryMutationValues,
 	type QueryOperator,
 	type QueryValue,
 	type SortDirection,
