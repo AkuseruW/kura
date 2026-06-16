@@ -207,6 +207,19 @@ export {
 	type RouteHandler,
 	Router,
 } from "./packages/http/Router";
+export {
+	createServeCommand,
+	registerServeCommand,
+	type ServeConsoleOptions,
+	type ServeEntryLoader,
+	type ServeHandler,
+	type ServeServer,
+	type ServeServerFactory,
+	type ServeServerStartOptions,
+	type ServeTarget,
+	type ServeWatcher,
+	type ServeWatcherFactory,
+} from "./packages/http/ServeConsole";
 export { type Context, Server } from "./packages/http/Server";
 
 export {
