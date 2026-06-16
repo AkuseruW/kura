@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConsoleKernel, MemoryConsoleOutput } from "./Console";
@@ -15,6 +15,38 @@ async function makeRoot(): Promise<string> {
 
 async function readGenerated(root: string, path: string): Promise<string> {
 	return readFile(join(root, path), "utf8");
+}
+
+async function generatedDirectoryExists(
+	root: string,
+	path: string,
+): Promise<boolean> {
+	return (await stat(join(root, path))).isDirectory();
+}
+
+async function findFilesNamed(
+	root: string,
+	name: string,
+	prefix = "",
+): Promise<string[]> {
+	const directory = join(root, prefix);
+	const entries = await readdir(directory, { withFileTypes: true });
+	const matches: string[] = [];
+
+	for (const entry of entries) {
+		const entryPath = prefix ? join(prefix, entry.name) : entry.name;
+
+		if (entry.isDirectory()) {
+			matches.push(...(await findFilesNamed(root, name, entryPath)));
+			continue;
+		}
+
+		if (entry.name === name) {
+			matches.push(entryPath);
+		}
+	}
+
+	return matches;
 }
 
 afterEach(async () => {
@@ -110,6 +142,21 @@ describe("new app command", () => {
 		);
 		expect(await readGenerated(root, "demo-api/.env.test")).toContain(
 			"NODE_ENV=test",
+		);
+		expect(
+			await generatedDirectoryExists(root, "demo-api/app/controllers"),
+		).toBe(true);
+		expect(
+			await generatedDirectoryExists(root, "demo-api/database/migrations"),
+		).toBe(true);
+		expect(
+			await generatedDirectoryExists(root, "demo-api/resources/views"),
+		).toBe(true);
+		expect(await readGenerated(root, "demo-api/.gitignore")).not.toContain(
+			".gitkeep",
+		);
+		expect(await findFilesNamed(join(root, "demo-api"), ".gitkeep")).toEqual(
+			[],
 		);
 	});
 
