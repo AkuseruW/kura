@@ -202,4 +202,55 @@ describe("TestClient", () => {
 		expect(response.status).toBe(404);
 		expect(await response.text()).toBe("Not Found");
 	});
+
+	test("asserts response status, headers, redirects, and JSON bodies", async () => {
+		const router = new Router();
+		router.get("/users", () =>
+			Response.json(
+				{ users: [{ id: 1, email: "dev@kura.dev" }] },
+				{ headers: { "X-Total": "1" } },
+			),
+		);
+		router.get(
+			"/login",
+			() =>
+				new Response(null, {
+					status: 302,
+					headers: { Location: "/dashboard" },
+				}),
+		);
+		const client = createTestClient(router);
+
+		const usersResponse = await client.get("/users");
+		const redirectResponse = await client.get("/login");
+
+		await usersResponse
+			.assertStatus(200)
+			.assertHeader("X-Total", "1")
+			.assertJson({ users: [{ id: 1, email: "dev@kura.dev" }] });
+		redirectResponse.assertStatus(302).assertRedirect("/dashboard");
+	});
+
+	test("throws readable errors when assertions fail", async () => {
+		const response = new TestClient(() =>
+			Response.json(
+				{ ok: true },
+				{ status: 200, headers: { "X-Mode": "test" } },
+			),
+		);
+		const result = await response.get("/status");
+
+		expect(() => result.assertStatus(201)).toThrow(
+			"Expected response status 201, received 200",
+		);
+		expect(() => result.assertHeader("X-Mode", "prod")).toThrow(
+			"Expected response header [X-Mode] to be [prod], received [test]",
+		);
+		expect(() => result.assertRedirect("/home")).toThrow(
+			"Expected response to be a redirect, received status 200",
+		);
+		await expect(result.assertJson({ ok: false })).rejects.toThrow(
+			"Expected response JSON to match",
+		);
+	});
 });
