@@ -43,6 +43,7 @@ export {
 	type SessionResolver,
 	type SessionResolverResult,
 } from "./packages/auth/SessionGuard";
+
 export {
 	Application,
 	type ApplicationLifecycleEventName,
@@ -174,6 +175,28 @@ export {
 	Router,
 } from "./packages/http/Router";
 export { type Context, Server } from "./packages/http/Server";
+
+export {
+	dispatch,
+	Job,
+	type JobContext,
+	type JobHandleResult,
+	MemoryQueueDriver,
+	PendingDispatch,
+	type QueueBackoff,
+	type QueueDelay,
+	type QueueDriver,
+	type QueuedJob,
+	QueueException,
+	type QueueFailure,
+	type QueueJobStatus,
+	QueueManager,
+	type QueuePushOptions,
+	QueueWorker,
+	type QueueWorkOptions,
+	type QueueWorkResult,
+	queue,
+} from "./packages/queue/Queue";
 
 export {
 	type AsyncValidationContext,
