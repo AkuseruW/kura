@@ -6,15 +6,19 @@ export async function resolveDefaultPackageVersion(
 	targetPath: string,
 ): Promise<string> {
 	const localRoot = await findLocalKuraRoot();
+	const localPackageRoot =
+		localRoot === undefined
+			? undefined
+			: await findLocalKuraPackageRoot(localRoot);
 
-	if (localRoot === undefined) {
-		return "latest";
+	if (localPackageRoot === undefined) {
+		return "npm:kurajs@latest";
 	}
 
 	const dependencyPath = normalizeDependencyPath(
 		relative(
 			await resolveFutureRealPath(targetPath),
-			await resolveFutureRealPath(localRoot),
+			await resolveFutureRealPath(localPackageRoot),
 		),
 	);
 
@@ -49,6 +53,18 @@ async function findLocalKuraRoot(): Promise<string | undefined> {
 	return undefined;
 }
 
+async function findLocalKuraPackageRoot(
+	root: string,
+): Promise<string | undefined> {
+	const distPath = join(root, "dist");
+
+	if (await isKuraDistPackageRoot(distPath)) {
+		return distPath;
+	}
+
+	return undefined;
+}
+
 async function isKuraPackageRoot(path: string): Promise<boolean> {
 	try {
 		const packageJson = JSON.parse(
@@ -62,6 +78,26 @@ async function isKuraPackageRoot(path: string): Promise<boolean> {
 		return (
 			(await pathExists(join(path, "index.ts"))) &&
 			(await pathExists(join(path, "packages/core/Container.ts")))
+		);
+	} catch {
+		return false;
+	}
+}
+
+async function isKuraDistPackageRoot(path: string): Promise<boolean> {
+	try {
+		const packageJson = JSON.parse(
+			await readFile(join(path, "package.json"), "utf8"),
+		) as { readonly name?: string };
+
+		if (packageJson.name !== "kurajs") {
+			return false;
+		}
+
+		return (
+			(await pathExists(join(path, "index.js"))) &&
+			(await pathExists(join(path, "index.d.ts"))) &&
+			(await pathExists(join(path, "bin/kura.js")))
 		);
 	} catch {
 		return false;

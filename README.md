@@ -5,8 +5,12 @@ Kura is a Bun-native TypeScript web framework.
 ## Install
 
 ```sh
-bun add kurajs
+bun add kura@npm:kurajs
 ```
+
+The package published on npm is `kurajs`, but Kura applications install it
+under the local dependency alias `kura` so application code can import from
+`"kura"`.
 
 ## Create An App
 

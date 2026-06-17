@@ -100,8 +100,9 @@ describe("production build", () => {
 
 			const generatedPackage = JSON.parse(
 				await readFile(join(appRoot, "demo/package.json"), "utf8"),
-			) as { dependencies: { kurajs: string } };
-			expect(generatedPackage.dependencies.kurajs).toStartWith("file:");
+			) as { dependencies: { kura: string } };
+			expect(generatedPackage.dependencies.kura).toStartWith("file:");
+			expect(generatedPackage.dependencies.kura).toEndWith("dist");
 
 			const install = Bun.spawnSync({
 				cmd: [process.execPath, "install"],
@@ -116,7 +117,7 @@ describe("production build", () => {
 				cmd: [
 					process.execPath,
 					"-e",
-					"import { Router, Server } from 'kurajs'; console.log(typeof Router, typeof Server);",
+					"import { Router, Server } from 'kura'; console.log(typeof Router, typeof Server);",
 				],
 				cwd: join(appRoot, "demo"),
 				stderr: "pipe",
