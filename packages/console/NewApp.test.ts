@@ -251,7 +251,7 @@ describe("new app command", () => {
 		const packageJson = JSON.parse(
 			await readGenerated(root, "demo-api/package.json"),
 		) as {
-			dependencies: { kura: string };
+			dependencies: { kurajs: string };
 			imports: Record<string, string>;
 			scripts: {
 				build: string;
@@ -264,7 +264,7 @@ describe("new app command", () => {
 				test: string;
 			};
 		};
-		expect(packageJson.dependencies.kura).toBe("file:../kura");
+		expect(packageJson.dependencies.kurajs).toBe("file:../kura");
 		expect(packageJson.scripts.kura).toBe("bun bin/console.ts");
 		expect(packageJson.scripts.dev).toBe("bun bin/console.ts serve --watch");
 		expect(packageJson.scripts.routes).toBe("bun bin/console.ts routes");
@@ -461,9 +461,9 @@ describe("new app command", () => {
 
 		const packageJson = JSON.parse(
 			await readGenerated(root, "demo/package.json"),
-		) as { dependencies: { kura: string } };
-		expect(packageJson.dependencies.kura).toStartWith("file:");
-		expect(packageJson.dependencies.kura).not.toBe("latest");
+		) as { dependencies: { kurajs: string } };
+		expect(packageJson.dependencies.kurajs).toStartWith("file:");
+		expect(packageJson.dependencies.kurajs).not.toBe("latest");
 	});
 
 	test("uses injected prompts for interactive generation", async () => {
