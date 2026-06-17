@@ -4,8 +4,54 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConsoleKernel, MemoryConsoleOutput } from "./Console";
 import { type NewAppPrompt, registerNewAppCommand } from "./NewApp";
+import { TerminalPrompt } from "./new-app/Prompt";
 
 const roots: string[] = [];
+
+class FakeTtyInput {
+	readonly isTTY = true;
+	readonly rawModes: boolean[] = [];
+	private readonly listeners = new Set<(chunk: Uint8Array | string) => void>();
+
+	setRawMode(enabled: boolean): void {
+		this.rawModes.push(enabled);
+	}
+
+	resume(): void {}
+
+	pause(): void {}
+
+	on(event: "data", listener: (chunk: Uint8Array | string) => void): void {
+		if (event === "data") {
+			this.listeners.add(listener);
+		}
+	}
+
+	off(event: "data", listener: (chunk: Uint8Array | string) => void): void {
+		if (event === "data") {
+			this.listeners.delete(listener);
+		}
+	}
+
+	send(chunk: string): void {
+		for (const listener of this.listeners) {
+			listener(chunk);
+		}
+	}
+}
+
+class FakeTtyOutput {
+	readonly isTTY = true;
+	readonly chunks: string[] = [];
+
+	write(chunk: string): void {
+		this.chunks.push(chunk);
+	}
+
+	text(): string {
+		return this.chunks.join("");
+	}
+}
 
 function fakeClock(...timestamps: number[]): () => number {
 	let index = 0;
@@ -81,6 +127,48 @@ async function findFilesNamed(
 	}
 
 	return matches;
+}
+
+function buildGeneratedServer(
+	root: string,
+	path: string,
+): ReturnType<typeof Bun.spawnSync> {
+	return Bun.spawnSync({
+		cmd: [
+			process.execPath,
+			"build",
+			"bin/server.ts",
+			"--target=bun",
+			"--packages=external",
+			"--outdir=build",
+		],
+		cwd: join(root, path),
+		stderr: "pipe",
+		stdout: "pipe",
+	});
+}
+
+function stripAnsi(value: string): string {
+	let output = "";
+	let index = 0;
+
+	while (index < value.length) {
+		if (value.charCodeAt(index) !== 27 || value[index + 1] !== "[") {
+			output += value[index] ?? "";
+			index += 1;
+			continue;
+		}
+
+		index += 2;
+
+		while (index < value.length && !/[A-Za-z]/.test(value[index] ?? "")) {
+			index += 1;
+		}
+
+		index += 1;
+	}
+
+	return output;
 }
 
 afterEach(async () => {
@@ -162,6 +250,12 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
 			'import env from "#start/env"',
 		);
+		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
+			"new MiddlewarePipeline()",
+		);
+		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
+			"dispatchRouter(ctx)",
+		);
 		expect(await readGenerated(root, "demo-api/start/env.ts")).toContain(
 			"new Env()",
 		);
@@ -169,7 +263,46 @@ describe("new app command", () => {
 			"serverMiddleware",
 		);
 		expect(await readGenerated(root, "demo-api/start/routes.ts")).toContain(
-			'framework: "kura"',
+			'import { ApiController } from "#controllers/ApiController"',
+		);
+		expect(await readGenerated(root, "demo-api/start/routes.ts")).toContain(
+			'router.get("/", (ctx) => apiController.index(ctx)).as("home")',
+		);
+		expect(
+			await readGenerated(root, "demo-api/app/controllers/ApiController.ts"),
+		).toContain('framework: "kura"');
+		expect(
+			await readGenerated(root, "demo-api/app/controllers/AuthController.ts"),
+		).toContain("Wire this action to your jwt guard");
+		expect(await readGenerated(root, "demo-api/app/models/User.ts")).toContain(
+			"export class User extends BaseModel<UserAttributes>",
+		);
+		expect(
+			await readGenerated(
+				root,
+				"demo-api/database/migrations/00000000000000_create_users.ts",
+			),
+		).toContain('schema.createTable("users"');
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-api/database/migrations/00000000000001_create_sessions.ts",
+			),
+		).toBe(false);
+		expect(await readGenerated(root, "demo-api/config/mail.ts")).toContain(
+			"const mailConfig = defineConfig",
+		);
+		expect(
+			await readGenerated(root, "demo-api/app/mails/WelcomeMail.ts"),
+		).toContain("WelcomeMail");
+		expect(await readGenerated(root, "demo-api/config/storage.ts")).toContain(
+			"const storageConfig = defineConfig",
+		);
+		expect(
+			await readGenerated(root, "demo-api/app/services/StorageService.ts"),
+		).toContain("class StorageService");
+		expect(await readGenerated(root, "demo-api/README.md")).toContain(
+			"HTTP kernel",
 		);
 		const appConfig = await readGenerated(root, "demo-api/config/app.ts");
 		expect(appConfig).toContain("export const appUrl");
@@ -296,12 +429,141 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-web/config/vite.ts")).toContain(
 			"const viteConfig = defineConfig",
 		);
+		expect(
+			await readGenerated(root, "demo-web/app/controllers/HomeController.ts"),
+		).toContain("resources/views/home.html");
+		expect(
+			await readGenerated(root, "demo-web/resources/views/home.html"),
+		).toContain("Your web app is running");
+		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
+			'import { HomeController } from "#controllers/HomeController"',
+		);
+		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
+			'router.group().prefix("/auth").as("auth.")',
+		);
+		expect(
+			await readGenerated(root, "demo-web/app/controllers/AuthController.ts"),
+		).toContain("Wire this action to your session guard");
+		expect(
+			await readGenerated(
+				root,
+				"demo-web/database/migrations/00000000000001_create_sessions.ts",
+			),
+		).toContain('schema.createTable("sessions"');
 		expect(await readGenerated(root, "demo-web/config/shield.ts")).toContain(
 			"enabled: true",
 		);
 		expect(await readGenerated(root, "demo-web/.env.example")).toContain(
 			"REDIS_URL=",
 		);
+		expect(await readGenerated(root, "demo-web/config/i18n.ts")).toContain(
+			"defaultLocale",
+		);
+		expect(
+			await readGenerated(root, "demo-web/resources/lang/en/messages.ts"),
+		).toContain("Welcome to Kura");
+		expect(
+			await readGenerated(root, "demo-web/config/websockets.ts"),
+		).toContain('path: "/ws"');
+		expect(
+			await readGenerated(root, "demo-web/app/services/WebSocketService.ts"),
+		).toContain("class WebSocketService");
+		expect(buildGeneratedServer(root, "demo-web").exitCode).toBe(0);
+	});
+
+	test("supports TTY arrow navigation for single-select prompts", async () => {
+		const input = new FakeTtyInput();
+		const output = new FakeTtyOutput();
+		const prompt = new TerminalPrompt({
+			banner: true,
+			color: false,
+			input,
+			output,
+		});
+		const value = prompt.select(
+			"Application type",
+			["api", "web", "full"],
+			"api",
+			[
+				{
+					value: "api",
+					label: "API",
+					description: "JSON API starter",
+				},
+				{
+					value: "web",
+					label: "Web",
+					description: "Server-rendered web app",
+				},
+				{
+					value: "full",
+					label: "Full",
+					description: "API and web app",
+				},
+			],
+		);
+
+		input.send("\u001b[B");
+		input.send("\r");
+
+		expect(await value).toBe("web");
+		expect(input.rawModes).toEqual([true, false]);
+		expect(stripAnsi(output.text())).toContain("_  __");
+		expect(stripAnsi(output.text())).toContain(
+			"❯ Application type? Press <ENTER> to select",
+		);
+		expect(stripAnsi(output.text())).toContain("❯     Web");
+	});
+
+	test("supports TTY multi-select prompts", async () => {
+		const input = new FakeTtyInput();
+		const output = new FakeTtyOutput();
+		const prompt = new TerminalPrompt({
+			banner: false,
+			color: false,
+			input,
+			output,
+		});
+		const value = prompt.multiSelect(
+			"Optional modules",
+			["mail", "storage", "i18n", "websockets"],
+			[],
+			[
+				{
+					value: "mail",
+					label: "Mail",
+					description: "Email delivery",
+				},
+				{
+					value: "storage",
+					label: "Storage",
+					description: "File storage",
+				},
+				{
+					value: "i18n",
+					label: "i18n",
+					description: "Translations",
+				},
+				{
+					value: "websockets",
+					label: "WebSockets",
+					description: "Realtime server",
+				},
+			],
+		);
+
+		input.send("\u001b[B");
+		input.send(" ");
+		input.send("\u001b[B");
+		input.send(" ");
+		input.send("\r");
+
+		expect(await value).toEqual(["storage", "i18n"]);
+		expect(stripAnsi(output.text())).toContain(
+			"❯ Optional modules? Press <SPACE> to toggle, <ENTER> to continue",
+		);
+		expect(stripAnsi(output.text())).toContain("[x] Storage");
+		expect(stripAnsi(output.text())).toContain("[x] i18n");
 	});
 
 	test("renders guided terminal prompts with numbered choices", async () => {
@@ -395,19 +657,7 @@ describe("new app command", () => {
 
 		expect(await console.run(["new", "demo", "--yes"])).toBe(0);
 
-		const build = Bun.spawnSync({
-			cmd: [
-				process.execPath,
-				"build",
-				"bin/server.ts",
-				"--target=bun",
-				"--packages=external",
-				"--outdir=build",
-			],
-			cwd: join(root, "demo"),
-			stderr: "pipe",
-			stdout: "pipe",
-		});
+		const build = buildGeneratedServer(root, "demo");
 
 		expect(build.exitCode).toBe(0);
 	});
