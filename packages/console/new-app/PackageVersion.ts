@@ -53,9 +53,9 @@ async function isKuraPackageRoot(path: string): Promise<boolean> {
 	try {
 		const packageJson = JSON.parse(
 			await readFile(join(path, "package.json"), "utf8"),
-		) as { readonly name?: string; readonly private?: boolean };
+		) as { readonly name?: string };
 
-		if (packageJson.name !== "kura" || packageJson.private !== true) {
+		if (packageJson.name !== "kurajs") {
 			return false;
 		}
 
