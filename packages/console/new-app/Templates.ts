@@ -53,6 +53,7 @@ export function makeNewAppFiles(options: {
 			path: ".gitignore",
 			content: `# Dependencies and Kura build
 node_modules
+.kura
 build
 dist
 tmp/
@@ -296,7 +297,7 @@ export const namedMiddleware = {};
 			content: `export const schemaRules = {};
 `,
 		},
-		...makeNewAppDirectories(["providers", ".kura/server", "tests"]),
+		...makeNewAppDirectories(["providers", "tests"]),
 		{
 			path: "tests/bootstrap.ts",
 			content: `export const runnerHooks = {
