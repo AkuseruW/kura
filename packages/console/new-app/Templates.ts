@@ -127,7 +127,7 @@ LOG_LEVEL=silent
 \tregisterDevToolCommands,
 \tregisterGeneratorCommands,
 \tregisterServeCommand,
-} from "kura";
+} from "kurajs";
 
 await import("#start/env");
 
@@ -151,7 +151,7 @@ process.exit(exitCode);
 		},
 		{
 			path: "bin/server.ts",
-			content: `import { type Context, MiddlewarePipeline, Server } from "kura";
+			content: `import { type Context, MiddlewarePipeline, Server } from "kurajs";
 import env from "#start/env";
 import { routerMiddleware, serverMiddleware } from "#start/kernel";
 import { router } from "#start/routes";
@@ -214,7 +214,7 @@ export { router };
 			path: "start/env.ts",
 			content: `import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Env } from "kura";
+import { Env } from "kurajs";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const env = new Env();
@@ -230,7 +230,7 @@ export default env;
 		},
 		{
 			path: "start/kernel.ts",
-			content: `import { BodyParser, Cors, type Middleware, RequestId } from "kura";
+			content: `import { BodyParser, Cors, type Middleware, RequestId } from "kurajs";
 
 export const serverMiddleware: readonly Middleware[] = [RequestId, Cors()];
 
@@ -513,7 +513,7 @@ function makePackageJson(appName: string, packageVersion: string) {
 			"#config/*": "./config/*.ts",
 		},
 		dependencies: {
-			kura: packageVersion,
+			kurajs: packageVersion,
 		},
 		devDependencies: {
 			"@types/bun": "^1.3.6",
@@ -560,7 +560,7 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 }
 
 function makeKuraConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 
 export default defineConfig({
 \tcommands: ["./commands"],
@@ -603,7 +603,7 @@ export default defineConfig({
 }
 
 function makeAppConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 /**
@@ -652,7 +652,7 @@ export default appConfig;
 }
 
 function makeAuthConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 /**
@@ -691,7 +691,7 @@ export default authConfig;
 }
 
 function makeBodyParserConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 
 /**
  * Body parser configuration.
@@ -731,7 +731,7 @@ export default bodyParserConfig;
 }
 
 function makeCacheConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 /**
@@ -767,7 +767,7 @@ function makeDatabaseConfig(choices: NewAppChoices): string {
 	const defaultConnection =
 		choices.database === "none" ? "memory" : choices.database;
 
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 /**
@@ -820,7 +820,7 @@ export default databaseConfig;
 }
 
 function makeEncryptionConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 /**
@@ -843,7 +843,7 @@ export default encryptionConfig;
 }
 
 function makeHashConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 /**
@@ -882,7 +882,7 @@ export default hashConfig;
 }
 
 function makeLoggerConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 /**
@@ -913,7 +913,7 @@ export default loggerConfig;
 }
 
 function makeQueueConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 /**
@@ -952,7 +952,7 @@ export default queueConfig;
 }
 
 function makeSessionConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 /**
@@ -995,7 +995,7 @@ export default sessionConfig;
 }
 
 function makeShieldConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 
 /**
  * Security header and CSRF configuration.
@@ -1036,7 +1036,7 @@ export default shieldConfig;
 }
 
 function makeStaticConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 
 /**
  * Static file server configuration.
@@ -1054,7 +1054,7 @@ export default staticServerConfig;
 }
 
 function makeViteConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 
 /**
  * Frontend asset pipeline configuration.
@@ -1073,7 +1073,7 @@ export default viteConfig;
 }
 
 function makeApiController(choices: NewAppChoices): string {
-	return `import type { Context } from "kura";
+	return `import type { Context } from "kurajs";
 
 export class ApiController {
 \tindex(_ctx: Context): Response {
@@ -1094,7 +1094,7 @@ export class ApiController {
 function makeHomeController(): string {
 	return `import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Context } from "kura";
+import type { Context } from "kurajs";
 
 const homeViewPath = join(import.meta.dir, "../../resources/views/home.html");
 
@@ -1168,7 +1168,7 @@ function makeHomeView(choices: NewAppChoices): string {
 }
 
 function makeAuthController(choices: NewAppChoices): string {
-	return `import type { Context } from "kura";
+	return `import type { Context } from "kurajs";
 
 export class AuthController {
 \tme(ctx: Context): Response {
@@ -1204,7 +1204,7 @@ function json(data: Record<string, unknown>, status = 200): Response {
 }
 
 function makeUserModel(): string {
-	return `import { BaseModel, column, type QueryRow } from "kura";
+	return `import { BaseModel, column, type QueryRow } from "kurajs";
 
 export type UserAttributes = QueryRow & {
 \tid?: number;
@@ -1236,7 +1236,7 @@ export class User extends BaseModel<UserAttributes> {
 }
 
 function makeUsersMigration(): string {
-	return `import { Migration, type SchemaBuilder } from "kura";
+	return `import { Migration, type SchemaBuilder } from "kurajs";
 
 export default class CreateUsers extends Migration {
 \toverride up(schema: SchemaBuilder): void {
@@ -1256,7 +1256,7 @@ export default class CreateUsers extends Migration {
 }
 
 function makeSessionsMigration(): string {
-	return `import { Migration, type SchemaBuilder } from "kura";
+	return `import { Migration, type SchemaBuilder } from "kurajs";
 
 export default class CreateSessions extends Migration {
 \toverride up(schema: SchemaBuilder): void {
@@ -1277,7 +1277,7 @@ export default class CreateSessions extends Migration {
 }
 
 function makeMailConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 import env from "#start/env";
 
 const mailConfig = defineConfig({
@@ -1314,7 +1314,7 @@ export class WelcomeMail {
 }
 
 function makeStorageConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 
 const storageConfig = defineConfig({
 \tdefault: "local",
@@ -1349,7 +1349,7 @@ export class StorageService {
 }
 
 function makeI18nConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 
 const i18nConfig = defineConfig({
 \tdefaultLocale: "en",
@@ -1371,7 +1371,7 @@ function makeEnglishMessages(): string {
 }
 
 function makeWebSocketsConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kurajs";
 
 const websocketsConfig = defineConfig({
 \tenabled: true,
@@ -1405,7 +1405,7 @@ function makeWebSocketService(): string {
 }
 
 function makeRoutes(choices: NewAppChoices): string {
-	const imports = ['import { Router } from "kura";'];
+	const imports = ['import { Router } from "kurajs";'];
 	const lines = ["export const router = new Router();"];
 
 	if (choices.preset === "api" || choices.preset === "full") {

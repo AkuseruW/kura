@@ -43,7 +43,6 @@ export {
 	type SessionResolver,
 	type SessionResolverResult,
 } from "./packages/auth/SessionGuard";
-
 export {
 	type CacheDriver,
 	CacheException,
@@ -62,6 +61,11 @@ export {
 	type RedisCacheDriverOptions,
 	TaggedCache,
 } from "./packages/cache/Cache";
+export {
+	createKuraConsole,
+	type KuraCliOptions,
+	runKuraCli,
+} from "./packages/console/Cli";
 
 export {
 	Command,

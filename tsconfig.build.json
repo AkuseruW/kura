@@ -8,5 +8,11 @@
 		"outDir": "dist"
 	},
 	"include": ["index.ts", "bin/kura.ts", "packages/**/*.ts"],
-	"exclude": ["dist", "node_modules", "scripts", "**/*.test.ts"]
+	"exclude": [
+		"dist",
+		"node_modules",
+		"scripts",
+		"packages/create-kurajs",
+		"**/*.test.ts"
+	]
 }

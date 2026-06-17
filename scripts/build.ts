@@ -8,9 +8,14 @@ type BuildTarget = {
 const targets: readonly BuildTarget[] = [
 	{ entrypoint: "index.ts", outdir: "dist" },
 	{ entrypoint: "bin/kura.ts", outdir: "dist/bin" },
+	{
+		entrypoint: "packages/create-kurajs/index.ts",
+		outdir: "packages/create-kurajs/dist",
+	},
 ];
 
 await rm("dist", { force: true, recursive: true });
+await rm("packages/create-kurajs/dist", { force: true, recursive: true });
 
 for (const target of targets) {
 	await buildTarget(target);
@@ -18,6 +23,7 @@ for (const target of targets) {
 
 await emitDeclarations();
 await chmod("dist/bin/kura.js", 0o755);
+await chmod("packages/create-kurajs/dist/index.js", 0o755);
 
 async function buildTarget(target: BuildTarget): Promise<void> {
 	const result = await Bun.build({

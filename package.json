@@ -1,18 +1,47 @@
 {
-	"name": "kura",
+	"name": "kurajs",
+	"version": "0.1.0",
+	"description": "A Bun-native TypeScript web framework.",
+	"keywords": [
+		"bun",
+		"framework",
+		"http",
+		"typescript",
+		"kura"
+	],
+	"homepage": "https://github.com/AkuseruW/kura#readme",
+	"bugs": {
+		"url": "https://github.com/AkuseruW/kura/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/AkuseruW/kura.git"
+	},
+	"license": "UNLICENSED",
+	"main": "./dist/index.js",
 	"module": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"type": "module",
-	"private": true,
+	"files": [
+		"dist"
+	],
 	"bin": {
-		"kura": "./dist/bin/kura.js"
+		"kura": "./dist/bin/kura.js",
+		"kurajs": "./dist/bin/kura.js"
 	},
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
-		}
+		},
+		"./package.json": "./package.json"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"engines": {
+		"bun": ">=1.3.0"
 	},
 	"scripts": {
 		"build": "bun run scripts/build.ts",
@@ -29,5 +58,10 @@
 	},
 	"peerDependencies": {
 		"typescript": "^5"
+	},
+	"peerDependenciesMeta": {
+		"typescript": {
+			"optional": true
+		}
 	}
 }
