@@ -23,6 +23,15 @@ describe("Config", () => {
 			"localhost",
 		);
 		expect(config.has("database.connections.postgres.host")).toBe(true);
+		expect(config.all()).toEqual({
+			database: {
+				connections: {
+					postgres: {
+						host: "localhost",
+					},
+				},
+			},
+		});
 	});
 
 	test("returns defaults for missing paths without throwing", () => {

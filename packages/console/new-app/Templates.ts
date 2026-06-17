@@ -124,6 +124,7 @@ LOG_LEVEL=silent
 			path: "bin/console.ts",
 			content: `import {
 \tcreateConsole,
+\tregisterDevToolCommands,
 \tregisterGeneratorCommands,
 \tregisterServeCommand,
 } from "kura";
@@ -135,6 +136,13 @@ const appConsole = createConsole();
 registerGeneratorCommands(appConsole);
 registerServeCommand(appConsole, {
 \tentry: "bin/server.ts",
+});
+registerDevToolCommands(appConsole, {
+\troot: process.cwd(),
+\tloadRouter: async () => {
+\t\tconst routes = await import("#start/routes");
+\t\treturn routes.router;
+\t},
 });
 
 const exitCode = await appConsole.run(Bun.argv.slice(2));
@@ -477,6 +485,10 @@ function makePackageJson(appName: string, packageVersion: string) {
 			kura: "bun bin/console.ts",
 			dev: "bun bin/console.ts serve --watch",
 			start: "bun bin/console.ts serve --host 0.0.0.0",
+			routes: "bun bin/console.ts routes",
+			doctor: "bun bin/console.ts doctor",
+			env: "bun bin/console.ts env",
+			config: "bun bin/console.ts config",
 			test: "bun bin/test.ts",
 			typecheck: "tsc --noEmit",
 			build:
@@ -1489,6 +1501,10 @@ Open http://localhost:3333.
 
 \`\`\`sh
 bun kura
+bun kura routes
+bun kura doctor
+bun kura env
+bun kura config app.starter
 bun kura make:controller Home
 bun kura serve --watch
 \`\`\`
