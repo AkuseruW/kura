@@ -11,7 +11,7 @@ describe("production build", () => {
 		const appRoot = await mkdtemp(join(tmpdir(), "kura-built-app-"));
 
 		await rm(join(root, "dist"), { force: true, recursive: true });
-		await rm(join(root, "packages/create-kurajs/dist"), {
+		await rm(join(root, "packages/create-kura/dist"), {
 			force: true,
 			recursive: true,
 		});
@@ -24,26 +24,22 @@ describe("production build", () => {
 				readonly bin: Record<string, string>;
 				readonly files: readonly string[];
 			};
-			expect(runtimePackage.name).toBe("kurajs");
+			expect(runtimePackage.name).toBe("@akuseru_w/kura");
 			expect(runtimePackage.files).toContain("dist");
 			expect(runtimePackage.bin.kura).toBe("./dist/bin/kura.js");
-			expect(runtimePackage.bin.kurajs).toBe("./dist/bin/kura.js");
 
 			const createPackageManifest = JSON.parse(
-				await readFile(
-					join(root, "packages/create-kurajs/package.json"),
-					"utf8",
-				),
+				await readFile(join(root, "packages/create-kura/package.json"), "utf8"),
 			) as {
 				readonly name: string;
 				readonly bin: Record<string, string>;
 				readonly dependencies: Record<string, string>;
 			};
-			expect(createPackageManifest.name).toBe("create-kurajs");
-			expect(createPackageManifest.bin["create-kurajs"]).toBe(
-				"./dist/index.js",
+			expect(createPackageManifest.name).toBe("@akuseru_w/create-kura");
+			expect(createPackageManifest.bin["create-kura"]).toBe("./dist/index.js");
+			expect(createPackageManifest.dependencies["@akuseru_w/kura"]).toBe(
+				"^0.1.0",
 			);
-			expect(createPackageManifest.dependencies.kurajs).toBe("^0.1.0");
 
 			const build = Bun.spawnSync({
 				cmd: [process.execPath, "run", "build"],
@@ -59,8 +55,8 @@ describe("production build", () => {
 			await expectFile("dist/index.d.ts.map");
 			await expectFile("dist/bin/kura.js");
 			await expectFile("dist/bin/kura.js.map");
-			await expectFile("packages/create-kurajs/dist/index.js");
-			await expectFile("packages/create-kurajs/dist/index.js.map");
+			await expectFile("packages/create-kura/dist/index.js");
+			await expectFile("packages/create-kura/dist/index.js.map");
 
 			const moduleExports = (await import(
 				`${pathToFileURL(join(root, "dist/index.js")).href}?t=${Date.now()}`
@@ -160,11 +156,7 @@ describe("production build", () => {
 			expect(localRunner.stdout.toString()).toContain("make:controller");
 
 			const createPackage = Bun.spawnSync({
-				cmd: [
-					process.execPath,
-					"packages/create-kurajs/dist/index.js",
-					"--help",
-				],
+				cmd: [process.execPath, "packages/create-kura/dist/index.js", "--help"],
 				cwd: root,
 				stderr: "pipe",
 				stdout: "pipe",
@@ -232,7 +224,7 @@ describe("production build", () => {
 			).resolves.toBeNull();
 		} finally {
 			await rm(join(root, "dist"), { force: true, recursive: true });
-			await rm(join(root, "packages/create-kurajs/dist"), {
+			await rm(join(root, "packages/create-kura/dist"), {
 				force: true,
 				recursive: true,
 			});

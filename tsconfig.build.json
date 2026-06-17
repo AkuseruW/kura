@@ -12,7 +12,7 @@
 		"dist",
 		"node_modules",
 		"scripts",
-		"packages/create-kurajs",
+		"packages/create-kura",
 		"**/*.test.ts"
 	]
 }
