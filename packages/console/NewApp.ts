@@ -1,4 +1,4 @@
-import { basename, relative } from "node:path";
+import { basename } from "node:path";
 import { type Command, type ConsoleKernel, defineCommand } from "./Console";
 import {
 	isEnabled,
@@ -6,6 +6,7 @@ import {
 	resolveChoices,
 	shouldPrompt,
 } from "./new-app/Choices";
+import { formatNewAppCreated } from "./new-app/Output";
 import { resolveDefaultPackageVersion } from "./new-app/PackageVersion";
 import { resolveRoot, resolveTargetPath } from "./new-app/Paths";
 import { TerminalPrompt } from "./new-app/Prompt";
@@ -119,36 +120,31 @@ export function createNewAppCommand(
 				choices,
 				packageVersion,
 			});
+			const startedAt = options.clock?.() ?? Date.now();
 
 			await writeNewApp(targetPath, files, isEnabled(context.options, "force"));
-
-			context.output.write(`Created ${relative(root, targetPath) || "."}`);
-			context.output.write(`Preset: ${choices.preset}`);
-			context.output.write(`Database: ${choices.database}`);
-			context.output.write(`Auth: ${choices.auth}`);
-			context.output.write(`Cache: ${choices.cache}`);
-			context.output.write(`Queue: ${choices.queue}`);
-			context.output.write(`Framework: ${packageVersion}`);
-
-			if (choices.modules.length > 0) {
-				context.output.write(`Modules: ${choices.modules.join(", ")}`);
-			}
+			const duration = (options.clock?.() ?? Date.now()) - startedAt;
+			let installed = false;
 
 			if (choices.install) {
 				await (options.install ?? installDependencies)({
 					cwd: targetPath,
 					packageManager: choices.packageManager,
 				});
-				context.output.write("Installed dependencies");
+				installed = true;
 			}
 
-			context.output.write("Next steps:");
 			context.output.write(
-				`  cd ${relative(process.cwd(), targetPath) || "."}`,
+				formatNewAppCreated({
+					appName: basename(targetPath),
+					choices,
+					currentDirectory: process.cwd(),
+					duration,
+					installed,
+					root,
+					targetPath,
+				}),
 			);
-			context.output.write("  bun install");
-			context.output.write("  bun kura");
-			context.output.write("  bun run dev");
 		},
 	);
 }

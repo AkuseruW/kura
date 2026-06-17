@@ -6,16 +6,24 @@ export type QueuePreset = "none" | "memory" | "sqlite" | "redis";
 export type PackageManager = "bun";
 export type ModulePreset = "mail" | "storage" | "i18n" | "websockets";
 
+export type NewAppPromptChoice<TValue extends string = string> = {
+	readonly value: TValue;
+	readonly label: string;
+	readonly description: string;
+};
+
 export type NewAppPrompt = {
 	select(
 		message: string,
 		choices: readonly string[],
 		defaultValue: string,
+		choiceDetails?: readonly NewAppPromptChoice[],
 	): string | Promise<string>;
 	multiSelect(
 		message: string,
 		choices: readonly string[],
 		defaultValues: readonly string[],
+		choiceDetails?: readonly NewAppPromptChoice[],
 	): readonly string[] | Promise<readonly string[]>;
 	confirm(message: string, defaultValue: boolean): boolean | Promise<boolean>;
 };
@@ -25,6 +33,7 @@ export type NewAppConsoleOptions = {
 	readonly prompt?: NewAppPrompt;
 	readonly install?: NewAppInstaller;
 	readonly packageVersion?: string;
+	readonly clock?: () => number;
 };
 
 export type NewAppInstaller = (options: {

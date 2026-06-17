@@ -1,17 +1,146 @@
 import type { ConsoleOptions } from "../Console";
 import type {
+	AppPreset,
+	AuthPreset,
+	CachePreset,
+	DatabasePreset,
 	ModulePreset,
 	NewAppChoices,
 	NewAppConsoleOptions,
 	NewAppPrompt,
+	NewAppPromptChoice,
+	QueuePreset,
 } from "./Types";
 
-const appPresets = ["api", "web", "full"] as const;
-const databasePresets = ["none", "sqlite", "postgres", "mysql"] as const;
-const authPresets = ["none", "session", "jwt"] as const;
-const cachePresets = ["memory", "file", "redis"] as const;
-const queuePresets = ["none", "memory", "sqlite", "redis"] as const;
-const modulePresets = ["mail", "storage", "i18n", "websockets"] as const;
+const appPresetChoices = [
+	{
+		value: "api",
+		label: "API",
+		description: "JSON API starter",
+	},
+	{
+		value: "web",
+		label: "Web",
+		description: "Server-rendered web app",
+	},
+	{
+		value: "full",
+		label: "Full",
+		description: "API and web app",
+	},
+] as const satisfies readonly NewAppPromptChoice<AppPreset>[];
+
+const databasePresetChoices = [
+	{
+		value: "none",
+		label: "None",
+		description: "No database configured",
+	},
+	{
+		value: "sqlite",
+		label: "SQLite",
+		description: "Local file database",
+	},
+	{
+		value: "postgres",
+		label: "Postgres",
+		description: "Production SQL database",
+	},
+	{
+		value: "mysql",
+		label: "MySQL",
+		description: "Production SQL database",
+	},
+] as const satisfies readonly NewAppPromptChoice<DatabasePreset>[];
+
+const authPresetChoices = [
+	{
+		value: "none",
+		label: "None",
+		description: "No auth scaffold",
+	},
+	{
+		value: "session",
+		label: "Session",
+		description: "Cookie-based browser auth",
+	},
+	{
+		value: "jwt",
+		label: "JWT",
+		description: "Bearer token API auth",
+	},
+] as const satisfies readonly NewAppPromptChoice<AuthPreset>[];
+
+const cachePresetChoices = [
+	{
+		value: "memory",
+		label: "Memory",
+		description: "In-memory cache store",
+	},
+	{
+		value: "file",
+		label: "File",
+		description: "Filesystem cache store",
+	},
+	{
+		value: "redis",
+		label: "Redis",
+		description: "Redis-backed cache store",
+	},
+] as const satisfies readonly NewAppPromptChoice<CachePreset>[];
+
+const queuePresetChoices = [
+	{
+		value: "none",
+		label: "None",
+		description: "No queue configured",
+	},
+	{
+		value: "memory",
+		label: "Memory",
+		description: "In-memory jobs",
+	},
+	{
+		value: "sqlite",
+		label: "SQLite",
+		description: "Persistent local jobs",
+	},
+	{
+		value: "redis",
+		label: "Redis",
+		description: "Redis-backed jobs",
+	},
+] as const satisfies readonly NewAppPromptChoice<QueuePreset>[];
+
+const modulePresetChoices = [
+	{
+		value: "mail",
+		label: "Mail",
+		description: "Email delivery",
+	},
+	{
+		value: "storage",
+		label: "Storage",
+		description: "File storage",
+	},
+	{
+		value: "i18n",
+		label: "i18n",
+		description: "Translations",
+	},
+	{
+		value: "websockets",
+		label: "WebSockets",
+		description: "Realtime server",
+	},
+] as const satisfies readonly NewAppPromptChoice<ModulePreset>[];
+
+const appPresets = values(appPresetChoices);
+const databasePresets = values(databasePresetChoices);
+const authPresets = values(authPresetChoices);
+const cachePresets = values(cachePresetChoices);
+const queuePresets = values(queuePresetChoices);
+const modulePresets = values(modulePresetChoices);
 
 export function resolveChoices(options: ConsoleOptions): NewAppChoices {
 	return {
@@ -34,27 +163,52 @@ export async function promptChoices(
 
 	return {
 		preset: readPreset(
-			await prompt.select("Application type", appPresets, defaults.preset),
+			await prompt.select(
+				"Application type",
+				appPresets,
+				defaults.preset,
+				appPresetChoices,
+			),
 			appPresets,
 			"preset",
 		),
 		database: readPreset(
-			await prompt.select("Database", databasePresets, defaults.database),
+			await prompt.select(
+				"Database",
+				databasePresets,
+				defaults.database,
+				databasePresetChoices,
+			),
 			databasePresets,
 			"database",
 		),
 		auth: readPreset(
-			await prompt.select("Auth", authPresets, defaults.auth),
+			await prompt.select(
+				"Auth",
+				authPresets,
+				defaults.auth,
+				authPresetChoices,
+			),
 			authPresets,
 			"auth",
 		),
 		cache: readPreset(
-			await prompt.select("Cache", cachePresets, defaults.cache),
+			await prompt.select(
+				"Cache",
+				cachePresets,
+				defaults.cache,
+				cachePresetChoices,
+			),
 			cachePresets,
 			"cache",
 		),
 		queue: readPreset(
-			await prompt.select("Queue", queuePresets, defaults.queue),
+			await prompt.select(
+				"Queue",
+				queuePresets,
+				defaults.queue,
+				queuePresetChoices,
+			),
 			queuePresets,
 			"queue",
 		),
@@ -63,6 +217,7 @@ export async function promptChoices(
 				"Optional modules",
 				modulePresets,
 				defaults.modules,
+				modulePresetChoices,
 			),
 		),
 		packageManager: "bun",
@@ -156,4 +311,10 @@ export function shouldPrompt(
 
 export function isEnabled(options: ConsoleOptions, name: string): boolean {
 	return options[name] === true;
+}
+
+function values<TValue extends string>(
+	choices: readonly NewAppPromptChoice<TValue>[],
+): readonly TValue[] {
+	return choices.map((choice) => choice.value);
 }
