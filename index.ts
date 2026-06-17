@@ -86,6 +86,11 @@ export {
 	TerminalConsoleOutput,
 } from "./packages/console/Console";
 export {
+	createDevToolCommands,
+	type DevToolConsoleOptions,
+	registerDevToolCommands,
+} from "./packages/console/DevTools";
+export {
 	createGeneratorCommands,
 	type GeneratorConsoleOptions,
 	registerGeneratorCommands,
@@ -274,6 +279,7 @@ export {
 export { KuraRequest } from "./packages/http/Request";
 export { KuraResponse } from "./packages/http/Response";
 export {
+	type RegisteredRoute,
 	type ResourceAction,
 	type ResourceController,
 	type RouteHandler,

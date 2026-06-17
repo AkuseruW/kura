@@ -123,6 +123,50 @@ describe("production build", () => {
 			expect(localRunner.stdout.toString()).toContain("Kura Console");
 			expect(localRunner.stdout.toString()).toContain("make:controller");
 
+			const routes = Bun.spawnSync({
+				cmd: [process.execPath, "kura", "routes"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(routes.exitCode).toBe(0);
+			expect(routes.stdout.toString()).toContain("Routes");
+			expect(routes.stdout.toString()).toContain("GET");
+			expect(routes.stdout.toString()).toContain("/");
+
+			const doctor = Bun.spawnSync({
+				cmd: [process.execPath, "kura", "doctor"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(doctor.exitCode).toBe(0);
+			expect(doctor.stdout.toString()).toContain("Kura doctor");
+			expect(doctor.stdout.toString()).toContain("routes");
+
+			const env = Bun.spawnSync({
+				cmd: [process.execPath, "kura", "env"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(env.exitCode).toBe(0);
+			expect(env.stdout.toString()).toContain("Environment");
+			expect(env.stdout.toString()).toContain("APP_KEY");
+
+			const config = Bun.spawnSync({
+				cmd: [process.execPath, "kura", "config", "app.starter"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(config.exitCode).toBe(0);
+			expect(config.stdout.toString()).toContain("preset");
+
 			const makeController = Bun.spawnSync({
 				cmd: [process.execPath, "kura", "make:controller", "Home"],
 				cwd: join(appRoot, "demo"),

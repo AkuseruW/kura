@@ -220,17 +220,33 @@ describe("new app command", () => {
 		expect(output.text()).toContain("Database sqlite");
 		expect(output.text()).toContain("Modules  mail, storage");
 		expect(output.text()).toContain("Created demo-api in 42ms");
+		expect(output.text()).toContain("Useful commands");
+		expect(output.text()).toContain("bun kura routes");
+		expect(output.text()).toContain("Open http://localhost:3333");
 
 		const packageJson = JSON.parse(
 			await readGenerated(root, "demo-api/package.json"),
 		) as {
 			dependencies: { kura: string };
 			imports: Record<string, string>;
-			scripts: { build: string; dev: string; kura: string; test: string };
+			scripts: {
+				build: string;
+				config: string;
+				dev: string;
+				doctor: string;
+				env: string;
+				kura: string;
+				routes: string;
+				test: string;
+			};
 		};
 		expect(packageJson.dependencies.kura).toBe("file:../kura");
 		expect(packageJson.scripts.kura).toBe("bun bin/console.ts");
 		expect(packageJson.scripts.dev).toBe("bun bin/console.ts serve --watch");
+		expect(packageJson.scripts.routes).toBe("bun bin/console.ts routes");
+		expect(packageJson.scripts.doctor).toBe("bun bin/console.ts doctor");
+		expect(packageJson.scripts.env).toBe("bun bin/console.ts env");
+		expect(packageJson.scripts.config).toBe("bun bin/console.ts config");
 		expect(packageJson.scripts.test).toBe("bun bin/test.ts");
 		expect(packageJson.scripts.build).toContain("--target=bun");
 		expect(packageJson.scripts.build).toContain("bin/server.ts");
@@ -246,6 +262,12 @@ describe("new app command", () => {
 		);
 		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
 			'entry: "bin/server.ts"',
+		);
+		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
+			"registerDevToolCommands",
+		);
+		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
+			'await import("#start/routes")',
 		);
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
 			'import env from "#start/env"',
@@ -405,8 +427,8 @@ describe("new app command", () => {
 			clock: fakeClock(100, 142),
 			prompt: new FakePrompt({
 				selects: ["web", "postgres", "session", "redis", "redis"],
-				modules: ["i18n", "websockets"],
-				install: true,
+				features: ["database", "auth", "cache", "queue", "i18n", "websockets"],
+				confirms: [true, true],
 			}),
 			install: async () => {
 				output.write("fake install");
@@ -421,6 +443,7 @@ describe("new app command", () => {
 		expect(output.text()).toContain("fake install");
 		expect(output.text()).toContain("Preset   web");
 		expect(output.text()).toContain("Modules  i18n, websockets");
+		expect(output.text()).toContain("Scaffold");
 		expect(output.text()).toContain("Dependencies installed");
 		expect(output.text()).not.toContain("  bun install");
 		expect(await readGenerated(root, "demo-web/config/app.ts")).toContain(
@@ -566,12 +589,55 @@ describe("new app command", () => {
 		expect(stripAnsi(output.text())).toContain("[x] i18n");
 	});
 
+	test("supports clearing default TTY multi-select values", async () => {
+		const input = new FakeTtyInput();
+		const output = new FakeTtyOutput();
+		const prompt = new TerminalPrompt({
+			banner: false,
+			color: false,
+			input,
+			output,
+		});
+		const value = prompt.multiSelect(
+			"Features",
+			["mail", "storage"],
+			["mail"],
+			[
+				{
+					value: "mail",
+					label: "Mail",
+					description: "Email delivery",
+				},
+				{
+					value: "storage",
+					label: "Storage",
+					description: "File storage",
+				},
+			],
+		);
+
+		input.send(" ");
+		input.send("\r");
+
+		expect(await value).toEqual([]);
+		expect(stripAnsi(output.text())).toContain("❯     Mail");
+	});
+
 	test("renders guided terminal prompts with numbered choices", async () => {
 		const root = await makeRoot();
 		const output = new MemoryConsoleOutput();
 		const console = new ConsoleKernel(output);
 		const messages: string[] = [];
-		const answers = ["2", "postgres", "2", "3", "2", "mail,4", "yes"];
+		const answers = [
+			"2",
+			"1,2,3,4,5,8",
+			"postgres",
+			"2",
+			"3",
+			"2",
+			"yes",
+			"yes",
+		];
 		const promptHost = globalThis as {
 			prompt?: (message: string, defaultValue?: string) => string | null;
 		};
@@ -600,11 +666,15 @@ describe("new app command", () => {
 		expect(messages[0]).toContain("Application type\n\n  1. API");
 		expect(messages[0]).toContain("  2. Web");
 		expect(messages[0]).toContain("Select [1]");
-		expect(messages[1]).toContain("Database\n\n  1. None");
-		expect(messages[5]).toContain(
+		expect(messages[1]).toContain("Features\n\n  1. Database");
+		expect(messages[1]).toContain("  8. WebSockets");
+		expect(messages[1]).toContain(
 			"Select names or numbers, comma separated [none]",
 		);
+		expect(messages[2]).toContain("Database\n\n  1. None");
+		expect(messages[7]).toContain("Create project");
 		expect(output.text()).toContain("fake install");
+		expect(output.text()).toContain("Scaffold");
 		expect(output.text()).toContain("Preset   web");
 		expect(output.text()).toContain("Database postgres");
 		expect(output.text()).toContain("Auth     session");
@@ -664,15 +734,17 @@ describe("new app command", () => {
 });
 
 class FakePrompt implements NewAppPrompt {
+	private readonly confirms: boolean[];
 	private readonly selects: string[];
 
 	constructor(
 		private readonly answers: {
+			readonly confirms: readonly boolean[];
+			readonly features: readonly string[];
 			readonly selects: readonly string[];
-			readonly modules: readonly string[];
-			readonly install: boolean;
 		},
 	) {
+		this.confirms = [...answers.confirms];
 		this.selects = [...answers.selects];
 	}
 
@@ -687,10 +759,12 @@ class FakePrompt implements NewAppPrompt {
 	}
 
 	multiSelect(): readonly string[] {
-		return this.answers.modules;
+		return this.answers.features;
 	}
 
-	confirm(): boolean {
-		return this.answers.install;
+	confirm(_message: string, defaultValue: boolean): boolean {
+		const answer = this.confirms.shift();
+
+		return answer ?? defaultValue;
 	}
 }

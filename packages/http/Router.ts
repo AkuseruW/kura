@@ -7,6 +7,12 @@ import type { Middleware } from "./Middleware";
 import type { Context } from "./Server";
 
 export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
+export type RegisteredRoute = {
+	readonly method: string;
+	readonly path: string;
+	readonly name?: string;
+	readonly params: readonly string[];
+};
 
 export type ResourceController = {
 	index?: RouteHandler;
@@ -22,6 +28,7 @@ type ResourceControllerInput = ResourceController | string;
 type Route = {
 	method: string;
 	path: string;
+	name?: string;
 	pattern: RegExp;
 	params: string[];
 	handler: RouteHandler;
@@ -37,8 +44,9 @@ export class Router {
 		handler: RouteHandler,
 	): RouteBuilder {
 		const { pattern, params } = this.pathToRegex(path);
-		this.routes.push({ method, path, pattern, params, handler });
-		return new RouteBuilder(this.namedRoutes, path);
+		const route = { method, path, pattern, params, handler };
+		this.routes.push(route);
+		return new RouteBuilder(this.namedRoutes, route);
 	}
 
 	route(name: string, params: Record<string, string | number> = {}): string {
@@ -102,6 +110,15 @@ export class Router {
 		return null;
 	}
 
+	list(): readonly RegisteredRoute[] {
+		return this.routes.map((route) => ({
+			method: route.method,
+			path: route.path,
+			name: route.name,
+			params: [...route.params],
+		}));
+	}
+
 	resource(name: string, controller: ResourceControllerInput): ResourceBuilder {
 		return new ResourceBuilder(this, name, controller);
 	}
@@ -114,11 +131,12 @@ export class Router {
 class RouteBuilder {
 	constructor(
 		private namedRoutes: Map<string, string>,
-		private path: string,
+		private route: Route,
 	) {}
 
 	as(name: string): void {
-		this.namedRoutes.set(name, this.path);
+		this.route.name = name;
+		this.namedRoutes.set(name, this.route.path);
 	}
 }
 

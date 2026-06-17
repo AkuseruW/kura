@@ -25,7 +25,14 @@ export type NewAppPrompt = {
 		defaultValues: readonly string[],
 		choiceDetails?: readonly NewAppPromptChoice[],
 	): readonly string[] | Promise<readonly string[]>;
-	confirm(message: string, defaultValue: boolean): boolean | Promise<boolean>;
+	confirm(
+		message: string,
+		defaultValue: boolean,
+		choiceDetails?: {
+			readonly yes: string;
+			readonly no: string;
+		},
+	): boolean | Promise<boolean>;
 };
 
 export type NewAppConsoleOptions = {
