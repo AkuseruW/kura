@@ -6,7 +6,7 @@ import {
 	resolveChoices,
 	shouldPrompt,
 } from "./new-app/Choices";
-import { formatNewAppCreated } from "./new-app/Output";
+import { formatNewAppCreated, formatNewAppPlan } from "./new-app/Output";
 import { resolveDefaultPackageVersion } from "./new-app/PackageVersion";
 import { resolveRoot, resolveTargetPath } from "./new-app/Paths";
 import { TerminalPrompt } from "./new-app/Prompt";
@@ -106,11 +106,9 @@ export function createNewAppCommand(
 			const root = resolveRoot(options, context.options);
 			const targetPath = resolveTargetPath(root, rawName);
 			const interactive = shouldPrompt(context.options, options);
+			const prompt = options.prompt ?? new TerminalPrompt();
 			const choices = interactive
-				? await promptChoices(
-						context.options,
-						options.prompt ?? new TerminalPrompt(),
-					)
+				? await promptChoices(context.options, prompt)
 				: resolveChoices(context.options);
 			const packageVersion =
 				options.packageVersion ??
@@ -120,6 +118,29 @@ export function createNewAppCommand(
 				choices,
 				packageVersion,
 			});
+
+			if (interactive) {
+				context.output.write(
+					formatNewAppPlan({
+						appName: basename(targetPath),
+						choices,
+						files,
+						root,
+						targetPath,
+					}),
+				);
+
+				const shouldCreate = await prompt.confirm("Create project", true, {
+					yes: "Write files and create the application",
+					no: "Cancel without writing files",
+				});
+
+				if (!shouldCreate) {
+					context.output.write("Cancelled");
+					return 0;
+				}
+			}
+
 			const startedAt = options.clock?.() ?? Date.now();
 
 			await writeNewApp(targetPath, files, isEnabled(context.options, "force"));

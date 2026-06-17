@@ -59,6 +59,10 @@ export class Config {
 		return true;
 	}
 
+	all(): Record<string, unknown> {
+		return { ...this.items };
+	}
+
 	async load(path: string): Promise<void> {
 		const glob = new Bun.Glob("*.ts");
 

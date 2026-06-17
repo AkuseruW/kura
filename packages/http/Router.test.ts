@@ -31,6 +31,14 @@ describe("Router", () => {
 		router.get("/users/:id", () => new Response()).as("users.show");
 
 		expect(router.route("users.show", { id: 1 })).toBe("/users/1");
+		expect(router.list()).toEqual([
+			{
+				method: "GET",
+				name: "users.show",
+				params: ["id"],
+				path: "/users/:id",
+			},
+		]);
 		expect(() => router.route("users.show")).toThrow(
 			"Missing route parameter [id] for route [users.show]",
 		);

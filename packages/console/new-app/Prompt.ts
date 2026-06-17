@@ -129,17 +129,24 @@ export class TerminalPrompt implements NewAppPrompt {
 		});
 	}
 
-	confirm(message: string, defaultValue: boolean): boolean | Promise<boolean> {
+	confirm(
+		message: string,
+		defaultValue: boolean,
+		choiceDetails: { readonly yes: string; readonly no: string } = {
+			yes: "Continue",
+			no: "Cancel",
+		},
+	): boolean | Promise<boolean> {
 		const options = [
 			{
 				value: "yes",
 				label: "Yes",
-				description: "Run dependency installation after scaffolding",
+				description: choiceDetails.yes,
 			},
 			{
 				value: "no",
 				label: "No",
-				description: "Skip dependency installation",
+				description: choiceDetails.no,
 			},
 		];
 
@@ -217,7 +224,7 @@ export class TerminalPrompt implements NewAppPrompt {
 			resolve: (state) => [...state.selected],
 			update: (state, key) =>
 				updateMultipleChoiceState(state, key, options.options),
-		}).then((values) => (values.length === 0 ? options.defaultValues : values));
+		});
 	}
 
 	private runInteractiveSession<TResult>(

@@ -12,6 +12,16 @@ import type {
 	QueuePreset,
 } from "./Types";
 
+type FeaturePreset =
+	| "auth"
+	| "cache"
+	| "database"
+	| "i18n"
+	| "mail"
+	| "queue"
+	| "storage"
+	| "websockets";
+
 const appPresetChoices = [
 	{
 		value: "api",
@@ -135,12 +145,37 @@ const modulePresetChoices = [
 	},
 ] as const satisfies readonly NewAppPromptChoice<ModulePreset>[];
 
+const featurePresetChoices = [
+	{
+		value: "database",
+		label: "Database",
+		description: "Add database configuration and migrations",
+	},
+	{
+		value: "auth",
+		label: "Auth",
+		description: "Scaffold user auth starter files",
+	},
+	{
+		value: "cache",
+		label: "Cache",
+		description: "Choose a cache backend",
+	},
+	{
+		value: "queue",
+		label: "Queue",
+		description: "Add background job infrastructure",
+	},
+	...modulePresetChoices,
+] as const satisfies readonly NewAppPromptChoice<FeaturePreset>[];
+
 const appPresets = values(appPresetChoices);
 const databasePresets = values(databasePresetChoices);
 const authPresets = values(authPresetChoices);
 const cachePresets = values(cachePresetChoices);
 const queuePresets = values(queuePresetChoices);
 const modulePresets = values(modulePresetChoices);
+const featurePresets = values(featurePresetChoices);
 
 export function resolveChoices(options: ConsoleOptions): NewAppChoices {
 	return {
@@ -160,68 +195,82 @@ export async function promptChoices(
 	prompt: NewAppPrompt,
 ): Promise<NewAppChoices> {
 	const defaults = resolveChoices(options);
+	const preset = readPreset(
+		await prompt.select(
+			"Application type",
+			appPresets,
+			defaults.preset,
+			appPresetChoices,
+		),
+		appPresets,
+		"preset",
+	);
+	const features = readFeatureChoices(
+		await prompt.multiSelect(
+			"Features",
+			featurePresets,
+			defaultFeatureChoices(defaults),
+			featurePresetChoices,
+		),
+	);
+	const featureSet = new Set(features);
 
 	return {
-		preset: readPreset(
-			await prompt.select(
-				"Application type",
-				appPresets,
-				defaults.preset,
-				appPresetChoices,
-			),
-			appPresets,
-			"preset",
-		),
-		database: readPreset(
-			await prompt.select(
-				"Database",
-				databasePresets,
-				defaults.database,
-				databasePresetChoices,
-			),
-			databasePresets,
-			"database",
-		),
-		auth: readPreset(
-			await prompt.select(
-				"Auth",
-				authPresets,
-				defaults.auth,
-				authPresetChoices,
-			),
-			authPresets,
-			"auth",
-		),
-		cache: readPreset(
-			await prompt.select(
-				"Cache",
-				cachePresets,
-				defaults.cache,
-				cachePresetChoices,
-			),
-			cachePresets,
-			"cache",
-		),
-		queue: readPreset(
-			await prompt.select(
-				"Queue",
-				queuePresets,
-				defaults.queue,
-				queuePresetChoices,
-			),
-			queuePresets,
-			"queue",
-		),
-		modules: readModuleChoices(
-			await prompt.multiSelect(
-				"Optional modules",
-				modulePresets,
-				defaults.modules,
-				modulePresetChoices,
-			),
-		),
+		preset,
+		database: featureSet.has("database")
+			? readPreset(
+					await prompt.select(
+						"Database",
+						databasePresets,
+						defaults.database === "none" ? "sqlite" : defaults.database,
+						databasePresetChoices,
+					),
+					databasePresets,
+					"database",
+				)
+			: "none",
+		auth: featureSet.has("auth")
+			? readPreset(
+					await prompt.select(
+						"Auth",
+						authPresets,
+						defaults.auth === "none" ? "session" : defaults.auth,
+						authPresetChoices,
+					),
+					authPresets,
+					"auth",
+				)
+			: "none",
+		cache: featureSet.has("cache")
+			? readPreset(
+					await prompt.select(
+						"Cache",
+						cachePresets,
+						defaults.cache,
+						cachePresetChoices,
+					),
+					cachePresets,
+					"cache",
+				)
+			: "memory",
+		queue: featureSet.has("queue")
+			? readPreset(
+					await prompt.select(
+						"Queue",
+						queuePresets,
+						defaults.queue === "none" ? "memory" : defaults.queue,
+						queuePresetChoices,
+					),
+					queuePresets,
+					"queue",
+				)
+			: "none",
+		modules: readModuleChoices(features.filter(isModulePreset)),
 		packageManager: "bun",
-		install: await prompt.confirm("Install dependencies", defaults.install),
+		install: await prompt.confirm("Install dependencies", defaults.install, {
+			yes: "Run dependency installation after scaffolding",
+			no: "Skip dependency installation",
+		}),
 	};
 }
 
@@ -287,6 +336,42 @@ function readModuleChoices(values: readonly string[]): readonly ModulePreset[] {
 			values.map((value) => readPreset(value, modulePresets, "module")),
 		),
 	];
+}
+
+function readFeatureChoices(
+	values: readonly string[],
+): readonly FeaturePreset[] {
+	return [
+		...new Set(
+			values.map((value) => readPreset(value, featurePresets, "feature")),
+		),
+	];
+}
+
+function defaultFeatureChoices(
+	defaults: NewAppChoices,
+): readonly FeaturePreset[] {
+	const features: FeaturePreset[] = [];
+
+	if (defaults.database !== "none") {
+		features.push("database");
+	}
+	if (defaults.auth !== "none") {
+		features.push("auth");
+	}
+	if (defaults.cache !== "memory") {
+		features.push("cache");
+	}
+	if (defaults.queue !== "none") {
+		features.push("queue");
+	}
+
+	features.push(...defaults.modules);
+	return features;
+}
+
+function isModulePreset(value: FeaturePreset): value is ModulePreset {
+	return modulePresets.includes(value as ModulePreset);
 }
 
 export function shouldPrompt(
