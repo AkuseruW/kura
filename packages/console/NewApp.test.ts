@@ -251,7 +251,7 @@ describe("new app command", () => {
 		const packageJson = JSON.parse(
 			await readGenerated(root, "demo-api/package.json"),
 		) as {
-			dependencies: { kurajs: string };
+			dependencies: { kura: string };
 			imports: Record<string, string>;
 			scripts: {
 				build: string;
@@ -264,7 +264,7 @@ describe("new app command", () => {
 				test: string;
 			};
 		};
-		expect(packageJson.dependencies.kurajs).toBe("file:../kura");
+		expect(packageJson.dependencies.kura).toBe("file:../kura");
 		expect(packageJson.scripts.kura).toBe("bun bin/console.ts");
 		expect(packageJson.scripts.dev).toBe("bun bin/console.ts serve --watch");
 		expect(packageJson.scripts.routes).toBe("bun bin/console.ts routes");
@@ -447,7 +447,7 @@ describe("new app command", () => {
 		);
 	});
 
-	test("uses the local framework package when generated from the Kura repo", async () => {
+	test("uses a Kura import alias for the framework package", async () => {
 		const root = await makeRoot();
 		const output = new MemoryConsoleOutput();
 		const console = new ConsoleKernel(output);
@@ -461,9 +461,13 @@ describe("new app command", () => {
 
 		const packageJson = JSON.parse(
 			await readGenerated(root, "demo/package.json"),
-		) as { dependencies: { kurajs: string } };
-		expect(packageJson.dependencies.kurajs).toStartWith("file:");
-		expect(packageJson.dependencies.kurajs).not.toBe("latest");
+		) as { dependencies: { kura: string } };
+		expect(packageJson.dependencies.kura).not.toBe("latest");
+		expect(
+			packageJson.dependencies.kura === "npm:kurajs@latest" ||
+				(packageJson.dependencies.kura.startsWith("file:") &&
+					packageJson.dependencies.kura.endsWith("dist")),
+		).toBe(true);
 	});
 
 	test("uses injected prompts for interactive generation", async () => {

@@ -330,7 +330,7 @@ const generatorDefinitions: readonly GeneratorDefinition[] = [
 		makeContent: (input) => {
 			const tableName = tableNameFromModel(input.baseName);
 
-			return `import { BaseModel, column } from "kurajs";
+			return `import { BaseModel, column } from "kura";
 
 export type ${input.className}Attributes = Record<string, unknown> & {
 \tid?: number;
@@ -352,7 +352,7 @@ export class ${input.className} extends BaseModel<${input.className}Attributes> 
 		directory: "app/controllers",
 		makeContent: (
 			input,
-		) => `import { BaseController, type Context } from "kurajs";
+		) => `import { BaseController, type Context } from "kura";
 
 export class ${input.className} extends BaseController {
 \tasync index(_ctx: Context): Promise<Response> {
@@ -366,7 +366,7 @@ export class ${input.className} extends BaseController {
 		description: "Create HTTP middleware",
 		suffix: "Middleware",
 		directory: "app/middleware",
-		makeContent: (input) => `import type { Middleware } from "kurajs";
+		makeContent: (input) => `import type { Middleware } from "kura";
 
 export const ${input.className}: Middleware = async (_ctx, next) => {
 \treturn next();
@@ -378,7 +378,7 @@ export const ${input.className}: Middleware = async (_ctx, next) => {
 		description: "Create a validator schema",
 		suffix: "Validator",
 		directory: "app/validators",
-		makeContent: (input) => `import { v } from "kurajs";
+		makeContent: (input) => `import { v } from "kura";
 
 export const ${camelCase(input.className)} = v.object({});
 `,
@@ -391,7 +391,7 @@ export const ${camelCase(input.className)} = v.object({});
 		makeContent: (input) => {
 			const tableName = migrationTableName(input);
 
-			return `import { Migration, type SchemaBuilder } from "kurajs";
+			return `import { Migration, type SchemaBuilder } from "kura";
 
 export default class ${input.className} extends Migration {
 \toverride up(schema: SchemaBuilder): void {
@@ -413,9 +413,7 @@ export default class ${input.className} extends Migration {
 		description: "Create a database seeder",
 		suffix: "Seeder",
 		directory: "database/seeders",
-		makeContent: (
-			input,
-		) => `import { Seeder, type SeederContext } from "kurajs";
+		makeContent: (input) => `import { Seeder, type SeederContext } from "kura";
 
 export default class ${input.className} extends Seeder {
 \toverride async run(_ctx: SeederContext): Promise<void> {}
@@ -430,7 +428,7 @@ export default class ${input.className} extends Seeder {
 		makeContent: (input) => {
 			const modelName = input.baseName.replace(/Factory$/, "");
 
-			return `import { defineFactory } from "kurajs";
+			return `import { defineFactory } from "kura";
 import { ${modelName} } from "../../app/models/${modelName}";
 
 export const ${camelCase(input.className)} = defineFactory(${modelName}, ({ sequence }) => ({
@@ -444,7 +442,7 @@ export const ${camelCase(input.className)} = defineFactory(${modelName}, ({ sequ
 		description: "Create an event class",
 		suffix: "Event",
 		directory: "app/events",
-		makeContent: (input) => `import { Event } from "kurajs";
+		makeContent: (input) => `import { Event } from "kura";
 
 export type ${input.className}Payload = Record<string, unknown>;
 
@@ -460,7 +458,7 @@ export class ${input.className} extends Event<${input.className}Payload> {
 		description: "Create an event listener",
 		suffix: "Listener",
 		directory: "app/listeners",
-		makeContent: (input) => `import type { Event } from "kurajs";
+		makeContent: (input) => `import type { Event } from "kura";
 
 export class ${input.className} {
 \tasync handle(_event: Event<Record<string, unknown>>): Promise<void> {}
@@ -472,7 +470,7 @@ export class ${input.className} {
 		description: "Create a queue job",
 		suffix: "Job",
 		directory: "app/jobs",
-		makeContent: (input) => `import { Job, type JobContext } from "kurajs";
+		makeContent: (input) => `import { Job, type JobContext } from "kura";
 
 export type ${input.className}Payload = Record<string, unknown>;
 
@@ -508,7 +506,7 @@ export class ${input.className} {
 		description: "Create an authorization policy",
 		suffix: "Policy",
 		directory: "app/policies",
-		makeContent: (input) => `import { BasePolicy, type Context } from "kurajs";
+		makeContent: (input) => `import { BasePolicy, type Context } from "kura";
 
 export class ${input.className} extends BasePolicy {
 \toverride view(_user: unknown, _resource?: unknown, _ctx?: Context): boolean {

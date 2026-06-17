@@ -1,4 +1,4 @@
-import { chmod, rm } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 
 type BuildTarget = {
 	readonly entrypoint: string;
@@ -22,6 +22,7 @@ for (const target of targets) {
 }
 
 await emitDeclarations();
+await emitDistPackageManifest();
 await chmod("dist/bin/kura.js", 0o755);
 await chmod("packages/create-kurajs/dist/index.js", 0o755);
 
@@ -55,4 +56,58 @@ async function emitDeclarations(): Promise<void> {
 	if (result.exitCode !== 0) {
 		throw new Error("Declaration build failed");
 	}
+}
+
+type RuntimePackageManifest = {
+	readonly bugs?: unknown;
+	readonly description?: string;
+	readonly engines?: Record<string, string>;
+	readonly homepage?: string;
+	readonly keywords?: readonly string[];
+	readonly license?: string;
+	readonly name: string;
+	readonly peerDependencies?: Record<string, string>;
+	readonly peerDependenciesMeta?: Record<string, unknown>;
+	readonly repository?: unknown;
+	readonly version: string;
+};
+
+async function emitDistPackageManifest(): Promise<void> {
+	const packageJson = JSON.parse(
+		await readFile("package.json", "utf8"),
+	) as RuntimePackageManifest;
+	const manifest = {
+		name: packageJson.name,
+		version: packageJson.version,
+		description: packageJson.description,
+		keywords: packageJson.keywords,
+		homepage: packageJson.homepage,
+		bugs: packageJson.bugs,
+		repository: packageJson.repository,
+		license: packageJson.license,
+		type: "module",
+		main: "./index.js",
+		module: "./index.js",
+		types: "./index.d.ts",
+		bin: {
+			kura: "./bin/kura.js",
+			kurajs: "./bin/kura.js",
+		},
+		exports: {
+			".": {
+				types: "./index.d.ts",
+				import: "./index.js",
+				default: "./index.js",
+			},
+			"./package.json": "./package.json",
+		},
+		engines: packageJson.engines,
+		peerDependencies: packageJson.peerDependencies,
+		peerDependenciesMeta: packageJson.peerDependenciesMeta,
+	};
+
+	await writeFile(
+		"dist/package.json",
+		`${JSON.stringify(manifest, null, "\t")}\n`,
+	);
 }
