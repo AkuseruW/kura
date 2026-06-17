@@ -7,6 +7,17 @@ import { type NewAppPrompt, registerNewAppCommand } from "./NewApp";
 
 const roots: string[] = [];
 
+function fakeClock(...timestamps: number[]): () => number {
+	let index = 0;
+
+	return () => {
+		const value = timestamps[Math.min(index, timestamps.length - 1)] ?? 0;
+		index += 1;
+
+		return value;
+	};
+}
+
 async function makeRoot(): Promise<string> {
 	const root = await mkdtemp(join(tmpdir(), "kura-new-"));
 	roots.push(root);
@@ -30,6 +41,18 @@ async function generatedFileExists(
 ): Promise<boolean> {
 	try {
 		return (await stat(join(root, path))).isFile();
+	} catch {
+		return false;
+	}
+}
+
+async function generatedPathExists(
+	root: string,
+	path: string,
+): Promise<boolean> {
+	try {
+		await stat(join(root, path));
+		return true;
 	} catch {
 		return false;
 	}
@@ -83,6 +106,7 @@ describe("new app command", () => {
 		const console = new ConsoleKernel(output);
 		registerNewAppCommand(console, {
 			root,
+			clock: fakeClock(100, 142),
 			packageVersion: "file:../kura",
 		});
 
@@ -104,8 +128,10 @@ describe("new app command", () => {
 
 		expect(exitCode).toBe(0);
 		expect(output.text()).toContain("Created demo-api");
-		expect(output.text()).toContain("Database: sqlite");
-		expect(output.text()).toContain("Modules: mail, storage");
+		expect(output.text()).toContain("Kura new");
+		expect(output.text()).toContain("Database sqlite");
+		expect(output.text()).toContain("Modules  mail, storage");
+		expect(output.text()).toContain("Created demo-api in 42ms");
 
 		const packageJson = JSON.parse(
 			await readGenerated(root, "demo-api/package.json"),
@@ -209,6 +235,10 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/.gitignore")).not.toContain(
 			".gitkeep",
 		);
+		expect(await readGenerated(root, "demo-api/.gitignore")).toContain(".kura");
+		expect(await generatedPathExists(root, "demo-api/.kura/server")).toBe(
+			false,
+		);
 		expect(await findFilesNamed(join(root, "demo-api"), ".gitkeep")).toEqual(
 			[],
 		);
@@ -218,12 +248,13 @@ describe("new app command", () => {
 		const root = await makeRoot();
 		const output = new MemoryConsoleOutput();
 		const console = new ConsoleKernel(output);
-		registerNewAppCommand(console, { root });
+		registerNewAppCommand(console, { root, clock: fakeClock(100, 142) });
 
 		const exitCode = await console.run(["new", "demo", "--yes"]);
 
 		expect(exitCode).toBe(0);
-		expect(output.text()).toContain("Framework: file:");
+		expect(output.text()).not.toContain("Framework:");
+		expect(output.text()).toContain("Created demo in 42ms");
 
 		const packageJson = JSON.parse(
 			await readGenerated(root, "demo/package.json"),
@@ -238,6 +269,7 @@ describe("new app command", () => {
 		const console = new ConsoleKernel(output);
 		registerNewAppCommand(console, {
 			root,
+			clock: fakeClock(100, 142),
 			prompt: new FakePrompt({
 				selects: ["web", "postgres", "session", "redis", "redis"],
 				modules: ["i18n", "websockets"],
@@ -254,8 +286,10 @@ describe("new app command", () => {
 
 		expect(exitCode).toBe(0);
 		expect(output.text()).toContain("fake install");
-		expect(output.text()).toContain("Preset: web");
-		expect(output.text()).toContain("Modules: i18n, websockets");
+		expect(output.text()).toContain("Preset   web");
+		expect(output.text()).toContain("Modules  i18n, websockets");
+		expect(output.text()).toContain("Dependencies installed");
+		expect(output.text()).not.toContain("  bun install");
 		expect(await readGenerated(root, "demo-web/config/app.ts")).toContain(
 			'preset: "web"',
 		);
@@ -268,6 +302,54 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-web/.env.example")).toContain(
 			"REDIS_URL=",
 		);
+	});
+
+	test("renders guided terminal prompts with numbered choices", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		const messages: string[] = [];
+		const answers = ["2", "postgres", "2", "3", "2", "mail,4", "yes"];
+		const promptHost = globalThis as {
+			prompt?: (message: string, defaultValue?: string) => string | null;
+		};
+		const previousPrompt = promptHost.prompt;
+
+		promptHost.prompt = (message: string): string => {
+			messages.push(message);
+
+			return answers.shift() ?? "";
+		};
+
+		try {
+			registerNewAppCommand(console, {
+				root,
+				clock: fakeClock(100, 142),
+				install: () => {
+					output.write("fake install");
+				},
+			});
+
+			expect(await console.run(["new", "guided", "--interactive"])).toBe(0);
+		} finally {
+			promptHost.prompt = previousPrompt;
+		}
+
+		expect(messages[0]).toContain("Application type\n\n  1. API");
+		expect(messages[0]).toContain("  2. Web");
+		expect(messages[0]).toContain("Select [1]");
+		expect(messages[1]).toContain("Database\n\n  1. None");
+		expect(messages[5]).toContain(
+			"Select names or numbers, comma separated [none]",
+		);
+		expect(output.text()).toContain("fake install");
+		expect(output.text()).toContain("Preset   web");
+		expect(output.text()).toContain("Database postgres");
+		expect(output.text()).toContain("Auth     session");
+		expect(output.text()).toContain("Cache    redis");
+		expect(output.text()).toContain("Queue    memory");
+		expect(output.text()).toContain("Modules  mail, websockets");
+		expect(output.text()).toContain("Dependencies installed");
 	});
 
 	test("refuses existing directories unless force is enabled", async () => {
