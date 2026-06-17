@@ -1,5 +1,5 @@
 {
-	"name": "kurajs",
+	"name": "@akuseru_w/kura",
 	"version": "0.1.0",
 	"description": "A Bun-native TypeScript web framework.",
 	"keywords": [
@@ -26,8 +26,7 @@
 		"dist"
 	],
 	"bin": {
-		"kura": "./dist/bin/kura.js",
-		"kurajs": "./dist/bin/kura.js"
+		"kura": "./dist/bin/kura.js"
 	},
 	"exports": {
 		".": {
