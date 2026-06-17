@@ -7,6 +7,7 @@ import {
 	type ServeServerFactory,
 	type ServeServerStartOptions,
 	type ServeTarget,
+	type ServeWatcherChange,
 	type ServeWatcherFactory,
 } from "./ServeConsole";
 
@@ -44,6 +45,50 @@ function fakeServerFactory() {
 	return { factory, starts, stopped };
 }
 
+function fakeClock(...timestamps: number[]): () => number {
+	let index = 0;
+
+	return () => {
+		const value = timestamps[Math.min(index, timestamps.length - 1)] ?? 0;
+		index += 1;
+
+		return value;
+	};
+}
+
+function serverStartedOutput(options: {
+	readonly url: string;
+	readonly entry?: string;
+	readonly root?: string;
+	readonly mode?: string;
+	readonly watch?: boolean;
+	readonly duration?: number;
+	readonly keepAlive?: boolean;
+}): string {
+	const lines = [
+		"Kura server started",
+		"",
+		"  Server",
+		`  URL     ${options.url}`,
+		`  Entry   ${options.entry ?? "server.ts"}`,
+		`  Root    ${options.root ?? process.cwd()}`,
+		`  Mode    ${options.mode ?? "testing"}`,
+		`  Watch   ${options.watch === true ? "enabled" : "disabled"}`,
+		"",
+		`Ready in ${options.duration ?? 42}ms`,
+	];
+
+	if (options.keepAlive !== false) {
+		lines.push(
+			options.watch === true
+				? "Watching for changes. Press Ctrl+C to stop."
+				: "Press Ctrl+C to stop.",
+		);
+	}
+
+	return lines.join("\n");
+}
+
 describe("serve console command", () => {
 	test("registers the serve command", () => {
 		const console = new ConsoleKernel(new MemoryConsoleOutput());
@@ -66,6 +111,8 @@ describe("serve console command", () => {
 				handler: () => new Response("ok"),
 				serverFactory: fake.factory,
 				keepAlive: false,
+				clock: fakeClock(0, 42),
+				environment: "testing",
 			}),
 		);
 
@@ -78,7 +125,12 @@ describe("serve console command", () => {
 		]);
 
 		expect(exitCode).toBe(0);
-		expect(output.text()).toBe("Server running at http://0.0.0.0:8080/");
+		expect(output.text()).toBe(
+			serverStartedOutput({
+				url: "http://0.0.0.0:8080/",
+				keepAlive: false,
+			}),
+		);
 		expect(fake.starts).toHaveLength(1);
 		const response = await fake.starts[0]?.handler({
 			request: new Request("http://localhost"),
@@ -98,10 +150,17 @@ describe("serve console command", () => {
 				handler: () => new Response("ok"),
 				serverFactory: fake.factory,
 				keepAlive: false,
+				clock: fakeClock(0, 42),
+				environment: "testing",
 			});
 
 			expect(await console.run(["serve"])).toBe(0);
-			expect(output.text()).toBe("Server running at http://127.0.0.1:4444/");
+			expect(output.text()).toBe(
+				serverStartedOutput({
+					url: "http://127.0.0.1:4444/",
+					keepAlive: false,
+				}),
+			);
 		} finally {
 			if (previousPort === undefined) {
 				delete Bun.env.PORT;
@@ -121,6 +180,8 @@ describe("serve console command", () => {
 			router,
 			serverFactory: fake.factory,
 			keepAlive: false,
+			clock: fakeClock(0, 42),
+			environment: "testing",
 		});
 
 		expect(await console.run(["serve"])).toBe(0);
@@ -148,6 +209,8 @@ describe("serve console command", () => {
 			},
 			serverFactory: fake.factory,
 			keepAlive: false,
+			clock: fakeClock(0, 42),
+			environment: "testing",
 		});
 
 		expect(await console.run(["serve"])).toBe(0);
@@ -178,7 +241,9 @@ describe("serve console command", () => {
 	test("reloads the server when watch mode receives changes", async () => {
 		const output = new MemoryConsoleOutput();
 		const fake = fakeServerFactory();
-		let onChange: (() => void | Promise<void>) | undefined;
+		let onChange:
+			| ((change?: ServeWatcherChange) => void | Promise<void>)
+			| undefined;
 		const watcherFactory: ServeWatcherFactory = (_root, callback) => {
 			onChange = callback;
 			return { close: () => undefined };
@@ -195,24 +260,91 @@ describe("serve console command", () => {
 			serverFactory: fake.factory,
 			watcherFactory,
 			keepAlive: false,
+			clock: fakeClock(0, 20, 100, 118),
+			environment: "testing",
 		});
 
 		expect(await console.run(["serve", "--watch"])).toBe(0);
 		expect(fake.starts).toHaveLength(1);
 
-		await onChange?.();
+		await onChange?.({ path: "start/routes.ts" });
 
 		expect(fake.starts).toHaveLength(2);
 		expect(fake.stopped).toEqual([new URL("http://127.0.0.1:3333/")]);
 		expect(output.text()).toBe(
 			[
-				"Server running at http://127.0.0.1:3333/ with watch",
-				"Reloaded server at http://127.0.0.1:3333/",
+				serverStartedOutput({
+					url: "http://127.0.0.1:3333/",
+					root: "/project",
+					watch: true,
+					duration: 20,
+					keepAlive: false,
+				}),
+				"Change detected: start/routes.ts\nReloaded in 18ms\n\n  URL     http://127.0.0.1:3333/",
 			].join("\n"),
 		);
 		const response = await fake.starts[1]?.handler({
 			request: new Request("http://localhost"),
 		});
 		expect(await response?.text()).toBe("loaded:2");
+	});
+
+	test("reports reload failures without starting a replacement server", async () => {
+		const output = new MemoryConsoleOutput();
+		const fake = fakeServerFactory();
+		let onChange:
+			| ((change?: ServeWatcherChange) => void | Promise<void>)
+			| undefined;
+		const watcherFactory: ServeWatcherFactory = (_root, callback) => {
+			onChange = callback;
+			return { close: () => undefined };
+		};
+		let loadCount = 0;
+		const console = new ConsoleKernel(output);
+		registerServeCommand(console, {
+			root: "/project",
+			entry: "bin/server.ts",
+			loader: async (): Promise<ServeTarget> => {
+				loadCount += 1;
+
+				if (loadCount > 1) {
+					throw new Error('Cannot find module "#start/routes"');
+				}
+
+				return () => new Response("ok");
+			},
+			serverFactory: fake.factory,
+			watcherFactory,
+			keepAlive: false,
+			clock: fakeClock(0, 12, 100, 118),
+			environment: "testing",
+		});
+
+		expect(await console.run(["serve", "--watch"])).toBe(0);
+
+		await onChange?.({ path: "start/routes.ts" });
+
+		expect(fake.starts).toHaveLength(1);
+		expect(fake.stopped).toEqual([new URL("http://127.0.0.1:3333/")]);
+		expect(output.text()).toBe(
+			[
+				serverStartedOutput({
+					url: "http://127.0.0.1:3333/",
+					entry: "bin/server.ts",
+					root: "/project",
+					watch: true,
+					duration: 12,
+					keepAlive: false,
+				}),
+				[
+					"Reload failed",
+					"",
+					"  Entry   bin/server.ts",
+					'  Error   Cannot find module "#start/routes"',
+					"",
+					"Fix the error and save a file to retry.",
+				].join("\n"),
+			].join("\n"),
+		);
 	});
 });

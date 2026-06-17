@@ -1,5 +1,5 @@
 import { watch } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	type Command,
@@ -18,12 +18,15 @@ export interface ServeConsoleOptions {
 	readonly entry?: string;
 	readonly host?: string;
 	readonly port?: number;
+	readonly environment?: string;
 	readonly handler?: ServeHandler;
 	readonly router?: Router;
 	readonly loader?: ServeEntryLoader;
 	readonly serverFactory?: ServeServerFactory;
 	readonly watcherFactory?: ServeWatcherFactory;
 	readonly keepAlive?: boolean;
+	readonly clock?: ServeClock;
+	readonly color?: boolean;
 }
 
 export type ServeEntryLoader = (
@@ -59,10 +62,16 @@ export interface ServeWatcher {
 	close(): void;
 }
 
+export interface ServeWatcherChange {
+	readonly path?: string;
+}
+
 export type ServeWatcherFactory = (
 	root: string,
-	onChange: () => void | Promise<void>,
+	onChange: (change?: ServeWatcherChange) => void | Promise<void>,
 ) => ServeWatcher;
+
+export type ServeClock = () => number;
 
 export function createServeCommand(options: ServeConsoleOptions = {}): Command {
 	const defaultPort = options.port ?? readEnvPort() ?? 3333;
@@ -108,20 +117,18 @@ export function createServeCommand(options: ServeConsoleOptions = {}): Command {
 		},
 		async (context) => {
 			const config = resolveServeConfig(options, context.options);
+			const startedAt = config.clock();
 			const runtime = await startDevServer(
 				config,
 				context.output.write.bind(context.output),
 			);
+			const duration = elapsedMilliseconds(startedAt, config.clock());
 
-			if (!config.watch) {
-				context.output.write(`Server running at ${runtime.server.url}`);
-			} else {
-				context.output.write(
-					`Server running at ${runtime.server.url} with watch`,
-				);
-			}
+			context.output.write(formatServerStarted(config, runtime, duration));
 
 			if (options.keepAlive === false) {
+				runtime.watcher?.close();
+				runtime.server.stop();
 				return;
 			}
 
@@ -145,6 +152,10 @@ type ServeConfig = {
 	readonly host: string;
 	readonly port: number;
 	readonly watch: boolean;
+	readonly keepAlive: boolean;
+	readonly environment: string;
+	readonly color: boolean;
+	readonly clock: ServeClock;
 	readonly explicitHandler?: ServeHandler;
 	readonly explicitRouter?: Router;
 	readonly loader: ServeEntryLoader;
@@ -170,12 +181,13 @@ async function startDevServer(
 	const runtime: ServeRuntime = { server };
 
 	if (config.watch) {
-		runtime.watcher = config.watcherFactory(config.root, async () => {
+		runtime.watcher = config.watcherFactory(config.root, async (change) => {
 			if (reloading) {
 				return;
 			}
 
 			reloading = true;
+			const startedAt = config.clock();
 			try {
 				const nextHandler = await resolveHandler(config, Date.now().toString());
 				server.stop();
@@ -186,7 +198,16 @@ async function startDevServer(
 				});
 				server = nextServer;
 				runtime.server = nextServer;
-				write(`Reloaded server at ${nextServer.url}`);
+				write(
+					formatServerReloaded(
+						config,
+						runtime,
+						change,
+						elapsedMilliseconds(startedAt, config.clock()),
+					),
+				);
+			} catch (error) {
+				write(formatServerReloadFailed(config, error));
 			} finally {
 				reloading = false;
 			}
@@ -217,6 +238,10 @@ function resolveServeConfig(
 		host,
 		port,
 		watch: isEnabled(consoleOptions, "watch"),
+		keepAlive: options.keepAlive !== false,
+		environment: options.environment ?? Bun.env.NODE_ENV ?? "development",
+		color: options.color ?? shouldUseColor(),
+		clock: options.clock ?? Date.now,
 		explicitHandler: options.handler,
 		explicitRouter: options.router,
 		loader: options.loader ?? loadServeEntry,
@@ -331,10 +356,21 @@ function createBunServer(options: ServeServerStartOptions): ServeServer {
 
 function createNodeWatcher(
 	root: string,
-	onChange: () => void | Promise<void>,
+	onChange: (change?: ServeWatcherChange) => void | Promise<void>,
 ): ServeWatcher {
-	const watcher = watch(root, { recursive: true }, () => {
-		void onChange();
+	const watcher = watch(root, { recursive: true }, (_event, filename) => {
+		const changedPath =
+			filename === null || filename === undefined
+				? undefined
+				: filename.toString();
+
+		if (changedPath !== undefined && shouldIgnoreWatchPath(changedPath)) {
+			return;
+		}
+
+		void onChange(
+			changedPath === undefined ? undefined : { path: changedPath },
+		);
 	});
 
 	return {
@@ -412,4 +448,152 @@ function isRouter(value: unknown): value is Router {
 	return (
 		isRecord(value) && "match" in value && typeof value.match === "function"
 	);
+}
+
+function formatServerStarted(
+	config: ServeConfig,
+	runtime: ServeRuntime,
+	duration: number,
+): string {
+	const theme = makeConsoleTheme(config.color);
+	const lines = [
+		theme.success("Kura server started"),
+		"",
+		`  ${theme.heading("Server")}`,
+		formatServerRow(theme, "URL", runtime.server.url.href),
+		formatServerRow(theme, "Entry", displayPath(config.root, config.entry)),
+		formatServerRow(theme, "Root", config.root),
+		formatServerRow(theme, "Mode", config.environment),
+		formatServerRow(theme, "Watch", config.watch ? "enabled" : "disabled"),
+		"",
+		theme.muted(`Ready in ${formatDuration(duration)}`),
+	];
+
+	if (config.watch && config.keepAlive) {
+		lines.push(theme.muted("Watching for changes. Press Ctrl+C to stop."));
+	} else if (config.keepAlive) {
+		lines.push(theme.muted("Press Ctrl+C to stop."));
+	}
+
+	return lines.join("\n");
+}
+
+function formatServerReloaded(
+	config: ServeConfig,
+	runtime: ServeRuntime,
+	change: ServeWatcherChange | undefined,
+	duration: number,
+): string {
+	const theme = makeConsoleTheme(config.color);
+	const changedPath = change?.path
+		? displayChangedPath(config.root, change.path)
+		: undefined;
+	const lines = [
+		changedPath
+			? theme.muted(`Change detected: ${changedPath}`)
+			: theme.muted("Change detected"),
+		theme.success(`Reloaded in ${formatDuration(duration)}`),
+		"",
+		formatServerRow(theme, "URL", runtime.server.url.href),
+	];
+
+	return lines.join("\n");
+}
+
+function formatServerReloadFailed(config: ServeConfig, error: unknown): string {
+	const theme = makeConsoleTheme(config.color);
+	const message = error instanceof Error ? error.message : "Unknown error";
+
+	return [
+		theme.error("Reload failed"),
+		"",
+		formatServerRow(theme, "Entry", displayPath(config.root, config.entry)),
+		formatServerRow(theme, "Error", message),
+		"",
+		theme.muted("Fix the error and save a file to retry."),
+	].join("\n");
+}
+
+function formatServerRow(
+	theme: ConsoleTheme,
+	label: string,
+	value: string,
+): string {
+	return `  ${theme.muted(label.padEnd(7))} ${value}`;
+}
+
+function displayPath(root: string, path: string): string {
+	const value = relative(root, path).replaceAll("\\", "/");
+
+	if (value === "") {
+		return ".";
+	}
+
+	if (value === ".." || value.startsWith("../")) {
+		return path;
+	}
+
+	return value;
+}
+
+function displayChangedPath(root: string, path: string): string {
+	const absolutePath = isAbsolute(path) ? path : resolve(root, path);
+
+	return displayPath(root, absolutePath);
+}
+
+function formatDuration(duration: number): string {
+	return `${Math.max(0, Math.round(duration))}ms`;
+}
+
+function elapsedMilliseconds(startedAt: number, finishedAt: number): number {
+	return Math.max(0, finishedAt - startedAt);
+}
+
+function shouldIgnoreWatchPath(path: string): boolean {
+	const normalized = path.replaceAll("\\", "/");
+	const segments = normalized.split("/");
+
+	return segments.some((segment) =>
+		[".git", ".kura", "build", "dist", "node_modules", "tmp"].includes(segment),
+	);
+}
+
+type ConsoleTheme = {
+	readonly success: (value: string) => string;
+	readonly error: (value: string) => string;
+	readonly heading: (value: string) => string;
+	readonly muted: (value: string) => string;
+};
+
+function makeConsoleTheme(color: boolean): ConsoleTheme {
+	if (!color) {
+		return {
+			success: identity,
+			error: identity,
+			heading: identity,
+			muted: identity,
+		};
+	}
+
+	return {
+		success: (value) => `\u001b[32m${value}\u001b[39m`,
+		error: (value) => `\u001b[31m${value}\u001b[39m`,
+		heading: (value) => `\u001b[1m${value}\u001b[22m`,
+		muted: (value) => `\u001b[2m${value}\u001b[22m`,
+	};
+}
+
+function identity(value: string): string {
+	return value;
+}
+
+function shouldUseColor(): boolean {
+	if (Bun.env.NO_COLOR !== undefined || Bun.env.CI === "true") {
+		return false;
+	}
+
+	const stdout = process.stdout as { readonly isTTY?: boolean };
+
+	return stdout.isTTY === true;
 }
