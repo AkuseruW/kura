@@ -302,25 +302,7 @@ export const namedMiddleware = {};
 		...makePresetFiles(choices),
 		...makeAuthFiles(choices),
 		...makeOptionalModuleFiles(choices),
-		...makeNewAppDirectories([
-			"app/controllers",
-			"app/events",
-			"app/exceptions",
-			"app/jobs",
-			"app/listeners",
-			"app/mails",
-			"app/middleware",
-			"app/models",
-			"app/policies",
-			"app/services",
-			"app/abilities",
-			"app/transformers",
-			"app/validators",
-			"commands",
-			"database/migrations",
-			"database/seeders",
-			"database/factories",
-		]),
+		...makeScaffoldDirectories(choices),
 		{
 			path: "database/schema.ts",
 			content: `export const schema = {};
@@ -331,7 +313,6 @@ export const namedMiddleware = {};
 			content: `export const schemaRules = {};
 `,
 		},
-		...makeNewAppDirectories(["providers", "tests"]),
 		{
 			path: "tests/bootstrap.ts",
 			content: `export const runnerHooks = {
@@ -340,12 +321,31 @@ export const namedMiddleware = {};
 };
 `,
 		},
-		...makeNewAppDirectories(["tmp", "public", "resources/views"]),
 		{
 			path: "README.md",
 			content: makeReadme(appName, choices),
 		},
 	];
+}
+
+function makeScaffoldDirectories(
+	choices: NewAppChoices,
+): readonly NewAppDirectory[] {
+	const directories = new Set<string>();
+
+	if (choices.cache === "file") {
+		directories.add("tmp/cache");
+	}
+
+	if (choices.preset !== "api") {
+		directories.add("public");
+	}
+
+	if (choices.modules.includes("storage")) {
+		directories.add("storage/app");
+	}
+
+	return makeNewAppDirectories([...directories].sort());
 }
 
 function makeNewAppDirectories(
@@ -1511,10 +1511,10 @@ bun kura serve --watch
 
 ## Structure
 
-- \`app/\`: controllers, middleware, models, policies, validators, and domain code.
+- \`app/\`: application code created by the selected preset and later \`make:*\` commands.
 - \`bin/\`: console, server, and test entrypoints.
 - \`config/\`: application and module configuration.
-- \`database/\`: migrations, seeders, factories, and generated schema metadata.
+- \`database/\`: generated schema metadata and migrations when a feature needs them.
 - \`start/\`: environment, kernel, and routes loaded during boot.
 - \`kura.config.ts\`: Kura application manifest.
 `;

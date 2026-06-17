@@ -129,6 +129,30 @@ async function findFilesNamed(
 	return matches;
 }
 
+async function findEmptyDirectories(
+	root: string,
+	prefix = "",
+): Promise<string[]> {
+	const directory = join(root, prefix);
+	const entries = await readdir(directory, { withFileTypes: true });
+	const matches: string[] = [];
+
+	for (const entry of entries) {
+		if (!entry.isDirectory()) {
+			continue;
+		}
+
+		const entryPath = prefix ? join(prefix, entry.name) : entry.name;
+		matches.push(...(await findEmptyDirectories(root, entryPath)));
+	}
+
+	if (prefix && entries.length === 0) {
+		matches.push(prefix);
+	}
+
+	return matches;
+}
+
 function buildGeneratedServer(
 	root: string,
 	path: string,
@@ -384,9 +408,33 @@ describe("new app command", () => {
 		expect(
 			await generatedDirectoryExists(root, "demo-api/database/migrations"),
 		).toBe(true);
-		expect(
-			await generatedDirectoryExists(root, "demo-api/resources/views"),
-		).toBe(true);
+		expect(await generatedDirectoryExists(root, "demo-api/tmp/cache")).toBe(
+			true,
+		);
+		expect(await generatedDirectoryExists(root, "demo-api/storage/app")).toBe(
+			true,
+		);
+		expect(await generatedPathExists(root, "demo-api/resources/views")).toBe(
+			false,
+		);
+		expect(await generatedPathExists(root, "demo-api/public")).toBe(false);
+		expect(await generatedPathExists(root, "demo-api/app/events")).toBe(false);
+		expect(await generatedPathExists(root, "demo-api/app/jobs")).toBe(false);
+		expect(await generatedPathExists(root, "demo-api/app/listeners")).toBe(
+			false,
+		);
+		expect(await generatedPathExists(root, "demo-api/app/middleware")).toBe(
+			false,
+		);
+		expect(await generatedPathExists(root, "demo-api/app/policies")).toBe(
+			false,
+		);
+		expect(await generatedPathExists(root, "demo-api/app/validators")).toBe(
+			false,
+		);
+		expect(await findEmptyDirectories(join(root, "demo-api"), "app")).toEqual(
+			[],
+		);
 		expect(await readGenerated(root, "demo-api/.gitignore")).not.toContain(
 			".gitkeep",
 		);
