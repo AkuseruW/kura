@@ -251,6 +251,23 @@ bun run typecheck
 bun run lint
 ```
 
+## Release
+
+The npm packages are published by GitHub Actions when a semver tag is pushed.
+
+```sh
+git tag v0.1.6
+git push origin v0.1.6
+```
+
+Before tagging, make sure `package.json`,
+`packages/create-kura-app/package.json`, and the `@akuseru_w/kura` dependency
+range inside `create-kura-app` all use the same version. The release workflow
+checks this before publishing.
+
+Publishing uses npm trusted publishing, so both npm packages must allow the
+`publish.yml` GitHub Actions workflow as a trusted publisher.
+
 ## Project Status
 
 Kura is early-stage. The public API is taking shape around the generated
