@@ -14,7 +14,7 @@ so application code can import from `"kura"`.
 ## Create An App
 
 ```sh
-bunx @akuseru_w/create-kura my-app
+bun create kura-app my-app
 cd my-app
 bun install
 bun kura

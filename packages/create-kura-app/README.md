@@ -1,9 +1,9 @@
-# @akuseru_w/create-kura
+# create-kura-app
 
 Create a new Kura application.
 
 ```sh
-bunx @akuseru_w/create-kura my-app
+bun create kura-app my-app
 ```
 
 After publishing, the generated app installs the Kura runtime under the local
