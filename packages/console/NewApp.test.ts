@@ -241,6 +241,7 @@ describe("new app command", () => {
 		expect(exitCode).toBe(0);
 		expect(output.text()).toContain("Created demo-api");
 		expect(output.text()).toContain("Kura new");
+		expect(output.text()).toContain("Structure standard");
 		expect(output.text()).toContain("Database sqlite");
 		expect(output.text()).toContain("Modules  mail, storage");
 		expect(output.text()).toContain("Created demo-api in 42ms");
@@ -277,6 +278,8 @@ describe("new app command", () => {
 		expect(packageJson.imports["#controllers/*"]).toBe(
 			"./app/controllers/*.ts",
 		);
+		expect(packageJson.imports["#modules/*"]).toBe("./app/modules/*.ts");
+		expect(packageJson.imports["#domains/*"]).toBe("./app/domains/*.ts");
 		expect(packageJson.imports["#start/*"]).toBe("./start/*.ts");
 		expect(await readGenerated(root, "demo-api/kura.config.ts")).toContain(
 			'preloads: ["#start/env", "#start/kernel", "#start/routes"]',
@@ -309,18 +312,18 @@ describe("new app command", () => {
 			"serverMiddleware",
 		);
 		expect(await readGenerated(root, "demo-api/start/routes.ts")).toContain(
-			'import { ApiController } from "#controllers/ApiController"',
+			'import { ApiController } from "#controllers/api_controller"',
 		);
 		expect(await readGenerated(root, "demo-api/start/routes.ts")).toContain(
 			'router.get("/", (ctx) => apiController.index(ctx)).as("home")',
 		);
 		expect(
-			await readGenerated(root, "demo-api/app/controllers/ApiController.ts"),
+			await readGenerated(root, "demo-api/app/controllers/api_controller.ts"),
 		).toContain('framework: "kura"');
 		expect(
-			await readGenerated(root, "demo-api/app/controllers/AuthController.ts"),
+			await readGenerated(root, "demo-api/app/controllers/auth_controller.ts"),
 		).toContain("Wire this action to your jwt guard");
-		expect(await readGenerated(root, "demo-api/app/models/User.ts")).toContain(
+		expect(await readGenerated(root, "demo-api/app/models/user.ts")).toContain(
 			"export class User extends BaseModel<UserAttributes>",
 		);
 		expect(
@@ -339,13 +342,13 @@ describe("new app command", () => {
 			"const mailConfig = defineConfig",
 		);
 		expect(
-			await readGenerated(root, "demo-api/app/mails/WelcomeMail.ts"),
+			await readGenerated(root, "demo-api/app/mails/welcome_mail.ts"),
 		).toContain("WelcomeMail");
 		expect(await readGenerated(root, "demo-api/config/storage.ts")).toContain(
 			"const storageConfig = defineConfig",
 		);
 		expect(
-			await readGenerated(root, "demo-api/app/services/StorageService.ts"),
+			await readGenerated(root, "demo-api/app/services/storage_service.ts"),
 		).toContain("class StorageService");
 		expect(await readGenerated(root, "demo-api/README.md")).toContain(
 			"HTTP kernel",
@@ -355,6 +358,7 @@ describe("new app command", () => {
 		expect(appConfig).toContain("const appConfig = defineConfig");
 		expect(appConfig).toContain("http: {");
 		expect(appConfig).toContain("starter: {");
+		expect(appConfig).toContain('architecture: "standard"');
 		const authConfig = await readGenerated(root, "demo-api/config/auth.ts");
 		expect(authConfig).toContain("const authConfig = defineConfig");
 		expect(authConfig).toContain("guards: {");
@@ -382,14 +386,14 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/config/queue.ts")).toContain(
 			'env.get("QUEUE_CONNECTION", "memory")',
 		);
-		expect(await readGenerated(root, "demo-api/config/session.ts")).toContain(
-			'store: env.get("SESSION_DRIVER", "memory")',
+		expect(await generatedFileExists(root, "demo-api/config/session.ts")).toBe(
+			false,
 		);
-		expect(await readGenerated(root, "demo-api/config/shield.ts")).toContain(
-			"enabled: false",
+		expect(await generatedFileExists(root, "demo-api/config/shield.ts")).toBe(
+			false,
 		);
-		expect(await readGenerated(root, "demo-api/config/static.ts")).toContain(
-			"enabled: false",
+		expect(await generatedFileExists(root, "demo-api/config/static.ts")).toBe(
+			false,
 		);
 		expect(await generatedFileExists(root, "demo-api/config/vite.ts")).toBe(
 			false,
@@ -399,6 +403,8 @@ describe("new app command", () => {
 		expect(envExample).toContain("APP_KEY=");
 		expect(envExample).toContain("HASH_DRIVER=bcrypt");
 		expect(envExample).toContain("DB_CONNECTION=sqlite");
+		expect(envExample).toContain("CACHE_STORE=file");
+		expect(envExample).toContain("QUEUE_CONNECTION=memory");
 		expect(await readGenerated(root, "demo-api/.env.test")).toContain(
 			"NODE_ENV=test",
 		);
@@ -447,6 +453,224 @@ describe("new app command", () => {
 		);
 	});
 
+	test("generates a modular application structure", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerNewAppCommand(console, {
+			root,
+			clock: fakeClock(100, 142),
+			packageVersion: "file:../kura",
+		});
+
+		const exitCode = await console.run([
+			"new",
+			"demo-modular",
+			"--yes",
+			"--preset",
+			"full",
+			"--architecture",
+			"modular",
+			"--auth",
+			"session",
+			"--module",
+			"storage",
+		]);
+
+		expect(exitCode).toBe(0);
+		expect(output.text()).toContain("Structure modular");
+
+		const packageJson = JSON.parse(
+			await readGenerated(root, "demo-modular/package.json"),
+		) as { imports: Record<string, string> };
+		expect(packageJson.imports["#modules/*"]).toBe("./app/modules/*.ts");
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-modular/app/modules/api/api_controller.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-modular/app/modules/web/home_controller.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-modular/app/modules/auth/auth_controller.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(root, "demo-modular/app/modules/auth/user.ts"),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-modular/app/modules/storage/storage_service.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-modular/app/controllers/api_controller.ts",
+			),
+		).toBe(false);
+		expect(await readGenerated(root, "demo-modular/start/routes.ts")).toContain(
+			'from "#modules/api/api_controller"',
+		);
+		expect(await readGenerated(root, "demo-modular/start/routes.ts")).toContain(
+			'from "#modules/web/home_controller"',
+		);
+		expect(await readGenerated(root, "demo-modular/start/routes.ts")).toContain(
+			'from "#modules/auth/auth_controller"',
+		);
+		expect(await readGenerated(root, "demo-modular/config/auth.ts")).toContain(
+			'model: "#modules/auth/user"',
+		);
+		expect(await readGenerated(root, "demo-modular/config/app.ts")).toContain(
+			'architecture: "modular"',
+		);
+		expect(await readGenerated(root, "demo-modular/README.md")).toContain(
+			"`app/modules/`",
+		);
+		expect(buildGeneratedServer(root, "demo-modular").exitCode).toBe(0);
+	});
+
+	test("generates a domain architecture structure", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerNewAppCommand(console, {
+			root,
+			clock: fakeClock(100, 142),
+			packageVersion: "file:../kura",
+		});
+
+		const exitCode = await console.run([
+			"new",
+			"demo-domain",
+			"--yes",
+			"--preset",
+			"full",
+			"--architecture",
+			"domain",
+			"--auth",
+			"session",
+			"--module",
+			"storage",
+		]);
+
+		expect(exitCode).toBe(0);
+		expect(output.text()).toContain("Structure domain");
+
+		const packageJson = JSON.parse(
+			await readGenerated(root, "demo-domain/package.json"),
+		) as { imports: Record<string, string> };
+		expect(packageJson.imports["#domains/*"]).toBe("./app/domains/*.ts");
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/domains/api/http/api_controller.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/domains/web/http/home_controller.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/domains/auth/http/auth_controller.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/domains/auth/domain/user.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/domains/auth/domain/user_repository.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/domains/auth/application/register_user.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/domains/auth/infrastructure/persistence/user_record.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/domains/auth/infrastructure/persistence/sql_user_repository.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/domains/storage/infrastructure/storage_service.ts",
+			),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-domain/app/modules/auth/auth_controller.ts",
+			),
+		).toBe(false);
+		expect(
+			await readGenerated(root, "demo-domain/app/domains/auth/domain/user.ts"),
+		).not.toContain("BaseModel");
+		expect(
+			await readGenerated(
+				root,
+				"demo-domain/app/domains/auth/infrastructure/persistence/user_record.ts",
+			),
+		).toContain("extends BaseModel<UserRecordAttributes>");
+		expect(
+			await readGenerated(
+				root,
+				"demo-domain/app/domains/auth/application/register_user.ts",
+			),
+		).toContain("constructor(private readonly users: UserRepository)");
+		expect(await readGenerated(root, "demo-domain/start/routes.ts")).toContain(
+			'from "#domains/api/http/api_controller"',
+		);
+		expect(await readGenerated(root, "demo-domain/start/routes.ts")).toContain(
+			'from "#domains/web/http/home_controller"',
+		);
+		expect(await readGenerated(root, "demo-domain/start/routes.ts")).toContain(
+			'from "#domains/auth/http/auth_controller"',
+		);
+		expect(await readGenerated(root, "demo-domain/config/auth.ts")).toContain(
+			'model: "#domains/auth/infrastructure/persistence/user_record"',
+		);
+		expect(
+			await readGenerated(
+				root,
+				"demo-domain/app/domains/web/http/home_controller.ts",
+			),
+		).toContain('view("home"');
+		expect(await readGenerated(root, "demo-domain/config/app.ts")).toContain(
+			'architecture: "domain"',
+		);
+		expect(await readGenerated(root, "demo-domain/README.md")).toContain(
+			"`app/domains/`",
+		);
+		expect(buildGeneratedServer(root, "demo-domain").exitCode).toBe(0);
+	});
+
 	test("uses a Kura import alias for the framework package", async () => {
 		const root = await makeRoot();
 		const output = new MemoryConsoleOutput();
@@ -464,10 +688,61 @@ describe("new app command", () => {
 		) as { dependencies: { kura: string } };
 		expect(packageJson.dependencies.kura).not.toBe("latest");
 		expect(
-			packageJson.dependencies.kura === "npm:@akuseru_w/kura@^0.1.1" ||
+			packageJson.dependencies.kura === "npm:@akuseru_w/kura@^0.1.5" ||
 				(packageJson.dependencies.kura.startsWith("file:") &&
 					packageJson.dependencies.kura.endsWith("dist")),
 		).toBe(true);
+	});
+
+	test("keeps minimal applications free of unselected feature configs", async () => {
+		const root = await makeRoot();
+		const console = new ConsoleKernel(new MemoryConsoleOutput());
+		registerNewAppCommand(console, { root, clock: fakeClock(100, 142) });
+
+		expect(await console.run(["new", "minimal", "--yes"])).toBe(0);
+
+		expect(await generatedFileExists(root, "minimal/config/app.ts")).toBe(true);
+		expect(
+			await generatedFileExists(root, "minimal/config/bodyparser.ts"),
+		).toBe(true);
+		expect(await generatedFileExists(root, "minimal/config/logger.ts")).toBe(
+			true,
+		);
+		expect(await generatedFileExists(root, "minimal/config/auth.ts")).toBe(
+			false,
+		);
+		expect(await generatedFileExists(root, "minimal/config/cache.ts")).toBe(
+			false,
+		);
+		expect(await generatedFileExists(root, "minimal/config/database.ts")).toBe(
+			false,
+		);
+		expect(
+			await generatedFileExists(root, "minimal/config/encryption.ts"),
+		).toBe(false);
+		expect(await generatedFileExists(root, "minimal/config/hash.ts")).toBe(
+			false,
+		);
+		expect(await generatedFileExists(root, "minimal/config/queue.ts")).toBe(
+			false,
+		);
+		expect(await generatedFileExists(root, "minimal/config/session.ts")).toBe(
+			false,
+		);
+		expect(await generatedFileExists(root, "minimal/config/shield.ts")).toBe(
+			false,
+		);
+		expect(await generatedFileExists(root, "minimal/config/static.ts")).toBe(
+			false,
+		);
+		expect(await generatedPathExists(root, "minimal/database")).toBe(false);
+
+		const envExample = await readGenerated(root, "minimal/.env.example");
+		expect(envExample).not.toContain("CACHE_STORE");
+		expect(envExample).not.toContain("QUEUE_CONNECTION");
+		expect(envExample).not.toContain("AUTH_GUARD");
+		expect(envExample).not.toContain("HASH_DRIVER");
+		expect(envExample).not.toContain("DB_CONNECTION");
 	});
 
 	test("uses injected prompts for interactive generation", async () => {
@@ -478,7 +753,7 @@ describe("new app command", () => {
 			root,
 			clock: fakeClock(100, 142),
 			prompt: new FakePrompt({
-				selects: ["web", "postgres", "session", "redis", "redis"],
+				selects: ["web", "standard", "postgres", "session", "redis", "redis"],
 				features: ["database", "auth", "cache", "queue", "i18n", "websockets"],
 				confirms: [true, true],
 			}),
@@ -494,6 +769,7 @@ describe("new app command", () => {
 		expect(exitCode).toBe(0);
 		expect(output.text()).toContain("fake install");
 		expect(output.text()).toContain("Preset   web");
+		expect(output.text()).toContain("Structure standard");
 		expect(output.text()).toContain("Modules  i18n, websockets");
 		expect(output.text()).toContain("Scaffold");
 		expect(output.text()).toContain("Dependencies installed");
@@ -505,19 +781,19 @@ describe("new app command", () => {
 			"const viteConfig = defineConfig",
 		);
 		expect(
-			await readGenerated(root, "demo-web/app/controllers/HomeController.ts"),
-		).toContain("resources/views/home.html");
+			await readGenerated(root, "demo-web/app/controllers/home_controller.ts"),
+		).toContain('view("home"');
 		expect(
-			await readGenerated(root, "demo-web/resources/views/home.html"),
-		).toContain("Your web app is running");
+			await readGenerated(root, "demo-web/resources/views/home.kura.html"),
+		).toContain("<p>{{ preset }} app</p>");
 		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
-			'import { HomeController } from "#controllers/HomeController"',
+			'import { HomeController } from "#controllers/home_controller"',
 		);
 		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
 			'router.group().prefix("/auth").as("auth.")',
 		);
 		expect(
-			await readGenerated(root, "demo-web/app/controllers/AuthController.ts"),
+			await readGenerated(root, "demo-web/app/controllers/auth_controller.ts"),
 		).toContain("Wire this action to your session guard");
 		expect(
 			await readGenerated(
@@ -541,7 +817,7 @@ describe("new app command", () => {
 			await readGenerated(root, "demo-web/config/websockets.ts"),
 		).toContain('path: "/ws"');
 		expect(
-			await readGenerated(root, "demo-web/app/services/WebSocketService.ts"),
+			await readGenerated(root, "demo-web/app/services/websocket_service.ts"),
 		).toContain("class WebSocketService");
 		expect(buildGeneratedServer(root, "demo-web").exitCode).toBe(0);
 	});
@@ -682,6 +958,7 @@ describe("new app command", () => {
 		const messages: string[] = [];
 		const answers = [
 			"2",
+			"1",
 			"1,2,3,4,5,8",
 			"postgres",
 			"2",
@@ -718,16 +995,20 @@ describe("new app command", () => {
 		expect(messages[0]).toContain("Application type\n\n  1. API");
 		expect(messages[0]).toContain("  2. Web");
 		expect(messages[0]).toContain("Select [1]");
-		expect(messages[1]).toContain("Features\n\n  1. Database");
-		expect(messages[1]).toContain("  8. WebSockets");
-		expect(messages[1]).toContain(
+		expect(messages[1]).toContain("Project structure\n\n  1. Standard");
+		expect(messages[1]).toContain("  2. Modular");
+		expect(messages[1]).toContain("  3. Domain");
+		expect(messages[2]).toContain("Features\n\n  1. Database");
+		expect(messages[2]).toContain("  8. WebSockets");
+		expect(messages[2]).toContain(
 			"Select names or numbers, comma separated [none]",
 		);
-		expect(messages[2]).toContain("Database\n\n  1. None");
-		expect(messages[7]).toContain("Create project");
+		expect(messages[3]).toContain("Database\n\n  1. None");
+		expect(messages[8]).toContain("Create project");
 		expect(output.text()).toContain("fake install");
 		expect(output.text()).toContain("Scaffold");
 		expect(output.text()).toContain("Preset   web");
+		expect(output.text()).toContain("Structure standard");
 		expect(output.text()).toContain("Database postgres");
 		expect(output.text()).toContain("Auth     session");
 		expect(output.text()).toContain("Cache    redis");
@@ -770,6 +1051,11 @@ describe("new app command", () => {
 			await console.run(["new", "demo", "--yes", "--database", "oracle"]),
 		).toBe(1);
 		expect(output.errorText()).toContain("Invalid database [oracle]");
+
+		expect(
+			await console.run(["new", "demo", "--yes", "--architecture", "layers"]),
+		).toBe(1);
+		expect(output.errorText()).toContain("Invalid architecture [layers]");
 	});
 
 	test("generates a server entry that Bun can build for Bun", async () => {

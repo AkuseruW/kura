@@ -1,6 +1,7 @@
 import type { ConsoleOptions } from "../Console";
 import type {
 	AppPreset,
+	ArchitecturePreset,
 	AuthPreset,
 	CachePreset,
 	DatabasePreset,
@@ -39,6 +40,24 @@ const appPresetChoices = [
 		description: "API and web app",
 	},
 ] as const satisfies readonly NewAppPromptChoice<AppPreset>[];
+
+const architecturePresetChoices = [
+	{
+		value: "standard",
+		label: "Standard",
+		description: "Conventional Kura app structure",
+	},
+	{
+		value: "modular",
+		label: "Modular",
+		description: "Feature-based modules for larger apps",
+	},
+	{
+		value: "domain",
+		label: "Domain",
+		description: "Clean architecture with domain boundaries",
+	},
+] as const satisfies readonly NewAppPromptChoice<ArchitecturePreset>[];
 
 const databasePresetChoices = [
 	{
@@ -170,6 +189,7 @@ const featurePresetChoices = [
 ] as const satisfies readonly NewAppPromptChoice<FeaturePreset>[];
 
 const appPresets = values(appPresetChoices);
+const architecturePresets = values(architecturePresetChoices);
 const databasePresets = values(databasePresetChoices);
 const authPresets = values(authPresetChoices);
 const cachePresets = values(cachePresetChoices);
@@ -180,6 +200,12 @@ const featurePresets = values(featurePresetChoices);
 export function resolveChoices(options: ConsoleOptions): NewAppChoices {
 	return {
 		preset: readChoice(options, "preset", appPresets, "api"),
+		architecture: readChoice(
+			options,
+			"architecture",
+			architecturePresets,
+			"standard",
+		),
 		database: readChoice(options, "database", databasePresets, "none"),
 		auth: readChoice(options, "auth", authPresets, "none"),
 		cache: readChoice(options, "cache", cachePresets, "memory"),
@@ -205,6 +231,16 @@ export async function promptChoices(
 		appPresets,
 		"preset",
 	);
+	const architecture = readPreset(
+		await prompt.select(
+			"Project structure",
+			architecturePresets,
+			defaults.architecture,
+			architecturePresetChoices,
+		),
+		architecturePresets,
+		"architecture",
+	);
 	const features = readFeatureChoices(
 		await prompt.multiSelect(
 			"Features",
@@ -217,6 +253,7 @@ export async function promptChoices(
 
 	return {
 		preset,
+		architecture,
 		database: featureSet.has("database")
 			? readPreset(
 					await prompt.select(

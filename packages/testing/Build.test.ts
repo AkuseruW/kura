@@ -43,7 +43,7 @@ describe("production build", () => {
 				"./dist/index.js",
 			);
 			expect(createPackageManifest.dependencies["@akuseru_w/kura"]).toBe(
-				"^0.1.1",
+				"^0.1.5",
 			);
 
 			const build = Bun.spawnSync({
@@ -229,7 +229,7 @@ describe("production build", () => {
 
 			expect(makeController.exitCode).toBe(0);
 			await expect(
-				access(join(appRoot, "demo/app/controllers/HomeController.ts")),
+				access(join(appRoot, "demo/app/controllers/home_controller.ts")),
 			).resolves.toBeNull();
 		} finally {
 			await rm(join(root, "dist"), { force: true, recursive: true });

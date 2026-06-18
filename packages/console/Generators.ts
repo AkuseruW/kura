@@ -6,9 +6,11 @@ import {
 	type ConsoleOptions,
 	defineCommand,
 } from "./Console";
+import type { ArchitecturePreset } from "./new-app/Types";
 
 export interface GeneratorConsoleOptions {
 	readonly root?: string;
+	readonly architecture?: ArchitecturePreset;
 	readonly now?: () => Date;
 }
 
@@ -19,11 +21,13 @@ type GeneratorDefinition = {
 	readonly description: string;
 	readonly suffix?: string;
 	readonly directory: string;
+	readonly modular?: boolean;
 	readonly makeFileName?: (input: GeneratorInput) => string;
 	readonly makeContent: (input: GeneratorInput) => string;
 };
 
 type GeneratorInput = {
+	readonly architecture: ArchitecturePreset;
 	readonly rawName: string;
 	readonly className: string;
 	readonly baseName: string;
@@ -139,6 +143,7 @@ function makeGeneratorInput(
 	root: string,
 	options: GeneratorConsoleOptions,
 ): GeneratorInput {
+	const architecture = options.architecture ?? "standard";
 	const timestamp = formatTimestamp((options.now ?? (() => new Date()))());
 	const rawSegments = parseNameSegments(rawName);
 	const baseName = withSuffix(
@@ -146,13 +151,29 @@ function makeGeneratorInput(
 		definition.suffix,
 	);
 	const segments = [...rawSegments.slice(0, -1).map(pascalCase), baseName];
-	const className = segments.join("");
-	const directory = join(definition.directory, ...segments.slice(0, -1));
+	const directorySegments = rawSegments.slice(0, -1).map(snakeCase);
+	const moduleSegments =
+		rawSegments.length > 1
+			? rawSegments.slice(0, -1).map(snakeCase)
+			: [snakeCase(rawSegments.at(-1) ?? rawName)];
+	const className =
+		(architecture === "domain" || architecture === "modular") &&
+		definition.modular
+			? baseName
+			: segments.join("");
+	const directory = resolveGeneratorDirectory({
+		architecture,
+		definition,
+		directorySegments,
+		moduleSegments,
+		segments,
+	});
 	const inputWithoutFileName = {
+		architecture,
 		rawName,
 		className,
 		baseName,
-		fileName: `${baseName}.ts`,
+		fileName: `${snakeCase(baseName)}.ts`,
 		directory,
 		segments,
 		root,
@@ -165,6 +186,40 @@ function makeGeneratorInput(
 			definition.makeFileName?.(inputWithoutFileName) ??
 			inputWithoutFileName.fileName,
 	};
+}
+
+function resolveGeneratorDirectory(input: {
+	readonly architecture: ArchitecturePreset;
+	readonly definition: GeneratorDefinition;
+	readonly directorySegments: readonly string[];
+	readonly moduleSegments: readonly string[];
+	readonly segments: readonly string[];
+}): string {
+	if (input.architecture === "domain" && input.definition.modular) {
+		return join(
+			"app/domains",
+			...input.moduleSegments,
+			domainLayerForCommand(input.definition.commandName),
+		);
+	}
+
+	if (input.architecture === "modular" && input.definition.modular) {
+		return join("app/modules", ...input.moduleSegments);
+	}
+
+	return join(input.definition.directory, ...input.directorySegments);
+}
+
+function domainLayerForCommand(commandName: string): string {
+	if (commandName === "make:controller") {
+		return "http";
+	}
+
+	if (commandName === "make:validator") {
+		return "application";
+	}
+
+	return "domain";
 }
 
 function resolveRoot(
@@ -289,6 +344,32 @@ function migrationTableName(input: GeneratorInput): string {
 	return "table_name";
 }
 
+function modelImportPath(input: GeneratorInput, modelName: string): string {
+	const modelFileName = snakeCase(modelName);
+
+	if (input.architecture === "domain") {
+		const rawSegments = parseNameSegments(input.rawName);
+		const moduleSegments =
+			rawSegments.length > 1
+				? rawSegments.slice(0, -1).map(snakeCase)
+				: [snakeCase(modelName)];
+
+		return `../../app/domains/${moduleSegments.join("/")}/infrastructure/persistence/${modelFileName}_record`;
+	}
+
+	if (input.architecture !== "modular") {
+		return `../../app/models/${modelFileName}`;
+	}
+
+	const rawSegments = parseNameSegments(input.rawName);
+	const moduleSegments =
+		rawSegments.length > 1
+			? rawSegments.slice(0, -1).map(snakeCase)
+			: [snakeCase(modelName)];
+
+	return `../../app/modules/${moduleSegments.join("/")}/${modelFileName}`;
+}
+
 function formatTimestamp(date: Date): string {
 	const year = date.getUTCFullYear().toString().padStart(4, "0");
 	const month = (date.getUTCMonth() + 1).toString().padStart(2, "0");
@@ -327,7 +408,31 @@ const generatorDefinitions: readonly GeneratorDefinition[] = [
 		commandName: "make:model",
 		description: "Create a model class",
 		directory: "app/models",
+		modular: true,
 		makeContent: (input) => {
+			if (input.architecture === "domain") {
+				return `export type ${input.className}Properties = {
+\treadonly id?: string;
+};
+
+export class ${input.className} {
+\tprivate constructor(private readonly properties: ${input.className}Properties) {}
+
+\tstatic create(properties: ${input.className}Properties = {}): ${input.className} {
+\t\treturn new ${input.className}(properties);
+\t}
+
+\tstatic hydrate(properties: ${input.className}Properties): ${input.className} {
+\t\treturn new ${input.className}(properties);
+\t}
+
+\ttoJSON(): ${input.className}Properties {
+\t\treturn this.properties;
+\t}
+}
+`;
+			}
+
 			const tableName = tableNameFromModel(input.baseName);
 
 			return `import { BaseModel, column } from "kura";
@@ -350,6 +455,7 @@ export class ${input.className} extends BaseModel<${input.className}Attributes> 
 		description: "Create an HTTP controller",
 		suffix: "Controller",
 		directory: "app/controllers",
+		modular: true,
 		makeContent: (
 			input,
 		) => `import { BaseController, type Context } from "kura";
@@ -378,6 +484,7 @@ export const ${input.className}: Middleware = async (_ctx, next) => {
 		description: "Create a validator schema",
 		suffix: "Validator",
 		directory: "app/validators",
+		modular: true,
 		makeContent: (input) => `import { v } from "kura";
 
 export const ${camelCase(input.className)} = v.object({});
@@ -427,11 +534,13 @@ export default class ${input.className} extends Seeder {
 		directory: "database/factories",
 		makeContent: (input) => {
 			const modelName = input.baseName.replace(/Factory$/, "");
+			const factoryModelName =
+				input.architecture === "domain" ? `${modelName}Record` : modelName;
 
 			return `import { defineFactory } from "kura";
-import { ${modelName} } from "../../app/models/${modelName}";
+import { ${factoryModelName} } from "${modelImportPath(input, modelName)}";
 
-export const ${camelCase(input.className)} = defineFactory(${modelName}, ({ sequence }) => ({
+export const ${camelCase(input.className)} = defineFactory(${factoryModelName}, ({ sequence }) => ({
 \tname: \`${modelName} \${sequence}\`,
 }));
 `;
