@@ -48,6 +48,12 @@ export function createNewAppCommand(
 					description: "Application preset: api, web, or full",
 				},
 				{
+					name: "architecture",
+					value: "string",
+					default: "standard",
+					description: "Project structure: standard, modular, or domain",
+				},
+				{
 					name: "database",
 					value: "string",
 					default: "none",
