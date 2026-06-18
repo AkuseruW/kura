@@ -221,6 +221,43 @@ describe("serve console command", () => {
 		expect(await response?.text()).toBe("loaded");
 	});
 
+	test("loads Bun static routes and development options from an entry module", async () => {
+		const output = new MemoryConsoleOutput();
+		const fake = fakeServerFactory();
+		const staticRoutes = {
+			"/": new Response("home"),
+		};
+		const console = new ConsoleKernel(output);
+		registerServeCommand(console, {
+			root: "/project",
+			entry: "bin/server.ts",
+			loader: async (): Promise<ServeTarget> => ({
+				default: () => new Response("fallback"),
+				staticRoutes,
+				development: {
+					hmr: true,
+					console: true,
+				},
+			}),
+			serverFactory: fake.factory,
+			keepAlive: false,
+			clock: fakeClock(0, 42),
+			environment: "testing",
+		});
+
+		expect(await console.run(["serve"])).toBe(0);
+		expect(fake.starts[0]?.staticRoutes).toBe(staticRoutes);
+		expect(fake.starts[0]?.development).toEqual({
+			hmr: true,
+			console: true,
+		});
+		const response = await fake.starts[0]?.handler({
+			request: new Request("http://localhost"),
+		});
+
+		expect(await response?.text()).toBe("fallback");
+	});
+
 	test("rejects invalid ports", async () => {
 		const output = new MemoryConsoleOutput();
 		const console = new ConsoleKernel(output);

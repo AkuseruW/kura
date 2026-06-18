@@ -274,6 +274,7 @@ describe("new app command", () => {
 		expect(packageJson.scripts.config).toBe("bun bin/console.ts config");
 		expect(packageJson.scripts.test).toBe("bun bin/test.ts");
 		expect(packageJson.scripts.build).toContain("--target=bun");
+		expect(packageJson.scripts.build).toContain("--production");
 		expect(packageJson.scripts.build).toContain("bin/server.ts");
 		expect(packageJson.imports["#controllers/*"]).toBe(
 			"./app/controllers/*.ts",
@@ -484,6 +485,9 @@ describe("new app command", () => {
 			await readGenerated(root, "demo-modular/package.json"),
 		) as { imports: Record<string, string> };
 		expect(packageJson.imports["#modules/*"]).toBe("./app/modules/*.ts");
+		expect(await readGenerated(root, "demo-modular/tsconfig.json")).toContain(
+			'"lib": ["ESNext", "DOM"]',
+		);
 		expect(
 			await generatedFileExists(
 				root,
@@ -495,6 +499,18 @@ describe("new app command", () => {
 				root,
 				"demo-modular/app/modules/web/home_controller.ts",
 			),
+		).toBe(false);
+		expect(
+			await generatedFileExists(root, "demo-modular/resources/pages/home.html"),
+		).toBe(true);
+		expect(
+			await generatedFileExists(root, "demo-modular/resources/client/app.ts"),
+		).toBe(true);
+		expect(
+			await readGenerated(root, "demo-modular/resources/client/app.ts"),
+		).toContain("export {}");
+		expect(
+			await generatedFileExists(root, "demo-modular/resources/css/app.css"),
 		).toBe(true);
 		expect(
 			await generatedFileExists(
@@ -521,10 +537,22 @@ describe("new app command", () => {
 			'from "#modules/api/api_controller"',
 		);
 		expect(await readGenerated(root, "demo-modular/start/routes.ts")).toContain(
-			'from "#modules/web/home_controller"',
-		);
-		expect(await readGenerated(root, "demo-modular/start/routes.ts")).toContain(
 			'from "#modules/auth/auth_controller"',
+		);
+		expect(
+			await readGenerated(root, "demo-modular/start/routes.ts"),
+		).not.toContain('from "#modules/web/home_controller"');
+		expect(await readGenerated(root, "demo-modular/bin/server.ts")).toContain(
+			'import home from "../resources/pages/home.html"',
+		);
+		expect(await readGenerated(root, "demo-modular/bin/server.ts")).toContain(
+			"export const staticRoutes",
+		);
+		expect(await readGenerated(root, "demo-modular/bin/server.ts")).toContain(
+			"export const development",
+		);
+		expect(await readGenerated(root, "demo-modular/bin/console.ts")).toContain(
+			"loadStaticRoutes",
 		);
 		expect(await readGenerated(root, "demo-modular/config/auth.ts")).toContain(
 			'model: "#modules/auth/user"',
@@ -580,6 +608,15 @@ describe("new app command", () => {
 				root,
 				"demo-domain/app/domains/web/http/home_controller.ts",
 			),
+		).toBe(false);
+		expect(
+			await generatedFileExists(root, "demo-domain/resources/pages/home.html"),
+		).toBe(true);
+		expect(
+			await generatedFileExists(root, "demo-domain/resources/client/app.ts"),
+		).toBe(true);
+		expect(
+			await generatedFileExists(root, "demo-domain/resources/css/app.css"),
 		).toBe(true);
 		expect(
 			await generatedFileExists(
@@ -648,20 +685,14 @@ describe("new app command", () => {
 			'from "#domains/api/http/api_controller"',
 		);
 		expect(await readGenerated(root, "demo-domain/start/routes.ts")).toContain(
-			'from "#domains/web/http/home_controller"',
-		);
-		expect(await readGenerated(root, "demo-domain/start/routes.ts")).toContain(
 			'from "#domains/auth/http/auth_controller"',
 		);
+		expect(
+			await readGenerated(root, "demo-domain/start/routes.ts"),
+		).not.toContain('from "#domains/web/http/home_controller"');
 		expect(await readGenerated(root, "demo-domain/config/auth.ts")).toContain(
 			'model: "#domains/auth/infrastructure/persistence/user_record"',
 		);
-		expect(
-			await readGenerated(
-				root,
-				"demo-domain/app/domains/web/http/home_controller.ts",
-			),
-		).toContain('view("home"');
 		expect(await readGenerated(root, "demo-domain/config/app.ts")).toContain(
 			'architecture: "domain"',
 		);
@@ -777,8 +808,8 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-web/config/app.ts")).toContain(
 			'preset: "web"',
 		);
-		expect(await readGenerated(root, "demo-web/config/vite.ts")).toContain(
-			"const viteConfig = defineConfig",
+		expect(await generatedFileExists(root, "demo-web/config/vite.ts")).toBe(
+			false,
 		);
 		expect(
 			await readGenerated(root, "demo-web/app/controllers/home_controller.ts"),

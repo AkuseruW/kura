@@ -121,7 +121,7 @@ function formatDuration(duration: number): string {
 function formatRouteRows(choices: NewAppChoices): string[] {
 	const rows =
 		choices.preset === "full"
-			? ["  GET /", "  GET /api", "  GET /api/health"]
+			? ["  GET /", "  GET /health", "  GET /api", "  GET /api/health"]
 			: choices.preset === "web"
 				? ["  GET /", "  GET /health"]
 				: ["  GET /", "  GET /health"];

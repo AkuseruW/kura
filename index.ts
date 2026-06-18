@@ -302,7 +302,13 @@ export {
 	type ServeWatcher,
 	type ServeWatcherFactory,
 } from "./packages/http/ServeConsole";
-export { type Context, Server } from "./packages/http/Server";
+export {
+	type BunDevelopmentOptions,
+	type BunStaticRouteMap,
+	type Context,
+	Server,
+	type ServerOptions,
+} from "./packages/http/Server";
 export {
 	createTestClient,
 	type TestBodyInit,

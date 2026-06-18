@@ -1,3 +1,4 @@
+import type { Serve } from "bun";
 import { BaseException } from "../core/BaseException";
 import type { Router } from "./Router";
 
@@ -25,14 +26,32 @@ export type Context = {
 
 type Handler = (ctx: Context) => Response | Promise<Response>;
 
+export type BunStaticRouteMap = Serve.Routes<undefined, string>;
+
+export type BunDevelopmentOptions = Serve.Development;
+
+export type ServerOptions = {
+	readonly port: number;
+	readonly hostname?: string;
+	readonly staticRoutes?: BunStaticRouteMap;
+	readonly development?: BunDevelopmentOptions;
+};
+
 export class Server {
 	private server: ReturnType<typeof Bun.serve> | null = null;
 	private handler: Handler = () => new Response("Not Found", { status: 404 });
+	private staticRoutes: BunStaticRouteMap | undefined;
 
-	constructor(private options: { port: number }) {}
+	constructor(private options: ServerOptions) {
+		this.staticRoutes = options.staticRoutes;
+	}
 
 	setHandler(handler: Handler): void {
 		this.handler = handler;
+	}
+
+	setStaticRoutes(routes: BunStaticRouteMap): void {
+		this.staticRoutes = routes;
 	}
 
 	setRouter(router: Router): void {
@@ -49,8 +68,11 @@ export class Server {
 	}
 
 	start(): void {
-		this.server = Bun.serve({
+		const options = {
+			hostname: this.options.hostname,
 			port: this.options.port,
+			routes: this.staticRoutes,
+			development: this.options.development,
 			fetch: async (request) => {
 				try {
 					const ctx: Context = { request };
@@ -68,7 +90,9 @@ export class Server {
 					return new Response("Internal Server Error", { status: 500 });
 				}
 			},
-		});
+		} satisfies Serve.Options<undefined, string>;
+
+		this.server = Bun.serve(options);
 	}
 
 	stop(): void {

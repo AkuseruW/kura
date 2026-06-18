@@ -81,6 +81,19 @@ extension.
 <p>{{ preset }} app</p>
 ```
 
+Full-stack apps use Bun's native HTML routes for the browser entrypoint. The
+generated `resources/pages/home.html` imports TypeScript and CSS directly, and
+Kura continues to handle the API, middleware, controllers, and validation.
+
+```ts
+import home from "../resources/pages/home.html";
+import { type BunStaticRouteMap } from "kura";
+
+export const staticRoutes = {
+	"/": home,
+} satisfies BunStaticRouteMap;
+```
+
 ## Generated Structure
 
 A new application uses the `standard` structure by default.
@@ -148,7 +161,7 @@ app/
       infrastructure/
         persistence/
           user_record.ts
-          Sqluser_repository.ts
+          sql_user_repository.ts
       http/
         auth_controller.ts
 config/
@@ -190,6 +203,7 @@ Kura currently includes:
 - Configuration and environment loading
 - HTTP server, router, middleware pipeline, and controllers
 - `.kura.html` view rendering with escaped interpolation
+- Bun fullstack HTML route support for generated browser entrypoints
 - Body parsing, CORS, request IDs, request logging, and metrics helpers
 - Schema validation with type inference
 - Console kernel and generator commands

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { Config } from "../core/Config";
 import { Config as ConfigStore } from "../core/Config";
 import type { RegisteredRoute, Router } from "../http/Router";
+import type { BunStaticRouteMap } from "../http/Server";
 import {
 	type Command,
 	type ConsoleKernel,
@@ -16,6 +17,9 @@ export type DevToolConsoleOptions = {
 	readonly envFile?: string;
 	readonly envKeys?: readonly string[];
 	readonly loadRouter?: () => Router | Promise<Router>;
+	readonly loadStaticRoutes?: () =>
+		| BunStaticRouteMap
+		| Promise<BunStaticRouteMap>;
 	readonly loadConfig?: () => Config | Promise<Config>;
 };
 
@@ -81,7 +85,10 @@ function createRoutesCommand(options: DevToolConsoleOptions): Command {
 		},
 		async (ctx) => {
 			const router = await resolveRouter(options);
-			const routes = router.list();
+			const routes = [
+				...(await resolveStaticRoutes(options)),
+				...router.list(),
+			];
 
 			if (isEnabled(ctx.options, "json")) {
 				ctx.output.write(formatJson(routes));
@@ -218,6 +225,25 @@ async function resolveRouter(options: DevToolConsoleOptions): Promise<Router> {
 	}
 
 	return options.loadRouter();
+}
+
+async function resolveStaticRoutes(
+	options: DevToolConsoleOptions,
+): Promise<readonly RegisteredRoute[]> {
+	if (!options.loadStaticRoutes) {
+		return [];
+	}
+
+	const routes = await options.loadStaticRoutes();
+
+	return Object.keys(routes)
+		.sort()
+		.map((path) => ({
+			method: "GET",
+			path,
+			name: "bun.static",
+			params: [],
+		}));
 }
 
 async function resolveConfig(
