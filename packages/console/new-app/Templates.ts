@@ -14,42 +14,7 @@ export function makeNewAppFiles(options: {
 		},
 		{
 			path: "tsconfig.json",
-			content: `{
-\t"compilerOptions": {
-\t\t"lib": ["ESNext"],
-\t\t"target": "ESNext",
-\t\t"module": "Preserve",
-\t\t"moduleResolution": "bundler",
-\t\t"baseUrl": ".",
-\t\t"paths": {
-\t\t\t"#controllers/*": ["app/controllers/*"],
-\t\t\t"#modules/*": ["app/modules/*"],
-\t\t\t"#domains/*": ["app/domains/*"],
-\t\t\t"#exceptions/*": ["app/exceptions/*"],
-\t\t\t"#models/*": ["app/models/*"],
-\t\t\t"#mails/*": ["app/mails/*"],
-\t\t\t"#services/*": ["app/services/*"],
-\t\t\t"#listeners/*": ["app/listeners/*"],
-\t\t\t"#generated/*": [".kura/server/*"],
-\t\t\t"#events/*": ["app/events/*"],
-\t\t\t"#middleware/*": ["app/middleware/*"],
-\t\t\t"#validators/*": ["app/validators/*"],
-\t\t\t"#providers/*": ["providers/*"],
-\t\t\t"#policies/*": ["app/policies/*"],
-\t\t\t"#database/*": ["database/*"],
-\t\t\t"#tests/*": ["tests/*"],
-\t\t\t"#start/*": ["start/*"],
-\t\t\t"#config/*": ["config/*"]
-\t\t},
-\t\t"experimentalDecorators": true,
-\t\t"strict": true,
-\t\t"noEmit": true,
-\t\t"skipLibCheck": true,
-\t\t"types": ["bun"]
-\t},
-\t"include": ["**/*.ts"]
-}
-`,
+			content: makeTsConfig(choices),
 		},
 		{
 			path: ".gitignore",
@@ -124,85 +89,11 @@ LOG_LEVEL=silent
 		},
 		{
 			path: "bin/console.ts",
-			content: `import {
-\tcreateConsole,
-\tregisterDevToolCommands,
-\tregisterGeneratorCommands,
-\tregisterServeCommand,
-} from "kura";
-
-await import("#start/env");
-
-const appConsole = createConsole();
-
-registerGeneratorCommands(appConsole, {
-\tarchitecture: "${choices.architecture}",
-});
-registerServeCommand(appConsole, {
-\tentry: "bin/server.ts",
-});
-registerDevToolCommands(appConsole, {
-\troot: process.cwd(),
-\tloadRouter: async () => {
-\t\tconst routes = await import("#start/routes");
-\t\treturn routes.router;
-\t},
-});
-
-const exitCode = await appConsole.run(Bun.argv.slice(2));
-process.exit(exitCode);
-`,
+			content: makeConsoleEntrypoint(choices),
 		},
 		{
 			path: "bin/server.ts",
-			content: `import { type Context, MiddlewarePipeline, Server } from "kura";
-import env from "#start/env";
-import { routerMiddleware, serverMiddleware } from "#start/kernel";
-import { router } from "#start/routes";
-
-export { router };
-export default router;
-
-export function createServer(): Server {
-\tconst server = new Server({
-\t\tport: env.number("PORT", 3333) ?? 3333,
-\t});
-
-\tconst pipeline = new MiddlewarePipeline();
-
-\tfor (const middleware of serverMiddleware) {
-\t\tpipeline.use(middleware);
-\t}
-
-\tfor (const middleware of routerMiddleware) {
-\t\tpipeline.use(middleware);
-\t}
-
-\tserver.setHandler((ctx) => pipeline.run(ctx, async () => dispatchRouter(ctx)));
-
-\treturn server;
-}
-
-function dispatchRouter(ctx: Context): Response | Promise<Response> {
-\tconst url = new URL(ctx.request.url);
-\tconst match = router.match(ctx.request.method, url.pathname);
-
-\tif (!match) {
-\t\treturn new Response("Not Found", { status: 404 });
-\t}
-
-\tctx.params = match.params;
-\treturn match.handler(ctx);
-}
-
-if (import.meta.main) {
-\tconst server = createServer();
-\tserver.start();
-\tconsole.log(
-\t\t\`Kura app listening on http://\${env.get("HOST", "localhost")}:\${env.number("PORT", 3333)}\`,
-\t);
-}
-`,
+			content: makeServerEntrypoint(choices),
 		},
 		{
 			path: "bin/test.ts",
@@ -256,14 +147,6 @@ export const namedMiddleware = {};
 			content: makeLoggerConfig(),
 		},
 		...makeFeatureConfigFiles(choices),
-		...(choices.preset === "api"
-			? []
-			: [
-					{
-						path: "config/vite.ts",
-						content: makeViteConfig(),
-					},
-				]),
 		{
 			path: "start/routes.ts",
 			content: makeRoutes(choices),
@@ -523,7 +406,7 @@ function makePresetFiles(choices: NewAppChoices): readonly NewAppFile[] {
 		});
 	}
 
-	if (choices.preset === "web" || choices.preset === "full") {
+	if (choices.preset === "web") {
 		files.push(
 			{
 				path: homeControllerPath(choices),
@@ -532,6 +415,23 @@ function makePresetFiles(choices: NewAppChoices): readonly NewAppFile[] {
 			{
 				path: "resources/views/home.kura.html",
 				content: makeHomeView(choices),
+			},
+		);
+	}
+
+	if (choices.preset === "full") {
+		files.push(
+			{
+				path: "resources/pages/home.html",
+				content: makeFullstackHomePage(),
+			},
+			{
+				path: "resources/client/app.ts",
+				content: makeFullstackClient(),
+			},
+			{
+				path: "resources/css/app.css",
+				content: makeFullstackCss(),
 			},
 		);
 	}
@@ -692,7 +592,7 @@ function makePackageJson(appName: string, packageVersion: string) {
 			test: "bun bin/test.ts",
 			typecheck: "tsc --noEmit",
 			build:
-				"bun build bin/server.ts --target=bun --outdir=build --packages=external",
+				"bun build bin/server.ts --target=bun --production --outdir=build --packages=external",
 		},
 		imports: {
 			"#controllers/*": "./app/controllers/*.ts",
@@ -722,6 +622,177 @@ function makePackageJson(appName: string, packageVersion: string) {
 			typescript: "^5.9.3",
 		},
 	};
+}
+
+function makeTsConfig(choices: NewAppChoices): string {
+	const libs = choices.preset === "full" ? ["ESNext", "DOM"] : ["ESNext"];
+	const libJson = `[${libs.map((lib) => `"${lib}"`).join(", ")}]`;
+
+	return `{
+\t"compilerOptions": {
+\t\t"lib": ${libJson},
+\t\t"target": "ESNext",
+\t\t"module": "Preserve",
+\t\t"moduleResolution": "bundler",
+\t\t"baseUrl": ".",
+\t\t"paths": {
+\t\t\t"#controllers/*": ["app/controllers/*"],
+\t\t\t"#modules/*": ["app/modules/*"],
+\t\t\t"#domains/*": ["app/domains/*"],
+\t\t\t"#exceptions/*": ["app/exceptions/*"],
+\t\t\t"#models/*": ["app/models/*"],
+\t\t\t"#mails/*": ["app/mails/*"],
+\t\t\t"#services/*": ["app/services/*"],
+\t\t\t"#listeners/*": ["app/listeners/*"],
+\t\t\t"#generated/*": [".kura/server/*"],
+\t\t\t"#events/*": ["app/events/*"],
+\t\t\t"#middleware/*": ["app/middleware/*"],
+\t\t\t"#validators/*": ["app/validators/*"],
+\t\t\t"#providers/*": ["providers/*"],
+\t\t\t"#policies/*": ["app/policies/*"],
+\t\t\t"#database/*": ["database/*"],
+\t\t\t"#tests/*": ["tests/*"],
+\t\t\t"#start/*": ["start/*"],
+\t\t\t"#config/*": ["config/*"]
+\t\t},
+\t\t"experimentalDecorators": true,
+\t\t"strict": true,
+\t\t"noEmit": true,
+\t\t"skipLibCheck": true,
+\t\t"types": ["bun"]
+\t},
+\t"include": ["**/*.ts"]
+}
+`;
+}
+
+function makeConsoleEntrypoint(choices: NewAppChoices): string {
+	const devToolStaticRoutes =
+		choices.preset === "full"
+			? `,\n\tloadStaticRoutes: async () => {\n\t\tconst server = await import("./server");\n\t\treturn server.staticRoutes;\n\t}`
+			: "";
+
+	return `import {
+\tcreateConsole,
+\tregisterDevToolCommands,
+\tregisterGeneratorCommands,
+\tregisterServeCommand,
+} from "kura";
+
+await import("#start/env");
+
+const appConsole = createConsole();
+
+registerGeneratorCommands(appConsole, {
+\tarchitecture: "${choices.architecture}",
+});
+registerServeCommand(appConsole, {
+\tentry: "bin/server.ts",
+});
+registerDevToolCommands(appConsole, {
+\troot: process.cwd(),
+\tloadRouter: async () => {
+\t\tconst routes = await import("#start/routes");
+\t\treturn routes.router;
+\t}${devToolStaticRoutes},
+});
+
+const exitCode = await appConsole.run(Bun.argv.slice(2));
+process.exit(exitCode);
+`;
+}
+
+function makeServerEntrypoint(choices: NewAppChoices): string {
+	const imports =
+		choices.preset === "full"
+			? `import {
+\ttype BunDevelopmentOptions,
+\ttype BunStaticRouteMap,
+\ttype Context,
+\tMiddlewarePipeline,
+\tServer,
+} from "kura";
+import home from "../resources/pages/home.html";
+import env from "#start/env";
+import { routerMiddleware, serverMiddleware } from "#start/kernel";
+import { router } from "#start/routes";`
+			: `import { type Context, MiddlewarePipeline, Server } from "kura";
+import env from "#start/env";
+import { routerMiddleware, serverMiddleware } from "#start/kernel";
+import { router } from "#start/routes";`;
+	const staticRouteExports =
+		choices.preset === "full"
+			? `
+export const staticRoutes = {
+\t"/": home,
+} satisfies BunStaticRouteMap;
+
+export const development = (
+\tenv.get<string>("NODE_ENV", "development") === "production"
+\t\t? false
+\t\t: {
+\t\t\t\thmr: true,
+\t\t\t\tconsole: true,
+\t\t\t}
+) satisfies BunDevelopmentOptions;
+`
+			: "";
+	const serverOptions =
+		choices.preset === "full"
+			? `{
+\t\tport: env.number("PORT", 3333) ?? 3333,
+\t\thostname: env.get("HOST", "localhost"),
+\t\tstaticRoutes,
+\t\tdevelopment,
+\t}`
+			: `{
+\t\tport: env.number("PORT", 3333) ?? 3333,
+\t\thostname: env.get("HOST", "localhost"),
+\t}`;
+
+	return `${imports}
+
+export { router };
+export default router;
+${staticRouteExports}
+export function createServer(): Server {
+\tconst server = new Server(${serverOptions});
+
+\tconst pipeline = new MiddlewarePipeline();
+
+\tfor (const middleware of serverMiddleware) {
+\t\tpipeline.use(middleware);
+\t}
+
+\tfor (const middleware of routerMiddleware) {
+\t\tpipeline.use(middleware);
+\t}
+
+\tserver.setHandler((ctx) => pipeline.run(ctx, async () => dispatchRouter(ctx)));
+
+\treturn server;
+}
+
+function dispatchRouter(ctx: Context): Response | Promise<Response> {
+\tconst url = new URL(ctx.request.url);
+\tconst match = router.match(ctx.request.method, url.pathname);
+
+\tif (!match) {
+\t\treturn new Response("Not Found", { status: 404 });
+\t}
+
+\tctx.params = match.params;
+\treturn match.handler(ctx);
+}
+
+if (import.meta.main) {
+\tconst server = createServer();
+\tserver.start();
+\tconsole.log(
+\t\t\`Kura app listening on http://\${env.get("HOST", "localhost")}:\${env.number("PORT", 3333)}\`,
+\t);
+}
+`;
 }
 
 function makeEnvExample(choices: NewAppChoices): string {
@@ -1279,25 +1350,6 @@ export default staticServerConfig;
 `;
 }
 
-function makeViteConfig(): string {
-	return `import { defineConfig } from "kura";
-
-/**
- * Frontend asset pipeline configuration.
- */
-const viteConfig = defineConfig({
-\tbuildDirectory: "public/assets",
-\tmanifestFile: "public/assets/.vite/manifest.json",
-\tassetsUrl: "/assets",
-\tscriptAttributes: {
-\t\tdefer: true,
-\t},
-});
-
-export default viteConfig;
-`;
-}
-
 function makeApiController(choices: NewAppChoices): string {
 	return `import type { Context } from "kura";
 
@@ -1343,6 +1395,82 @@ function makeHomeView(_choices: NewAppChoices): string {
 \t\t<p>{{ preset }} app</p>
 \t</body>
 </html>
+`;
+}
+
+function makeFullstackHomePage(): string {
+	return `<!doctype html>
+<html lang="en">
+\t<head>
+\t\t<meta charset="utf-8">
+\t\t<meta name="viewport" content="width=device-width, initial-scale=1">
+\t\t<title>Kura</title>
+\t\t<link rel="stylesheet" href="../css/app.css">
+\t</head>
+\t<body>
+\t\t<main>
+\t\t\t<h1>Kura</h1>
+\t\t\t<p data-status>Loading application status...</p>
+\t\t</main>
+\t\t<script type="module" src="../client/app.ts"></script>
+\t</body>
+</html>
+`;
+}
+
+function makeFullstackClient(): string {
+	return `export {};
+
+const statusElement = document.querySelector("[data-status]");
+
+if (statusElement) {
+\tconst response = await fetch("/api/health");
+\tconst health = (await response.json()) as { readonly status: string };
+
+\tstatusElement.textContent = \`API status: \${health.status}\`;
+}
+`;
+}
+
+function makeFullstackCss(): string {
+	return `:root {
+\tcolor-scheme: light dark;
+\tfont-family:
+\t\tInter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+\t\tsans-serif;
+\tline-height: 1.5;
+}
+
+body {
+\tdisplay: grid;
+\tmin-height: 100vh;
+\tmargin: 0;
+\tplace-items: center;
+\tbackground: Canvas;
+\tcolor: CanvasText;
+}
+
+main {
+\twidth: min(100% - 48px, 720px);
+}
+
+h1 {
+\tmargin: 0 0 12px;
+\tfont-size: 72px;
+\tfont-weight: 800;
+}
+
+p {
+\tmargin: 0;
+\tcolor: color-mix(in srgb, CanvasText 72%, transparent);
+\tfont-size: 18px;
+}
+
+@media (max-width: 560px) {
+\th1 {
+\t\tfont-size: 48px;
+\t}
+}
 `;
 }
 
@@ -1772,7 +1900,7 @@ function makeRoutes(choices: NewAppChoices): string {
 		lines.push("", "const apiController = new ApiController();");
 	}
 
-	if (choices.preset === "web" || choices.preset === "full") {
+	if (choices.preset === "web") {
 		imports.push(
 			`import { HomeController } from "${moduleImport(
 				choices,
@@ -1817,8 +1945,7 @@ function makeRoutes(choices: NewAppChoices): string {
 	if (choices.preset === "full") {
 		lines.push(
 			"",
-			'router.get("/", (ctx) => homeController.index(ctx)).as("home");',
-			"",
+			'router.get("/health", (ctx) => apiController.health(ctx)).as("health");',
 			'router.group().prefix("/api").as("api.").routes((api) => {',
 			'\tapi.get("/", (ctx) => apiController.index(ctx)).as("index");',
 			'\tapi.get("/health", (ctx) => apiController.health(ctx)).as("health");',
@@ -1887,6 +2014,7 @@ ${makeArchitectureStructureBullets(choices)}
 - \`bin/\`: console, server, and test entrypoints.
 - \`config/\`: application and module configuration.
 ${makeDatabaseStructureBullet(choices)}
+${makeResourcesStructureBullet(choices)}
 - \`start/\`: environment, kernel, and routes loaded during boot.
 - \`kura.config.ts\`: Kura application manifest.
 `;
@@ -1903,9 +2031,15 @@ function makeGeneratedStarterBullets(choices: NewAppChoices): string {
 		);
 	}
 
-	if (choices.preset === "web" || choices.preset === "full") {
+	if (choices.preset === "web") {
 		bullets.push(
 			`- Web: \`${homeControllerPath(choices)}\` serves \`resources/views/home.kura.html\`.`,
+		);
+	}
+
+	if (choices.preset === "full") {
+		bullets.push(
+			"- Web: `resources/pages/home.html` is served by Bun's fullstack HTML route at `/`.",
 		);
 	}
 
@@ -1948,6 +2082,18 @@ function makeDatabaseStructureBullet(choices: NewAppChoices): string {
 	}
 
 	return "- `database/`: generated schema metadata and migrations for selected features.";
+}
+
+function makeResourcesStructureBullet(choices: NewAppChoices): string {
+	if (choices.preset === "full") {
+		return "- `resources/pages`, `resources/client`, and `resources/css`: Bun fullstack HTML entrypoints and browser assets.";
+	}
+
+	if (choices.preset === "web") {
+		return "- `resources/views`: server-rendered `.kura.html` views.";
+	}
+
+	return "";
 }
 
 function formatModuleName(module: string): string {
