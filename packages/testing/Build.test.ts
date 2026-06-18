@@ -11,7 +11,7 @@ describe("production build", () => {
 		const appRoot = await mkdtemp(join(tmpdir(), "kura-built-app-"));
 
 		await rm(join(root, "dist"), { force: true, recursive: true });
-		await rm(join(root, "packages/create-kura/dist"), {
+		await rm(join(root, "packages/create-kura-app/dist"), {
 			force: true,
 			recursive: true,
 		});
@@ -29,14 +29,19 @@ describe("production build", () => {
 			expect(runtimePackage.bin.kura).toBe("./dist/bin/kura.js");
 
 			const createPackageManifest = JSON.parse(
-				await readFile(join(root, "packages/create-kura/package.json"), "utf8"),
+				await readFile(
+					join(root, "packages/create-kura-app/package.json"),
+					"utf8",
+				),
 			) as {
 				readonly name: string;
 				readonly bin: Record<string, string>;
 				readonly dependencies: Record<string, string>;
 			};
-			expect(createPackageManifest.name).toBe("@akuseru_w/create-kura");
-			expect(createPackageManifest.bin["create-kura"]).toBe("./dist/index.js");
+			expect(createPackageManifest.name).toBe("create-kura-app");
+			expect(createPackageManifest.bin["create-kura-app"]).toBe(
+				"./dist/index.js",
+			);
 			expect(createPackageManifest.dependencies["@akuseru_w/kura"]).toBe(
 				"^0.1.0",
 			);
@@ -55,8 +60,8 @@ describe("production build", () => {
 			await expectFile("dist/index.d.ts.map");
 			await expectFile("dist/bin/kura.js");
 			await expectFile("dist/bin/kura.js.map");
-			await expectFile("packages/create-kura/dist/index.js");
-			await expectFile("packages/create-kura/dist/index.js.map");
+			await expectFile("packages/create-kura-app/dist/index.js");
+			await expectFile("packages/create-kura-app/dist/index.js.map");
 
 			const moduleExports = (await import(
 				`${pathToFileURL(join(root, "dist/index.js")).href}?t=${Date.now()}`
@@ -156,7 +161,11 @@ describe("production build", () => {
 			expect(localRunner.stdout.toString()).toContain("make:controller");
 
 			const createPackage = Bun.spawnSync({
-				cmd: [process.execPath, "packages/create-kura/dist/index.js", "--help"],
+				cmd: [
+					process.execPath,
+					"packages/create-kura-app/dist/index.js",
+					"--help",
+				],
 				cwd: root,
 				stderr: "pipe",
 				stdout: "pipe",
@@ -224,7 +233,7 @@ describe("production build", () => {
 			).resolves.toBeNull();
 		} finally {
 			await rm(join(root, "dist"), { force: true, recursive: true });
-			await rm(join(root, "packages/create-kura/dist"), {
+			await rm(join(root, "packages/create-kura-app/dist"), {
 				force: true,
 				recursive: true,
 			});
