@@ -9,7 +9,11 @@ import {
 } from "../console/Console";
 import { BaseException } from "../core/BaseException";
 import type { Router } from "./Router";
-import type { Context } from "./Server";
+import type {
+	BunDevelopmentOptions,
+	BunStaticRouteMap,
+	Context,
+} from "./Server";
 
 export type ServeHandler = (ctx: Context) => Response | Promise<Response>;
 
@@ -21,6 +25,8 @@ export interface ServeConsoleOptions {
 	readonly environment?: string;
 	readonly handler?: ServeHandler;
 	readonly router?: Router;
+	readonly staticRoutes?: BunStaticRouteMap;
+	readonly development?: BunDevelopmentOptions;
 	readonly loader?: ServeEntryLoader;
 	readonly serverFactory?: ServeServerFactory;
 	readonly watcherFactory?: ServeWatcherFactory;
@@ -39,9 +45,18 @@ export type ServeTarget =
 	| Router
 	| {
 			readonly default?: unknown;
+			readonly development?: unknown;
 			readonly handler?: unknown;
 			readonly router?: unknown;
+			readonly routes?: unknown;
+			readonly staticRoutes?: unknown;
 	  };
+
+export type ResolvedServeTarget = {
+	readonly handler: ServeHandler;
+	readonly staticRoutes?: BunStaticRouteMap;
+	readonly development?: BunDevelopmentOptions;
+};
 
 export interface ServeServer {
 	readonly url: URL;
@@ -52,6 +67,8 @@ export interface ServeServerStartOptions {
 	readonly host: string;
 	readonly port: number;
 	readonly handler: ServeHandler;
+	readonly staticRoutes?: BunStaticRouteMap;
+	readonly development?: BunDevelopmentOptions;
 }
 
 export type ServeServerFactory = (
@@ -158,6 +175,8 @@ type ServeConfig = {
 	readonly clock: ServeClock;
 	readonly explicitHandler?: ServeHandler;
 	readonly explicitRouter?: Router;
+	readonly explicitStaticRoutes?: BunStaticRouteMap;
+	readonly explicitDevelopment?: BunDevelopmentOptions;
 	readonly loader: ServeEntryLoader;
 	readonly serverFactory: ServeServerFactory;
 	readonly watcherFactory: ServeWatcherFactory;
@@ -172,10 +191,13 @@ async function startDevServer(
 	config: ServeConfig,
 	write: (message: string) => void,
 ): Promise<ServeRuntime> {
+	let target = await resolveTarget(config, Date.now().toString());
 	let server = config.serverFactory({
 		host: config.host,
 		port: config.port,
-		handler: await resolveHandler(config, Date.now().toString()),
+		handler: target.handler,
+		staticRoutes: target.staticRoutes,
+		development: target.development,
 	});
 	let reloading = false;
 	const runtime: ServeRuntime = { server };
@@ -189,12 +211,14 @@ async function startDevServer(
 			reloading = true;
 			const startedAt = config.clock();
 			try {
-				const nextHandler = await resolveHandler(config, Date.now().toString());
+				target = await resolveTarget(config, Date.now().toString());
 				server.stop();
 				const nextServer = config.serverFactory({
 					host: config.host,
 					port: config.port,
-					handler: nextHandler,
+					handler: target.handler,
+					staticRoutes: target.staticRoutes,
+					development: target.development,
 				});
 				server = nextServer;
 				runtime.server = nextServer;
@@ -244,25 +268,41 @@ function resolveServeConfig(
 		clock: options.clock ?? Date.now,
 		explicitHandler: options.handler,
 		explicitRouter: options.router,
+		explicitStaticRoutes: options.staticRoutes,
+		explicitDevelopment: options.development,
 		loader: options.loader ?? loadServeEntry,
 		serverFactory: options.serverFactory ?? createBunServer,
 		watcherFactory: options.watcherFactory ?? createNodeWatcher,
 	};
 }
 
-async function resolveHandler(
+async function resolveTarget(
 	config: ServeConfig,
 	cacheKey: string,
-): Promise<ServeHandler> {
+): Promise<ResolvedServeTarget> {
 	if (config.explicitHandler) {
-		return config.explicitHandler;
+		return {
+			handler: config.explicitHandler,
+			staticRoutes: config.explicitStaticRoutes,
+			development: config.explicitDevelopment,
+		};
 	}
 
 	if (config.explicitRouter) {
-		return handlerFromRouter(config.explicitRouter);
+		return {
+			handler: handlerFromRouter(config.explicitRouter),
+			staticRoutes: config.explicitStaticRoutes,
+			development: config.explicitDevelopment,
+		};
 	}
 
-	return handlerFromTarget(await config.loader(config.entry, cacheKey));
+	const target = await config.loader(config.entry, cacheKey);
+
+	return {
+		handler: handlerFromTarget(target),
+		staticRoutes: staticRoutesFromTarget(target) ?? config.explicitStaticRoutes,
+		development: developmentFromTarget(target) ?? config.explicitDevelopment,
+	};
 }
 
 async function loadServeEntry(
@@ -311,6 +351,46 @@ function handlerFromTarget(target: ServeTarget): ServeHandler {
 	);
 }
 
+function staticRoutesFromTarget(
+	target: ServeTarget,
+): BunStaticRouteMap | undefined {
+	if (!isRecord(target) || isRouter(target)) {
+		return undefined;
+	}
+
+	if (isBunStaticRouteMap(target.staticRoutes)) {
+		return target.staticRoutes;
+	}
+
+	if (isBunStaticRouteMap(target.routes)) {
+		return target.routes;
+	}
+
+	if (isRecord(target.default)) {
+		return staticRoutesFromTarget(target.default as ServeTarget);
+	}
+
+	return undefined;
+}
+
+function developmentFromTarget(
+	target: ServeTarget,
+): BunDevelopmentOptions | undefined {
+	if (!isRecord(target)) {
+		return undefined;
+	}
+
+	if (isBunDevelopmentOptions(target.development)) {
+		return target.development;
+	}
+
+	if (isRecord(target.default)) {
+		return developmentFromTarget(target.default as ServeTarget);
+	}
+
+	return undefined;
+}
+
 function handlerFromRouter(router: Router): ServeHandler {
 	return async (ctx) => {
 		const url = new URL(ctx.request.url);
@@ -329,6 +409,8 @@ function createBunServer(options: ServeServerStartOptions): ServeServer {
 	const server = Bun.serve({
 		hostname: options.host,
 		port: options.port,
+		routes: options.staticRoutes,
+		development: options.development,
 		fetch: async (request) => {
 			try {
 				return await options.handler({ request });
@@ -448,6 +530,32 @@ function isRouter(value: unknown): value is Router {
 	return (
 		isRecord(value) && "match" in value && typeof value.match === "function"
 	);
+}
+
+function isBunStaticRouteMap(value: unknown): value is BunStaticRouteMap {
+	return isRecord(value);
+}
+
+function isBunDevelopmentOptions(
+	value: unknown,
+): value is BunDevelopmentOptions {
+	if (typeof value === "boolean") {
+		return true;
+	}
+
+	if (!isRecord(value)) {
+		return false;
+	}
+
+	return (
+		isOptionalBoolean(value.hmr) &&
+		isOptionalBoolean(value.console) &&
+		isOptionalBoolean(value.chromeDevToolsAutomaticWorkspaceFolders)
+	);
+}
+
+function isOptionalBoolean(value: unknown): boolean {
+	return value === undefined || typeof value === "boolean";
 }
 
 function formatServerStarted(

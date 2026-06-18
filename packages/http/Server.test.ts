@@ -41,6 +41,36 @@ describe("Server", () => {
 		expect(await response.text()).toBe("Not Found");
 	});
 
+	test("serves Bun static routes before the Kura fetch handler", async () => {
+		const server = new Server({
+			port: 0,
+			staticRoutes: {
+				"/": new Response("html route"),
+			},
+			development: false,
+		});
+		server.setHandler((ctx) => {
+			const url = new URL(ctx.request.url);
+			return new Response(`handler:${url.pathname}`);
+		});
+		server.start();
+		const instance = (
+			server as unknown as {
+				server: ReturnType<typeof Bun.serve>;
+			}
+		).server;
+
+		try {
+			const staticResponse = await fetch(instance.url);
+			const handlerResponse = await fetch(new URL("/api", instance.url));
+
+			expect(await staticResponse.text()).toBe("html route");
+			expect(await handlerResponse.text()).toBe("handler:/api");
+		} finally {
+			server.stop();
+		}
+	});
+
 	test("renders base exceptions from the fetch pipeline", async () => {
 		const server = new Server({ port: 0 });
 		server.setHandler(() => {

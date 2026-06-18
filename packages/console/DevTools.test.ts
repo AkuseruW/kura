@@ -46,6 +46,26 @@ describe("dev tool console commands", () => {
 		expect(output.text()).toContain("users.show");
 	});
 
+	test("lists Bun static routes with registered routes", async () => {
+		const router = new Router();
+		router.get("/api/health", () => Response.json({ status: "up" }));
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, {
+			loadRouter: () => router,
+			loadStaticRoutes: () => ({
+				"/": new Response("home"),
+			}),
+		});
+
+		expect(await console.run(["routes"])).toBe(0);
+
+		expect(output.text()).toContain("GET");
+		expect(output.text()).toContain("/");
+		expect(output.text()).toContain("bun.static");
+		expect(output.text()).toContain("/api/health");
+	});
+
 	test("prints routes as json", async () => {
 		const router = new Router();
 		router.get("/", () => Response.json({ ok: true })).as("home");
