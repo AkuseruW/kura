@@ -1,4 +1,5 @@
 export type AppPreset = "api" | "web" | "full";
+export type ArchitecturePreset = "standard" | "modular" | "domain";
 export type DatabasePreset = "none" | "sqlite" | "postgres" | "mysql";
 export type AuthPreset = "none" | "session" | "jwt";
 export type CachePreset = "memory" | "file" | "redis";
@@ -50,6 +51,7 @@ export type NewAppInstaller = (options: {
 
 export type NewAppChoices = {
 	readonly preset: AppPreset;
+	readonly architecture: ArchitecturePreset;
 	readonly database: DatabasePreset;
 	readonly auth: AuthPreset;
 	readonly cache: CachePreset;

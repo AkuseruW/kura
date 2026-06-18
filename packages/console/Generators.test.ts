@@ -57,11 +57,11 @@ describe("generator console commands", () => {
 		const exitCode = await console.run(["make:model", "User"]);
 
 		expect(exitCode).toBe(0);
-		expect(output.text()).toBe("Created app/models/User.ts");
-		expect(await readGenerated(root, "app/models/User.ts")).toContain(
+		expect(output.text()).toBe("Created app/models/user.ts");
+		expect(await readGenerated(root, "app/models/user.ts")).toContain(
 			"export class User extends BaseModel<UserAttributes>",
 		);
-		expect(await readGenerated(root, "app/models/User.ts")).toContain(
+		expect(await readGenerated(root, "app/models/user.ts")).toContain(
 			'static override table = "users";',
 		);
 	});
@@ -79,11 +79,88 @@ describe("generator console commands", () => {
 
 		expect(exitCode).toBe(0);
 		expect(output.text()).toBe(
-			"Created app/controllers/Admin/UserController.ts",
+			"Created app/controllers/admin/user_controller.ts",
 		);
 		expect(
-			await readGenerated(root, "app/controllers/Admin/UserController.ts"),
+			await readGenerated(root, "app/controllers/admin/user_controller.ts"),
 		).toContain("export class AdminUserController extends BaseController");
+	});
+
+	test("generates module-aware files for modular architecture", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerGeneratorCommands(console, {
+			root,
+			now: fixedNow,
+			architecture: "modular",
+		});
+
+		expect(await console.run(["make:controller", "users/User"])).toBe(0);
+		expect(output.text()).toBe("Created app/modules/users/user_controller.ts");
+		expect(
+			await readGenerated(root, "app/modules/users/user_controller.ts"),
+		).toContain("export class UserController extends BaseController");
+
+		expect(await console.run(["make:model", "users/User"])).toBe(0);
+		expect(await readGenerated(root, "app/modules/users/user.ts")).toContain(
+			"export class User extends BaseModel<UserAttributes>",
+		);
+
+		expect(await console.run(["make:validator", "users/CreateUser"])).toBe(0);
+		expect(
+			await readGenerated(root, "app/modules/users/create_user_validator.ts"),
+		).toContain("export const createUserValidator");
+
+		expect(await console.run(["make:factory", "User"])).toBe(0);
+		expect(
+			await readGenerated(root, "database/factories/user_factory.ts"),
+		).toContain('from "../../app/modules/user/user"');
+	});
+
+	test("generates domain-aware files for domain architecture", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerGeneratorCommands(console, {
+			root,
+			now: fixedNow,
+			architecture: "domain",
+		});
+
+		expect(await console.run(["make:controller", "users/User"])).toBe(0);
+		expect(output.text()).toBe(
+			"Created app/domains/users/http/user_controller.ts",
+		);
+		expect(
+			await readGenerated(root, "app/domains/users/http/user_controller.ts"),
+		).toContain("export class UserController extends BaseController");
+
+		expect(await console.run(["make:model", "users/User"])).toBe(0);
+		const domainModel = await readGenerated(
+			root,
+			"app/domains/users/domain/user.ts",
+		);
+		expect(domainModel).toContain("export class User");
+		expect(domainModel).not.toContain("BaseModel");
+
+		expect(await console.run(["make:validator", "users/CreateUser"])).toBe(0);
+		expect(
+			await readGenerated(
+				root,
+				"app/domains/users/application/create_user_validator.ts",
+			),
+		).toContain("export const createUserValidator");
+
+		expect(await console.run(["make:factory", "User"])).toBe(0);
+		const factory = await readGenerated(
+			root,
+			"database/factories/user_factory.ts",
+		);
+		expect(factory).toContain(
+			'from "../../app/domains/user/infrastructure/persistence/user_record"',
+		);
+		expect(factory).toContain("defineFactory(UserRecord");
 	});
 
 	test("generates timestamped migrations", async () => {
@@ -112,15 +189,23 @@ describe("generator console commands", () => {
 		registerGeneratorCommands(console, { root, now: fixedNow });
 
 		const cases = [
-			["make:middleware", "Auth", "app/middleware/AuthMiddleware.ts"],
-			["make:validator", "CreateUser", "app/validators/CreateUserValidator.ts"],
-			["make:seeder", "User", "database/seeders/UserSeeder.ts"],
-			["make:factory", "User", "database/factories/UserFactory.ts"],
-			["make:event", "UserCreated", "app/events/UserCreatedEvent.ts"],
-			["make:listener", "SendWelcome", "app/listeners/SendWelcomeListener.ts"],
-			["make:job", "SendEmail", "app/jobs/SendEmailJob.ts"],
-			["make:mail", "Welcome", "app/mails/WelcomeMail.ts"],
-			["make:policy", "User", "app/policies/UserPolicy.ts"],
+			["make:middleware", "Auth", "app/middleware/auth_middleware.ts"],
+			[
+				"make:validator",
+				"CreateUser",
+				"app/validators/create_user_validator.ts",
+			],
+			["make:seeder", "User", "database/seeders/user_seeder.ts"],
+			["make:factory", "User", "database/factories/user_factory.ts"],
+			["make:event", "UserCreated", "app/events/user_created_event.ts"],
+			[
+				"make:listener",
+				"SendWelcome",
+				"app/listeners/send_welcome_listener.ts",
+			],
+			["make:job", "SendEmail", "app/jobs/send_email_job.ts"],
+			["make:mail", "Welcome", "app/mails/welcome_mail.ts"],
+			["make:policy", "User", "app/policies/user_policy.ts"],
 		] as const;
 
 		for (const [command, name, path] of cases) {
@@ -145,7 +230,7 @@ describe("generator console commands", () => {
 				output: forceOutput,
 			}),
 		).toBe(0);
-		expect(forceOutput.text()).toBe("Overwritten app/models/User.ts");
+		expect(forceOutput.text()).toBe("Overwritten app/models/user.ts");
 	});
 
 	test("supports root option and validates names", async () => {
@@ -159,7 +244,7 @@ describe("generator console commands", () => {
 			await console.run(["make:job", "SyncUser", "--root", overrideRoot]),
 		).toBe(0);
 		expect(
-			await readGenerated(overrideRoot, "app/jobs/SyncUserJob.ts"),
+			await readGenerated(overrideRoot, "app/jobs/sync_user_job.ts"),
 		).toContain("export class SyncUserJob");
 
 		expect(await console.run(["make:job", "../Bad"])).toBe(1);

@@ -23,6 +23,8 @@ export function makeNewAppFiles(options: {
 \t\t"baseUrl": ".",
 \t\t"paths": {
 \t\t\t"#controllers/*": ["app/controllers/*"],
+\t\t\t"#modules/*": ["app/modules/*"],
+\t\t\t"#domains/*": ["app/domains/*"],
 \t\t\t"#exceptions/*": ["app/exceptions/*"],
 \t\t\t"#models/*": ["app/models/*"],
 \t\t\t"#mails/*": ["app/mails/*"],
@@ -133,7 +135,9 @@ await import("#start/env");
 
 const appConsole = createConsole();
 
-registerGeneratorCommands(appConsole);
+registerGeneratorCommands(appConsole, {
+\tarchitecture: "${choices.architecture}",
+});
 registerServeCommand(appConsole, {
 \tentry: "bin/server.ts",
 });
@@ -244,49 +248,14 @@ export const namedMiddleware = {};
 			content: makeAppConfig(choices),
 		},
 		{
-			path: "config/auth.ts",
-			content: makeAuthConfig(choices),
-		},
-		{
 			path: "config/bodyparser.ts",
 			content: makeBodyParserConfig(),
-		},
-		{
-			path: "config/cache.ts",
-			content: makeCacheConfig(choices),
-		},
-		{
-			path: "config/database.ts",
-			content: makeDatabaseConfig(choices),
-		},
-		{
-			path: "config/encryption.ts",
-			content: makeEncryptionConfig(),
-		},
-		{
-			path: "config/hash.ts",
-			content: makeHashConfig(),
 		},
 		{
 			path: "config/logger.ts",
 			content: makeLoggerConfig(),
 		},
-		{
-			path: "config/queue.ts",
-			content: makeQueueConfig(choices),
-		},
-		{
-			path: "config/session.ts",
-			content: makeSessionConfig(choices),
-		},
-		{
-			path: "config/shield.ts",
-			content: makeShieldConfig(choices),
-		},
-		{
-			path: "config/static.ts",
-			content: makeStaticConfig(choices),
-		},
+		...makeFeatureConfigFiles(choices),
 		...(choices.preset === "api"
 			? []
 			: [
@@ -303,16 +272,7 @@ export const namedMiddleware = {};
 		...makeAuthFiles(choices),
 		...makeOptionalModuleFiles(choices),
 		...makeScaffoldDirectories(choices),
-		{
-			path: "database/schema.ts",
-			content: `export const schema = {};
-`,
-		},
-		{
-			path: "database/schema_rules.ts",
-			content: `export const schemaRules = {};
-`,
-		},
+		...makeDatabaseMetadataFiles(choices),
 		{
 			path: "tests/bootstrap.ts",
 			content: `export const runnerHooks = {
@@ -326,6 +286,95 @@ export const namedMiddleware = {};
 			content: makeReadme(appName, choices),
 		},
 	];
+}
+
+function makeFeatureConfigFiles(choices: NewAppChoices): readonly NewAppFile[] {
+	const files: NewAppFile[] = [];
+
+	if (choices.auth !== "none") {
+		files.push(
+			{
+				path: "config/auth.ts",
+				content: makeAuthConfig(choices),
+			},
+			{
+				path: "config/encryption.ts",
+				content: makeEncryptionConfig(),
+			},
+			{
+				path: "config/hash.ts",
+				content: makeHashConfig(),
+			},
+		);
+	}
+
+	if (choices.auth === "session") {
+		files.push({
+			path: "config/session.ts",
+			content: makeSessionConfig(choices),
+		});
+	}
+
+	if (usesDatabaseFiles(choices)) {
+		files.push({
+			path: "config/database.ts",
+			content: makeDatabaseConfig(choices),
+		});
+	}
+
+	if (choices.cache !== "memory") {
+		files.push({
+			path: "config/cache.ts",
+			content: makeCacheConfig(choices),
+		});
+	}
+
+	if (choices.queue !== "none") {
+		files.push({
+			path: "config/queue.ts",
+			content: makeQueueConfig(choices),
+		});
+	}
+
+	if (choices.preset !== "api") {
+		files.push(
+			{
+				path: "config/shield.ts",
+				content: makeShieldConfig(choices),
+			},
+			{
+				path: "config/static.ts",
+				content: makeStaticConfig(choices),
+			},
+		);
+	}
+
+	return files;
+}
+
+function makeDatabaseMetadataFiles(
+	choices: NewAppChoices,
+): readonly NewAppFile[] {
+	if (!usesDatabaseFiles(choices)) {
+		return [];
+	}
+
+	return [
+		{
+			path: "database/schema.ts",
+			content: `export const schema = {};
+`,
+		},
+		{
+			path: "database/schema_rules.ts",
+			content: `export const schemaRules = {};
+`,
+		},
+	];
+}
+
+function usesDatabaseFiles(choices: NewAppChoices): boolean {
+	return choices.database !== "none" || choices.auth !== "none";
 }
 
 function makeScaffoldDirectories(
@@ -354,12 +403,122 @@ function makeNewAppDirectories(
 	return paths.map((path) => ({ kind: "directory" as const, path }));
 }
 
+function apiControllerPath(choices: NewAppChoices): string {
+	return sourcePath(
+		choices,
+		"api",
+		"api_controller.ts",
+		"app/controllers",
+		"http",
+	);
+}
+
+function homeControllerPath(choices: NewAppChoices): string {
+	return sourcePath(
+		choices,
+		"web",
+		"home_controller.ts",
+		"app/controllers",
+		"http",
+	);
+}
+
+function authControllerPath(choices: NewAppChoices): string {
+	return sourcePath(
+		choices,
+		"auth",
+		"auth_controller.ts",
+		"app/controllers",
+		"http",
+	);
+}
+
+function userModelPath(choices: NewAppChoices): string {
+	if (choices.architecture === "domain") {
+		return "app/domains/auth/infrastructure/persistence/user_record.ts";
+	}
+
+	return sourcePath(choices, "auth", "user.ts", "app/models");
+}
+
+function userDomainEntityPath(): string {
+	return "app/domains/auth/domain/user.ts";
+}
+
+function userRepositoryPath(): string {
+	return "app/domains/auth/domain/user_repository.ts";
+}
+
+function registerUserUseCasePath(): string {
+	return "app/domains/auth/application/register_user.ts";
+}
+
+function sqlUserRepositoryPath(): string {
+	return "app/domains/auth/infrastructure/persistence/sql_user_repository.ts";
+}
+
+function moduleSourcePath(
+	choices: NewAppChoices,
+	moduleName: "mail" | "storage" | "websockets",
+	fileName: string,
+): string {
+	if (choices.architecture === "domain") {
+		return `app/domains/${moduleName}/infrastructure/${fileName}`;
+	}
+
+	if (choices.architecture === "modular") {
+		return `app/modules/${moduleName}/${fileName}`;
+	}
+
+	if (moduleName === "mail") {
+		return `app/mails/${fileName}`;
+	}
+
+	return `app/services/${fileName}`;
+}
+
+function sourcePath(
+	choices: NewAppChoices,
+	moduleName: string,
+	fileName: string,
+	standardDirectory: string,
+	domainLayer = "domain",
+): string {
+	if (choices.architecture === "domain") {
+		return `app/domains/${moduleName}/${domainLayer}/${fileName}`;
+	}
+
+	if (choices.architecture === "modular") {
+		return `app/modules/${moduleName}/${fileName}`;
+	}
+
+	return `${standardDirectory}/${fileName}`;
+}
+
+function moduleImport(
+	choices: NewAppChoices,
+	moduleName: string,
+	fileNameWithoutExtension: string,
+	standardAlias: string,
+	domainLayer = "domain",
+): string {
+	if (choices.architecture === "domain") {
+		return `#domains/${moduleName}/${domainLayer}/${fileNameWithoutExtension}`;
+	}
+
+	if (choices.architecture === "modular") {
+		return `#modules/${moduleName}/${fileNameWithoutExtension}`;
+	}
+
+	return standardAlias;
+}
+
 function makePresetFiles(choices: NewAppChoices): readonly NewAppFile[] {
 	const files: NewAppFile[] = [];
 
 	if (choices.preset === "api" || choices.preset === "full") {
 		files.push({
-			path: "app/controllers/ApiController.ts",
+			path: apiControllerPath(choices),
 			content: makeApiController(choices),
 		});
 	}
@@ -367,11 +526,11 @@ function makePresetFiles(choices: NewAppChoices): readonly NewAppFile[] {
 	if (choices.preset === "web" || choices.preset === "full") {
 		files.push(
 			{
-				path: "app/controllers/HomeController.ts",
-				content: makeHomeController(),
+				path: homeControllerPath(choices),
+				content: makeHomeController(choices),
 			},
 			{
-				path: "resources/views/home.html",
+				path: "resources/views/home.kura.html",
 				content: makeHomeView(choices),
 			},
 		);
@@ -385,13 +544,54 @@ function makeAuthFiles(choices: NewAppChoices): readonly NewAppFile[] {
 		return [];
 	}
 
+	if (choices.architecture === "domain") {
+		return [
+			{
+				path: authControllerPath(choices),
+				content: makeAuthController(choices),
+			},
+			{
+				path: userDomainEntityPath(),
+				content: makeDomainUserEntity(),
+			},
+			{
+				path: userRepositoryPath(),
+				content: makeUserRepositoryPort(),
+			},
+			{
+				path: registerUserUseCasePath(),
+				content: makeRegisterUserUseCase(),
+			},
+			{
+				path: userModelPath(choices),
+				content: makeUserRecord(),
+			},
+			{
+				path: sqlUserRepositoryPath(),
+				content: makeSqlUserRepository(),
+			},
+			{
+				path: "database/migrations/00000000000000_create_users.ts",
+				content: makeUsersMigration(),
+			},
+			...(choices.auth === "session"
+				? [
+						{
+							path: "database/migrations/00000000000001_create_sessions.ts",
+							content: makeSessionsMigration(),
+						},
+					]
+				: []),
+		];
+	}
+
 	const files: NewAppFile[] = [
 		{
-			path: "app/controllers/AuthController.ts",
+			path: authControllerPath(choices),
 			content: makeAuthController(choices),
 		},
 		{
-			path: "app/models/User.ts",
+			path: userModelPath(choices),
 			content: makeUserModel(),
 		},
 		{
@@ -423,7 +623,7 @@ function makeOptionalModuleFiles(
 				content: makeMailConfig(),
 			},
 			{
-				path: "app/mails/WelcomeMail.ts",
+				path: moduleSourcePath(choices, "mail", "welcome_mail.ts"),
 				content: makeWelcomeMail(),
 			},
 		);
@@ -436,7 +636,7 @@ function makeOptionalModuleFiles(
 				content: makeStorageConfig(),
 			},
 			{
-				path: "app/services/StorageService.ts",
+				path: moduleSourcePath(choices, "storage", "storage_service.ts"),
 				content: makeStorageService(),
 			},
 		);
@@ -462,7 +662,7 @@ function makeOptionalModuleFiles(
 				content: makeWebSocketsConfig(),
 			},
 			{
-				path: "app/services/WebSocketService.ts",
+				path: moduleSourcePath(choices, "websockets", "websocket_service.ts"),
 				content: makeWebSocketService(),
 			},
 		);
@@ -496,6 +696,8 @@ function makePackageJson(appName: string, packageVersion: string) {
 		},
 		imports: {
 			"#controllers/*": "./app/controllers/*.ts",
+			"#modules/*": "./app/modules/*.ts",
+			"#domains/*": "./app/domains/*.ts",
 			"#exceptions/*": "./app/exceptions/*.ts",
 			"#models/*": "./app/models/*.ts",
 			"#mails/*": "./app/mails/*.ts",
@@ -540,15 +742,31 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 		"LOG_LEVEL=info",
 		`APP_KEY=${appKey}`,
 		`APP_URL=http://\${HOST}:\${PORT}`,
-		"HASH_DRIVER=bcrypt",
-		`CACHE_STORE=${choices.cache}`,
-		`QUEUE_CONNECTION=${choices.queue}`,
-		`SESSION_DRIVER=${choices.auth === "session" ? "cookie" : "memory"}`,
-		`AUTH_GUARD=${choices.auth === "session" ? "web" : choices.auth === "jwt" ? "api" : "none"}`,
 	];
 
-	if (choices.database !== "none") {
-		lines.push(`DB_CONNECTION=${choices.database}`);
+	if (choices.auth !== "none") {
+		lines.push("HASH_DRIVER=bcrypt");
+		lines.push(
+			`AUTH_GUARD=${choices.auth === "session" ? "web" : choices.auth === "jwt" ? "api" : "none"}`,
+		);
+	}
+
+	if (choices.auth === "session") {
+		lines.push("SESSION_DRIVER=cookie");
+	}
+
+	if (choices.cache !== "memory") {
+		lines.push(`CACHE_STORE=${choices.cache}`);
+	}
+
+	if (choices.queue !== "none") {
+		lines.push(`QUEUE_CONNECTION=${choices.queue}`);
+	}
+
+	if (usesDatabaseFiles(choices)) {
+		lines.push(
+			`DB_CONNECTION=${choices.database === "none" ? "memory" : choices.database}`,
+		);
 		lines.push("DATABASE_URL=");
 	}
 
@@ -582,6 +800,8 @@ export default defineConfig({
 \t},
 \taliases: {
 \t\tcontrollers: "#controllers/*",
+\t\tmodules: "#modules/*",
+\t\tdomains: "#domains/*",
 \t\texceptions: "#exceptions/*",
 \t\tmodels: "#models/*",
 \t\tmails: "#mails/*",
@@ -639,6 +859,7 @@ const appConfig = defineConfig({
 
 \tstarter: {
 \t\tpreset: "${choices.preset}",
+\t\tarchitecture: "${choices.architecture}",
 \t\tdatabase: "${choices.database}",
 \t\tauth: "${choices.auth}",
 \t\tcache: "${choices.cache}",
@@ -652,6 +873,11 @@ export default appConfig;
 }
 
 function makeAuthConfig(choices: NewAppChoices): string {
+	const userModelImport =
+		choices.architecture === "domain"
+			? "#domains/auth/infrastructure/persistence/user_record"
+			: moduleImport(choices, "auth", "user", "#models/user");
+
 	return `import { defineConfig } from "kura";
 import env from "#start/env";
 
@@ -668,7 +894,7 @@ const authConfig = defineConfig({
 \t\t\tuseRememberMeTokens: false,
 \t\t\tprovider: {
 \t\t\t\ttype: "model",
-\t\t\t\tmodel: "#models/user",
+\t\t\t\tmodel: "${userModelImport}",
 \t\t\t},
 \t\t},
 
@@ -680,7 +906,7 @@ const authConfig = defineConfig({
 \t\t\t},
 \t\t\tprovider: {
 \t\t\t\ttype: "model",
-\t\t\t\tmodel: "#models/user",
+\t\t\t\tmodel: "${userModelImport}",
 \t\t\t},
 \t\t},
 \t},
@@ -1091,77 +1317,30 @@ export class ApiController {
 `;
 }
 
-function makeHomeController(): string {
-	return `import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import type { Context } from "kura";
-
-const homeViewPath = join(import.meta.dir, "../../resources/views/home.html");
+function makeHomeController(choices: NewAppChoices): string {
+	return `import { type Context, view } from "kura";
 
 export class HomeController {
 \tasync index(_ctx: Context): Promise<Response> {
-\t\tconst html = await readFile(homeViewPath, "utf8");
-
-\t\treturn new Response(html, {
-\t\t\theaders: {
-\t\t\t\t"Content-Type": "text/html; charset=utf-8",
-\t\t\t},
+\t\treturn view("home", {
+\t\t\tpreset: "${choices.preset}",
 \t\t});
 \t}
 }
 `;
 }
 
-function makeHomeView(choices: NewAppChoices): string {
+function makeHomeView(_choices: NewAppChoices): string {
 	return `<!doctype html>
 <html lang="en">
 \t<head>
 \t\t<meta charset="utf-8">
 \t\t<meta name="viewport" content="width=device-width, initial-scale=1">
 \t\t<title>Kura</title>
-\t\t<style>
-\t\t\t:root {
-\t\t\t\tcolor-scheme: light dark;
-\t\t\t\tfont-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-\t\t\t}
-
-\t\t\tbody {
-\t\t\t\tmargin: 0;
-\t\t\t\tmin-height: 100vh;
-\t\t\t\tdisplay: grid;
-\t\t\t\tplace-items: center;
-\t\t\t\tbackground: #101318;
-\t\t\t\tcolor: #f5f7fb;
-\t\t\t}
-
-\t\t\tmain {
-\t\t\t\twidth: min(680px, calc(100vw - 48px));
-\t\t\t}
-
-\t\t\th1 {
-\t\t\t\tfont-size: clamp(2.4rem, 7vw, 5rem);
-\t\t\t\tline-height: 1;
-\t\t\t\tmargin: 0 0 1rem;
-\t\t\t}
-
-\t\t\tp {
-\t\t\t\tcolor: #aeb7c8;
-\t\t\t\tfont-size: 1.1rem;
-\t\t\t\tline-height: 1.6;
-\t\t\t}
-
-\t\t\tcode {
-\t\t\t\tbackground: #202633;
-\t\t\t\tborder-radius: 6px;
-\t\t\t\tpadding: 0.2rem 0.4rem;
-\t\t\t}
-\t\t</style>
 \t</head>
 \t<body>
-\t\t<main>
-\t\t\t<h1>Kura</h1>
-\t\t\t<p>Your ${choices.preset} app is running. Edit <code>resources/views/home.html</code> or <code>app/controllers/HomeController.ts</code> to start building.</p>
-\t\t</main>
+\t\t<h1>Kura</h1>
+\t\t<p>{{ preset }} app</p>
 \t</body>
 </html>
 `;
@@ -1231,6 +1410,178 @@ export class User extends BaseModel<UserAttributes> {
 
 \t@column({ name: "updated_at" })
 \tdeclare updatedAt?: Date;
+}
+`;
+}
+
+function makeDomainUserEntity(): string {
+	return `export type UserId = number;
+
+export type UserProperties = {
+\treadonly id?: UserId;
+\treadonly email: string;
+\treadonly passwordHash: string;
+\treadonly createdAt?: Date;
+\treadonly updatedAt?: Date;
+};
+
+export class User {
+\tprivate constructor(private readonly properties: UserProperties) {}
+
+\tstatic register(input: {
+\t\treadonly email: string;
+\t\treadonly passwordHash: string;
+\t}): User {
+\t\treturn new User({
+\t\t\temail: input.email,
+\t\t\tpasswordHash: input.passwordHash,
+\t\t});
+\t}
+
+\tstatic hydrate(properties: UserProperties): User {
+\t\treturn new User(properties);
+\t}
+
+\tget id(): UserId | undefined {
+\t\treturn this.properties.id;
+\t}
+
+\tget email(): string {
+\t\treturn this.properties.email;
+\t}
+
+\tget passwordHash(): string {
+\t\treturn this.properties.passwordHash;
+\t}
+
+\tget createdAt(): Date | undefined {
+\t\treturn this.properties.createdAt;
+\t}
+
+\tget updatedAt(): Date | undefined {
+\t\treturn this.properties.updatedAt;
+\t}
+
+\ttoJSON(): UserProperties {
+\t\treturn this.properties;
+\t}
+}
+`;
+}
+
+function makeUserRepositoryPort(): string {
+	return `import type { User } from "./user";
+
+export interface UserRepository {
+\tfindByEmail(email: string): Promise<User | null>;
+\tsave(user: User): Promise<void>;
+}
+`;
+}
+
+function makeRegisterUserUseCase(): string {
+	return `import { User } from "../domain/user";
+import type { UserRepository } from "../domain/user_repository";
+
+export type RegisterUserCommand = {
+\treadonly email: string;
+\treadonly passwordHash: string;
+};
+
+export class RegisterUser {
+\tconstructor(private readonly users: UserRepository) {}
+
+\tasync handle(command: RegisterUserCommand): Promise<User> {
+\t\tconst existing = await this.users.findByEmail(command.email);
+
+\t\tif (existing) {
+\t\t\tthrow new Error("A user with this email already exists");
+\t\t}
+
+\t\tconst user = User.register(command);
+\t\tawait this.users.save(user);
+
+\t\treturn user;
+\t}
+}
+`;
+}
+
+function makeUserRecord(): string {
+	return `import { BaseModel, column, type QueryRow } from "kura";
+
+export type UserRecordAttributes = QueryRow & {
+\tid?: number;
+\temail: string;
+\tpassword: string;
+\tcreated_at?: Date;
+\tupdated_at?: Date;
+};
+
+export class UserRecord extends BaseModel<UserRecordAttributes> {
+\tstatic override table = "users";
+
+\t@column()
+\tdeclare id?: number;
+
+\t@column()
+\tdeclare email: string;
+
+\t@column()
+\tdeclare password: string;
+
+\t@column({ name: "created_at" })
+\tdeclare createdAt?: Date;
+
+\t@column({ name: "updated_at" })
+\tdeclare updatedAt?: Date;
+}
+`;
+}
+
+function makeSqlUserRepository(): string {
+	return `import { User } from "../../domain/user";
+import type { UserRepository } from "../../domain/user_repository";
+import { UserRecord } from "./user_record";
+
+export class SqlUserRepository implements UserRepository {
+\tasync findByEmail(email: string): Promise<User | null> {
+\t\tconst record = await UserRecord.query().where("email", email).first();
+
+\t\treturn record ? toDomain(record) : null;
+\t}
+
+\tasync save(user: User): Promise<void> {
+\t\tconst data = user.toJSON();
+
+\t\tif (data.id !== undefined) {
+\t\t\tconst record = await UserRecord.find(data.id);
+
+\t\t\tif (!record) {
+\t\t\t\tthrow new Error("Cannot save missing user record");
+\t\t\t}
+
+\t\t\trecord.email = data.email;
+\t\t\trecord.password = data.passwordHash;
+\t\t\tawait record.save();
+\t\t\treturn;
+\t\t}
+
+\t\tawait UserRecord.create({
+\t\t\temail: data.email,
+\t\t\tpassword: data.passwordHash,
+\t\t});
+\t}
+}
+
+function toDomain(record: UserRecord): User {
+\treturn User.hydrate({
+\t\tid: record.id,
+\t\temail: record.email,
+\t\tpasswordHash: record.password,
+\t\tcreatedAt: record.createdAt,
+\t\tupdatedAt: record.updatedAt,
+\t});
 }
 `;
 }
@@ -1409,20 +1760,40 @@ function makeRoutes(choices: NewAppChoices): string {
 	const lines = ["export const router = new Router();"];
 
 	if (choices.preset === "api" || choices.preset === "full") {
-		imports.push('import { ApiController } from "#controllers/ApiController";');
+		imports.push(
+			`import { ApiController } from "${moduleImport(
+				choices,
+				"api",
+				"api_controller",
+				"#controllers/api_controller",
+				"http",
+			)}";`,
+		);
 		lines.push("", "const apiController = new ApiController();");
 	}
 
 	if (choices.preset === "web" || choices.preset === "full") {
 		imports.push(
-			'import { HomeController } from "#controllers/HomeController";',
+			`import { HomeController } from "${moduleImport(
+				choices,
+				"web",
+				"home_controller",
+				"#controllers/home_controller",
+				"http",
+			)}";`,
 		);
 		lines.push("", "const homeController = new HomeController();");
 	}
 
 	if (choices.auth !== "none") {
 		imports.push(
-			'import { AuthController } from "#controllers/AuthController";',
+			`import { AuthController } from "${moduleImport(
+				choices,
+				"auth",
+				"auth_controller",
+				"#controllers/auth_controller",
+				"http",
+			)}";`,
 		);
 		lines.push("", "const authController = new AuthController();");
 	}
@@ -1477,6 +1848,7 @@ Generated with Kura.
 ## Stack
 
 - Preset: ${choices.preset}
+- Structure: ${choices.architecture}
 - Database: ${choices.database}
 - Auth: ${choices.auth}
 - Cache: ${choices.cache}
@@ -1511,10 +1883,10 @@ bun kura serve --watch
 
 ## Structure
 
-- \`app/\`: application code created by the selected preset and later \`make:*\` commands.
+${makeArchitectureStructureBullets(choices)}
 - \`bin/\`: console, server, and test entrypoints.
 - \`config/\`: application and module configuration.
-- \`database/\`: generated schema metadata and migrations when a feature needs them.
+${makeDatabaseStructureBullet(choices)}
 - \`start/\`: environment, kernel, and routes loaded during boot.
 - \`kura.config.ts\`: Kura application manifest.
 `;
@@ -1527,20 +1899,26 @@ function makeGeneratedStarterBullets(choices: NewAppChoices): string {
 
 	if (choices.preset === "api" || choices.preset === "full") {
 		bullets.push(
-			"- API: `app/controllers/ApiController.ts` backs the JSON routes.",
+			`- API: \`${apiControllerPath(choices)}\` backs the JSON routes.`,
 		);
 	}
 
 	if (choices.preset === "web" || choices.preset === "full") {
 		bullets.push(
-			"- Web: `app/controllers/HomeController.ts` serves `resources/views/home.html`.",
+			`- Web: \`${homeControllerPath(choices)}\` serves \`resources/views/home.kura.html\`.`,
 		);
 	}
 
 	if (choices.auth !== "none") {
-		bullets.push(
-			"- Auth: `app/controllers/AuthController.ts`, `app/models/User.ts`, and user migrations are scaffolded.",
-		);
+		if (choices.architecture === "domain") {
+			bullets.push(
+				`- Auth: \`${authControllerPath(choices)}\`, \`${userDomainEntityPath()}\`, \`${userRepositoryPath()}\`, \`${registerUserUseCasePath()}\`, \`${userModelPath(choices)}\`, and user migrations are scaffolded.`,
+			);
+		} else {
+			bullets.push(
+				`- Auth: \`${authControllerPath(choices)}\`, \`${userModelPath(choices)}\`, and user migrations are scaffolded.`,
+			);
+		}
 	}
 
 	for (const module of choices.modules) {
@@ -1550,6 +1928,26 @@ function makeGeneratedStarterBullets(choices: NewAppChoices): string {
 	}
 
 	return bullets.join("\n");
+}
+
+function makeArchitectureStructureBullets(choices: NewAppChoices): string {
+	if (choices.architecture === "domain") {
+		return "- `app/domains/`: clean architecture contexts with `domain`, `application`, `infrastructure`, and `http` boundaries.";
+	}
+
+	if (choices.architecture === "modular") {
+		return "- `app/modules/`: feature-based application modules created by the selected preset and later generators.";
+	}
+
+	return "- `app/`: application code created by the selected preset and later `make:*` commands.";
+}
+
+function makeDatabaseStructureBullet(choices: NewAppChoices): string {
+	if (!usesDatabaseFiles(choices)) {
+		return "- `database/`: added when database or auth features need schema files.";
+	}
+
+	return "- `database/`: generated schema metadata and migrations for selected features.";
 }
 
 function formatModuleName(module: string): string {
