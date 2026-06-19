@@ -138,6 +138,52 @@ describe("serve console command", () => {
 		expect(await response?.text()).toBe("ok");
 	});
 
+	test("logs HTTP requests by default", async () => {
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		const fake = fakeServerFactory();
+		registerServeCommand(console, {
+			handler: () => new Response("docs", { status: 200 }),
+			serverFactory: fake.factory,
+			keepAlive: false,
+			clock: fakeClock(0, 7, 20, 23),
+			environment: "testing",
+		});
+
+		expect(await console.run(["serve"])).toBe(0);
+
+		const response = await fake.starts[0]?.handler({
+			request: new Request("http://localhost/docs?ui=scalar", {
+				method: "GET",
+			}),
+		});
+
+		expect(response?.status).toBe(200);
+		expect(output.text()).toContain("GET /docs?ui=scalar 200 3ms");
+	});
+
+	test("can disable HTTP request logs", async () => {
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		const fake = fakeServerFactory();
+		registerServeCommand(console, {
+			handler: () => new Response("docs", { status: 200 }),
+			serverFactory: fake.factory,
+			keepAlive: false,
+			clock: fakeClock(0, 7, 20, 23),
+			environment: "testing",
+		});
+
+		expect(await console.run(["serve", "--no-request-log"])).toBe(0);
+
+		const response = await fake.starts[0]?.handler({
+			request: new Request("http://localhost/docs", { method: "GET" }),
+		});
+
+		expect(response?.status).toBe(200);
+		expect(output.text()).not.toContain("GET /docs 200");
+	});
+
 	test("uses PORT from the environment as the default port", async () => {
 		const previousPort = Bun.env.PORT;
 		Bun.env.PORT = "4444";

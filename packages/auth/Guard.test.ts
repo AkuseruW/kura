@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Router } from "../http/Router";
 import type { Context } from "../http/Server";
+import {
+	AccessTokenGuard,
+	AccessTokenManager,
+	MemoryAccessTokenStore,
+} from "./AccessToken";
 import { AuthManager } from "./AuthManager";
 import { type AuthContext, type GuardResult, guard } from "./Guard";
 import {
@@ -142,6 +147,78 @@ describe("SessionGuard", () => {
 				}),
 			}),
 		).resolves.toBe(false);
+	});
+});
+
+describe("AccessTokenManager", () => {
+	type User = {
+		readonly id: number;
+		readonly email: string;
+	};
+	const user: User = { id: 1, email: "demo@example.com" };
+
+	test("creates opaque tokens and authenticates bearer requests", async () => {
+		const store = new MemoryAccessTokenStore<number>();
+		const manager = new AccessTokenManager<User>({
+			store,
+			resolveUser: (id) => (id === user.id ? user : null),
+			now: () => new Date("2026-01-01T00:00:00.000Z"),
+		});
+
+		const token = await manager.create(user, {
+			name: "login",
+			expiresIn: 3600,
+			abilities: ["profile:read"],
+		});
+		const guard = new AccessTokenGuard({ manager, guardName: "api" });
+		const result = authContext(
+			await guard.authenticate({
+				request: new Request("http://localhost/profile", {
+					headers: { authorization: `Bearer ${token.value}` },
+				}),
+			}),
+		);
+
+		expect(token.value).toContain(".");
+		expect(store.all()[0]?.tokenHash).not.toContain(token.value);
+		expect(result.guard).toBe("api");
+		expect(result.user).toEqual(user);
+		expect(result.token).toBe(token.value);
+		expect(result.claims).toEqual({
+			abilities: ["profile:read"],
+			tokenIdentifier: token.identifier,
+			tokenType: "api",
+		});
+		expect(store.all()[0]?.lastUsedAt).toEqual(
+			new Date("2026-01-01T00:00:00.000Z"),
+		);
+	});
+
+	test("rejects missing, revoked, tampered, expired, and orphaned tokens", async () => {
+		const store = new MemoryAccessTokenStore<number>();
+		let userExists = true;
+		let now = new Date("2026-01-01T00:00:00.000Z");
+		const manager = new AccessTokenManager<User>({
+			store,
+			resolveUser: (id) => (userExists && id === user.id ? user : null),
+			now: () => now,
+		});
+		const token = await manager.create(user, { expiresIn: 10 });
+
+		await expect(manager.authenticate(undefined)).resolves.toBeNull();
+		await expect(manager.authenticate(`${token.value}x`)).resolves.toBeNull();
+
+		await manager.revoke(token.value);
+		await expect(manager.authenticate(token.value)).resolves.toBeNull();
+
+		const expiringToken = await manager.create(user, { expiresIn: 10 });
+		now = new Date("2026-01-01T00:00:11.000Z");
+		await expect(manager.authenticate(expiringToken.value)).resolves.toBeNull();
+
+		now = new Date("2026-01-01T00:00:00.000Z");
+		const orphanedToken = await manager.create(user);
+		userExists = false;
+		await expect(manager.authenticate(orphanedToken.value)).resolves.toBeNull();
 	});
 });
 
