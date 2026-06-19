@@ -1884,7 +1884,11 @@ function makeWebSocketService(): string {
 }
 
 function makeRoutes(choices: NewAppChoices): string {
-	const imports = ['import { Router } from "kura";'];
+	const imports = [
+		choices.preset === "api" || choices.preset === "full"
+			? 'import { registerOpenApiRoutes, Router } from "kura";'
+			: 'import { Router } from "kura";',
+	];
 	const lines = ["export const router = new Router();"];
 
 	if (choices.preset === "api" || choices.preset === "full") {
@@ -1929,8 +1933,14 @@ function makeRoutes(choices: NewAppChoices): string {
 	if (choices.preset === "api") {
 		lines.push(
 			"",
-			'router.get("/", (ctx) => apiController.index(ctx)).as("home");',
-			'router.get("/health", (ctx) => apiController.health(ctx)).as("health");',
+			'router.get("/", (ctx) => apiController.index(ctx)).as("home").openapi({',
+			'\ttags: ["App"],',
+			'\tsummary: "Application information",',
+			"});",
+			'router.get("/health", (ctx) => apiController.health(ctx)).as("health").openapi({',
+			'\ttags: ["Health"],',
+			'\tsummary: "Health check",',
+			"});",
 		);
 	}
 
@@ -1945,10 +1955,19 @@ function makeRoutes(choices: NewAppChoices): string {
 	if (choices.preset === "full") {
 		lines.push(
 			"",
-			'router.get("/health", (ctx) => apiController.health(ctx)).as("health");',
+			'router.get("/health", (ctx) => apiController.health(ctx)).as("health").openapi({',
+			'\ttags: ["Health"],',
+			'\tsummary: "Health check",',
+			"});",
 			'router.group().prefix("/api").as("api.").routes((api) => {',
-			'\tapi.get("/", (ctx) => apiController.index(ctx)).as("index");',
-			'\tapi.get("/health", (ctx) => apiController.health(ctx)).as("health");',
+			'\tapi.get("/", (ctx) => apiController.index(ctx)).as("index").openapi({',
+			'\t\ttags: ["App"],',
+			'\t\tsummary: "Application information",',
+			"\t});",
+			'\tapi.get("/health", (ctx) => apiController.health(ctx)).as("health").openapi({',
+			'\t\ttags: ["Health"],',
+			'\t\tsummary: "Health check",',
+			"\t});",
 			"});",
 		);
 	}
@@ -1957,10 +1976,26 @@ function makeRoutes(choices: NewAppChoices): string {
 		lines.push(
 			"",
 			'router.group().prefix("/auth").as("auth.").routes((auth) => {',
-			'\tauth.get("/me", (ctx) => authController.me(ctx)).as("me");',
-			'\tauth.post("/login", (ctx) => authController.login(ctx)).as("login");',
-			'\tauth.post("/logout", (ctx) => authController.logout(ctx)).as("logout");',
+			'\tauth.get("/me", (ctx) => authController.me(ctx)).as("me").openapi({',
+			'\t\ttags: ["Auth"],',
+			'\t\tsummary: "Current authenticated user",',
+			"\t});",
+			'\tauth.post("/login", (ctx) => authController.login(ctx)).as("login").openapi({',
+			'\t\ttags: ["Auth"],',
+			'\t\tsummary: "Login",',
+			"\t});",
+			'\tauth.post("/logout", (ctx) => authController.logout(ctx)).as("logout").openapi({',
+			'\t\ttags: ["Auth"],',
+			'\t\tsummary: "Logout",',
+			"\t});",
 			"});",
+		);
+	}
+
+	if (choices.preset === "api" || choices.preset === "full") {
+		lines.push(
+			"",
+			'registerOpenApiRoutes(router, { title: "Kura API", version: "0.1.0" });',
 		);
 	}
 
@@ -2028,6 +2063,7 @@ function makeGeneratedStarterBullets(choices: NewAppChoices): string {
 	if (choices.preset === "api" || choices.preset === "full") {
 		bullets.push(
 			`- API: \`${apiControllerPath(choices)}\` backs the JSON routes.`,
+			"- API docs: `/docs` renders the OpenAPI UI and `/openapi.json` exposes the spec.",
 		);
 	}
 

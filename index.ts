@@ -280,6 +280,38 @@ export {
 	type RequestMetricsOptions,
 	registerMetricsRoute,
 } from "./packages/http/Observability";
+export {
+	createOpenApiDocument,
+	type OpenApiComponentsObject,
+	type OpenApiContentObject,
+	type OpenApiDocsUi,
+	type OpenApiDocument,
+	type OpenApiDocumentOptions,
+	type OpenApiHeaderObject,
+	type OpenApiHttpMethod,
+	type OpenApiJsonPrimitive,
+	type OpenApiJsonValue,
+	type OpenApiMediaTypeObject,
+	type OpenApiOperationObject,
+	type OpenApiParameterObject,
+	type OpenApiPathItemObject,
+	type OpenApiReferenceObject,
+	type OpenApiRequestBodyObject,
+	type OpenApiResponseObject,
+	type OpenApiResponsesObject,
+	type OpenApiRoutesOptions,
+	type OpenApiSchemaInput,
+	type OpenApiSchemaObject,
+	type OpenApiSecurityRequirementObject,
+	type OpenApiSecuritySchemeObject,
+	type OpenApiTagObject,
+	type OpenApiVersion,
+	type RouteOpenApiBodyObject,
+	type RouteOpenApiOptions,
+	type RouteOpenApiResponseObject,
+	registerOpenApiRoutes,
+	toOpenApiSchema,
+} from "./packages/http/OpenApi";
 export { KuraRequest } from "./packages/http/Request";
 export { KuraResponse } from "./packages/http/Response";
 export {
@@ -391,5 +423,6 @@ export {
 	type DatabaseValidationOptions,
 	type Infer,
 	Schema,
+	type SchemaDescription,
 	v,
 } from "./packages/validator/Schema";
