@@ -336,6 +336,7 @@ describe("new app command", () => {
 		expect(apiRoutes).toContain("200: appInfoResponseSchema");
 		expect(apiRoutes).toContain("200: healthResponseSchema");
 		expect(apiRoutes).toContain("200: authCurrentUserResponseSchema");
+		expect(apiRoutes).toContain("security: [{ bearerAuth: [] }]");
 		expect(apiRoutes).toContain("body: authLoginRequestSchema");
 		expect(apiRoutes).toContain("200: authLoginResponseSchema");
 		expect(apiRoutes).toContain('auth.post("/register"');
@@ -349,6 +350,9 @@ describe("new app command", () => {
 		);
 		expect(apiRoutes).toContain(
 			'422: { description: "Validation error", body: authMessageResponseSchema }',
+		);
+		expect(apiRoutes).toContain(
+			'bearerAuth: { type: "http", scheme: "bearer" }',
 		);
 		expect(
 			await readGenerated(root, "demo-api/app/controllers/api_controller.ts"),

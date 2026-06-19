@@ -2545,6 +2545,9 @@ function makeRoutes(choices: NewAppChoices): string {
 			'\tauth.get("/me", (ctx) => authController.me(ctx)).as("me").openapi({',
 			'\t\ttags: ["Auth"],',
 			'\t\tsummary: "Current authenticated user",',
+			...(choices.auth === "access-token"
+				? ["\t\tsecurity: [{ bearerAuth: [] }],"]
+				: []),
 			"\t\tresponses: {",
 			"\t\t\t200: authCurrentUserResponseSchema,",
 			'\t\t\t401: { description: "Unauthenticated", body: authMessageResponseSchema },',
@@ -2573,6 +2576,9 @@ function makeRoutes(choices: NewAppChoices): string {
 			'\tauth.post("/logout", (ctx) => authController.logout(ctx)).as("logout").openapi({',
 			'\t\ttags: ["Auth"],',
 			'\t\tsummary: "Logout",',
+			...(choices.auth === "access-token"
+				? ["\t\tsecurity: [{ bearerAuth: [] }],"]
+				: []),
 			"\t\tresponses: {",
 			"\t\t\t200: okResponseSchema,",
 			'\t\t\t401: { description: "Unauthenticated", body: authMessageResponseSchema },',
@@ -2585,7 +2591,21 @@ function makeRoutes(choices: NewAppChoices): string {
 	if (choices.preset === "api" || choices.preset === "full") {
 		lines.push(
 			"",
-			'registerOpenApiRoutes(router, { title: "Kura API", version: "0.1.0" });',
+			...(choices.auth === "access-token"
+				? [
+						"registerOpenApiRoutes(router, {",
+						'\ttitle: "Kura API",',
+						'\tversion: "0.1.0",',
+						"\tcomponents: {",
+						"\t\tsecuritySchemes: {",
+						'\t\t\tbearerAuth: { type: "http", scheme: "bearer" },',
+						"\t\t},",
+						"\t},",
+						"});",
+					]
+				: [
+						'registerOpenApiRoutes(router, { title: "Kura API", version: "0.1.0" });',
+					]),
 		);
 	}
 
