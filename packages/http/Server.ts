@@ -1,38 +1,20 @@
 import type { Serve } from "bun";
 import { BaseException } from "../core/BaseException";
+import { type Context, createContext } from "./Context";
 import { KuraResponse } from "./Response";
 import type { Router } from "./Router";
 
-export type RequestFormData = Awaited<
-	ReturnType<typeof Bun.readableStreamToFormData>
->;
-export type RequestFormDataEntry = NonNullable<
-	ReturnType<RequestFormData["get"]>
->;
-
-export type Context = {
-	request: Request;
-	params?: Record<string, string>;
-	body?: unknown;
-	formData?: RequestFormData;
-	validated?: ValidatedRouteData;
-	requestId?: string;
-	auth?: {
-		guard: string;
-		user?: unknown;
-		sessionId?: string;
-		token?: string;
-		claims?: Record<string, unknown>;
-	};
-};
-
-export type ValidatedRouteData = {
-	params?: unknown;
-	query?: unknown;
-	headers?: unknown;
-	cookies?: unknown;
-	body?: unknown;
-};
+export type {
+	AuthContext,
+	Context,
+	ContextCore,
+	ContextInit,
+	ContextState,
+	RequestFormData,
+	RequestFormDataEntry,
+	ValidatedRouteData,
+} from "./Context";
+export { createContext, ensureContext } from "./Context";
 
 type Handler = (ctx: Context) => Response | Promise<Response>;
 
@@ -76,7 +58,7 @@ export class Server {
 			development: this.options.development,
 			fetch: async (request) => {
 				try {
-					const ctx: Context = { request };
+					const ctx = createContext(request);
 					return await this.handler(ctx);
 				} catch (error) {
 					if (error instanceof BaseException) {

@@ -5,6 +5,7 @@ import {
 	StructuredLogger,
 } from "../core/Logger";
 import { MetricsRegistry, type MetricsSnapshot } from "../core/Metrics";
+import { createContext } from "./Context";
 import {
 	RequestLogger,
 	RequestMetrics,
@@ -18,12 +19,14 @@ describe("RequestLogger", () => {
 	test("writes structured request logs", async () => {
 		const writer = new MemoryLogWriter();
 		const logger = new StructuredLogger({ writer });
-		const ctx: Context = {
-			request: new Request("http://localhost/users", {
+		const ctx: Context = createContext(
+			new Request("http://localhost/users", {
 				headers: { "x-tenant": "acme" },
 			}),
-			requestId: "req-1",
-		};
+			{
+				requestId: "req-1",
+			},
+		);
 
 		const response = await RequestLogger(logger, {
 			includeHeaders: ["x-tenant"],
@@ -48,7 +51,7 @@ describe("RequestLogger", () => {
 
 		await expect(
 			middleware(
-				{ request: new Request("http://localhost/fail") },
+				createContext(new Request("http://localhost/fail")),
 				async () => {
 					throw new Error("boom");
 				},
@@ -68,7 +71,7 @@ describe("RequestMetrics", () => {
 		const middleware = RequestMetrics(metrics);
 
 		const response = await middleware(
-			{ request: new Request("http://localhost/users") },
+			createContext(new Request("http://localhost/users")),
 			async () => new Response(null, { status: 204 }),
 		);
 		const snapshot = metrics.snapshot();
@@ -96,7 +99,7 @@ describe("RequestMetrics", () => {
 
 		await expect(
 			middleware(
-				{ request: new Request("http://localhost/fail") },
+				createContext(new Request("http://localhost/fail")),
 				async () => {
 					throw new Error("boom");
 				},

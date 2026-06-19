@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { v } from "../validator/Schema";
+import { createContext } from "./Context";
 import {
 	createOpenApiDocument,
 	type OpenApiDocument,
@@ -232,14 +233,14 @@ describe("OpenAPI", () => {
 
 		const jsonMatch = router.match("GET", "/openapi.json");
 		const docsMatch = router.match("GET", "/docs");
-		const jsonResponse = await jsonMatch?.handler({
-			request: new Request("http://localhost/openapi.json"),
-			params: jsonMatch.params,
-		});
-		const docsResponse = await docsMatch?.handler({
-			request,
-			params: docsMatch.params,
-		});
+		const jsonResponse = await jsonMatch?.handler(
+			createContext(new Request("http://localhost/openapi.json"), {
+				params: jsonMatch.params,
+			}),
+		);
+		const docsResponse = await docsMatch?.handler(
+			createContext(request, { params: docsMatch.params }),
+		);
 		const document = (await jsonResponse?.json()) as
 			| OpenApiDocument
 			| undefined;

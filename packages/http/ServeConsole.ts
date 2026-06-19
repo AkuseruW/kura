@@ -8,6 +8,7 @@ import {
 	defineCommand,
 } from "../console/Console";
 import { BaseException } from "../core/BaseException";
+import { createContext } from "./Context";
 import { KuraResponse } from "./Response";
 import type { Router } from "./Router";
 import type {
@@ -443,7 +444,7 @@ function createBunServer(options: ServeServerStartOptions): ServeServer {
 		development: options.development,
 		fetch: async (request) => {
 			try {
-				return await options.handler({ request });
+				return await options.handler(createContext(request));
 			} catch (error) {
 				if (error instanceof BaseException) {
 					return KuraResponse.exception(error);

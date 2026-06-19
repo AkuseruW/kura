@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { createContext } from "../http/Context";
 import { Router } from "../http/Router";
-import type { Context } from "../http/Server";
 import {
 	AccessTokenGuard,
 	AccessTokenManager,
@@ -20,7 +20,7 @@ const request = new Request("http://localhost/profile");
 
 describe("guard middleware", () => {
 	test("allows requests and attaches auth context", async () => {
-		const ctx: Context = { request };
+		const ctx = createContext(request);
 		const middleware = guard(() => ({ guard: "custom", user: "user-1" }));
 
 		const response = await middleware(ctx, async () => {
@@ -34,7 +34,7 @@ describe("guard middleware", () => {
 	test("returns 401 when a guard denies the request", async () => {
 		const middleware = guard(() => false);
 
-		const response = await middleware({ request }, async () => {
+		const response = await middleware(createContext(request), async () => {
 			return new Response("should not run");
 		});
 
@@ -51,7 +51,7 @@ describe("guard middleware", () => {
 	test("supports custom guard responses", async () => {
 		const middleware = guard(() => new Response("Forbidden", { status: 403 }));
 
-		const response = await middleware({ request }, async () => {
+		const response = await middleware(createContext(request), async () => {
 			return new Response("should not run");
 		});
 
@@ -63,7 +63,7 @@ describe("guard middleware", () => {
 describe("AuthManager", () => {
 	test("registers guards and exposes auth.use(name).authenticate()", async () => {
 		const auth = new AuthManager().register("web", () => true);
-		const ctx: Context = { request };
+		const ctx = createContext(request);
 
 		const response = await auth.use("web").authenticate()(ctx, async () => {
 			return new Response(ctx.auth?.guard);
@@ -95,7 +95,9 @@ describe("AuthManager", () => {
 			});
 
 		const match = router.match("GET", "/profile");
-		const response = await match?.handler({ request, params: match.params });
+		const response = await match?.handler(
+			createContext(request, { params: match.params }),
+		);
 
 		expect(await response?.json()).toEqual({ guard: "web", user: "user-1" });
 	});
@@ -109,11 +111,11 @@ describe("SessionGuard", () => {
 				user: { id: 1 },
 			}),
 		});
-		const ctx: Context = {
-			request: new Request("http://localhost/profile", {
+		const ctx = createContext(
+			new Request("http://localhost/profile", {
 				headers: { cookie: "kura_session=session-1" },
 			}),
-		};
+		);
 
 		const result = authContext(await session.authenticate(ctx));
 
@@ -130,11 +132,11 @@ describe("SessionGuard", () => {
 			guardName: "web",
 			resolve: () => true,
 		});
-		const ctx: Context = {
-			request: new Request("http://localhost/profile", {
+		const ctx = createContext(
+			new Request("http://localhost/profile", {
 				headers: { "x-session-id": "session-2" },
 			}),
-		};
+		);
 
 		const result = authContext(await session.authenticate(ctx));
 
@@ -145,13 +147,17 @@ describe("SessionGuard", () => {
 	test("rejects missing or unresolved sessions", async () => {
 		const session = new SessionGuard({ resolve: () => false });
 
-		await expect(session.authenticate({ request })).resolves.toBe(false);
+		await expect(session.authenticate(createContext(request))).resolves.toBe(
+			false,
+		);
 		await expect(
-			session.authenticate({
-				request: new Request("http://localhost/profile", {
-					headers: { cookie: "kura_session=session-1" },
-				}),
-			}),
+			session.authenticate(
+				createContext(
+					new Request("http://localhost/profile", {
+						headers: { cookie: "kura_session=session-1" },
+					}),
+				),
+			),
 		).resolves.toBe(false);
 	});
 });
@@ -178,11 +184,13 @@ describe("AccessTokenManager", () => {
 		});
 		const guard = new AccessTokenGuard({ manager, guardName: "api" });
 		const result = authContext(
-			await guard.authenticate({
-				request: new Request("http://localhost/profile", {
-					headers: { authorization: `Bearer ${token.value}` },
-				}),
-			}),
+			await guard.authenticate(
+				createContext(
+					new Request("http://localhost/profile", {
+						headers: { authorization: `Bearer ${token.value}` },
+					}),
+				),
+			),
 		);
 
 		expect(token.value).toContain(".");
@@ -220,7 +228,9 @@ describe("AccessTokenManager", () => {
 				headers: authorization === undefined ? undefined : { authorization },
 			});
 
-			await expect(guard.authenticate({ request })).resolves.toBe(false);
+			await expect(guard.authenticate(createContext(request))).resolves.toBe(
+				false,
+			);
 		}
 	});
 
@@ -273,11 +283,13 @@ describe("JwtGuard", () => {
 		});
 
 		const result = authContext(
-			await jwt.authenticate({
-				request: new Request("http://localhost/profile", {
-					headers: { authorization: `Bearer ${token}` },
-				}),
-			}),
+			await jwt.authenticate(
+				createContext(
+					new Request("http://localhost/profile", {
+						headers: { authorization: `Bearer ${token}` },
+					}),
+				),
+			),
 		);
 
 		expect(result.guard).toBe("jwt");
@@ -305,7 +317,7 @@ describe("JwtGuard", () => {
 		});
 		const noneToken = unsignedJwt({ alg: "none", typ: "JWT" }, validPayload);
 
-		await expect(jwt.authenticate({ request })).resolves.toBe(false);
+		await expect(jwt.authenticate(createContext(request))).resolves.toBe(false);
 		await expect(authenticateBearer(jwt, expiredToken)).resolves.toBe(false);
 		await expect(authenticateBearer(jwt, tamperedToken)).resolves.toBe(false);
 		await expect(authenticateBearer(jwt, noneToken)).resolves.toBe(false);
@@ -379,11 +391,13 @@ async function authenticateBearer(
 	jwt: JwtGuard,
 	token: string,
 ): Promise<GuardResult> {
-	return jwt.authenticate({
-		request: new Request("http://localhost/profile", {
-			headers: { authorization: `Bearer ${token}` },
-		}),
-	});
+	return jwt.authenticate(
+		createContext(
+			new Request("http://localhost/profile", {
+				headers: { authorization: `Bearer ${token}` },
+			}),
+		),
+	);
 }
 
 async function signJwt(

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createContext } from "../http/Context";
 import { BaseController, registerController } from "../http/Controller";
 import { Router } from "../http/Router";
 import type { Context } from "../http/Server";
@@ -70,7 +71,7 @@ describe("authorize", () => {
 	test("throws 401 when no authenticated user exists", async () => {
 		await expect(
 			authorize(
-				{ request: new Request("http://localhost") },
+				createContext(new Request("http://localhost")),
 				PostPolicy,
 				"view",
 			),
@@ -130,7 +131,7 @@ describe("authorizeMiddleware", () => {
 			ownerId: "user-1",
 		}));
 		const unauthenticated = await middleware(
-			{ request: new Request("http://localhost") },
+			createContext(new Request("http://localhost")),
 			async () => new Response("should not run"),
 		);
 		const forbidden = await middleware(
@@ -173,14 +174,12 @@ describe("@can", () => {
 
 		const allowed = router.match("GET", "/posts/user-1");
 		const denied = router.match("GET", "/posts/user-1");
-		const allowedResponse = await allowed?.handler({
-			...authContext({ id: "user-1" }),
-			params: allowed.params,
-		});
-		const deniedResponse = await denied?.handler({
-			...authContext({ id: "user-2" }),
-			params: denied.params,
-		});
+		const allowedResponse = await allowed?.handler(
+			authContext({ id: "user-1" }, allowed.params),
+		);
+		const deniedResponse = await denied?.handler(
+			authContext({ id: "user-2" }, denied.params),
+		);
 
 		expect(allowedResponse?.status).toBe(200);
 		expect(await allowedResponse?.text()).toBe("user-1");
@@ -195,12 +194,12 @@ describe("@can", () => {
 	});
 });
 
-function authContext(user: User): Context {
-	return {
+function authContext(user: User, params?: Record<string, string>): Context {
+	return createContext(new Request("http://localhost"), {
 		auth: {
 			guard: "web",
 			user,
 		},
-		request: new Request("http://localhost"),
-	};
+		params,
+	});
 }
