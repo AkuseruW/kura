@@ -15,6 +15,7 @@ The benchmark matrix covers the generated Kura starter shapes:
 It also includes baseline servers under `benchmarks/baselines`:
 
 - `bun-raw`: direct `Bun.serve`
+- `kura-bare`: Kura `Server + Router` without scaffold middleware
 - `elysia`: a minimal Elysia app with matching routes
 
 API apps primarily benchmark `/health`, web apps primarily benchmark `/`, and
@@ -69,8 +70,8 @@ Examples:
 
 ```sh
 bun run bench:run -- --tools oha,bombardier --duration 20s --connections 256
-bun run bench:run -- --tools oha --apps bun-raw,elysia,api-standard
-bun run bench:run -- --tools bun --apps bun-raw,elysia,api-standard --endpoints all
+bun run bench:run -- --tools oha --apps bun-raw,kura-bare,api-standard
+bun run bench:run -- --tools bun --apps bun-raw,kura-bare,api-standard --endpoints all
 bun run bench:run -- --tools wrk --threads 10 --port-base 4500
 ```
 
@@ -78,7 +79,7 @@ Useful flags:
 
 - `--tools`: `auto`, `bun`, `oha`, `bombardier`, `wrk`, `hey`, or `autocannon`.
 - `--apps`: comma-separated app names, or omitted for all apps including
-  `bun-raw` and `elysia`.
+  `bun-raw`, `kura-bare`, and `elysia`.
 - `--endpoints`: `primary` or `all`.
 - `--duration`: measurement duration in seconds, such as `10s`.
 - `--warmup`: warmup duration in seconds.
