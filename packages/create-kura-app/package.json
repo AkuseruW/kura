@@ -24,7 +24,7 @@
 		"dist"
 	],
 	"bin": {
-		"create-kura-app": "./dist/index.js"
+		"create-kura-app": "dist/index.js"
 	},
 	"publishConfig": {
 		"access": "public"
