@@ -126,3 +126,7 @@ bun run typecheck
 
 - Bun 1.3 or newer
 - TypeScript 5 for type-checking generated apps
+
+## License
+
+create-kura-app is open source software licensed under the MIT license.

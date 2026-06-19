@@ -18,7 +18,7 @@
 		"url": "git+https://github.com/AkuseruW/kura.git",
 		"directory": "packages/create-kura-app"
 	},
-	"license": "UNLICENSED",
+	"license": "MIT",
 	"type": "module",
 	"files": [
 		"dist"
