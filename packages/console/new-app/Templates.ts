@@ -11,7 +11,7 @@ export function makeNewAppFiles(options: {
 	return [
 		{
 			path: "package.json",
-			content: `${JSON.stringify(makePackageJson(appName, packageVersion), null, "\t")}\n`,
+			content: `${JSON.stringify(makePackageJson(appName, packageVersion, choices), null, "\t")}\n`,
 		},
 		{
 			path: "tsconfig.json",
@@ -108,11 +108,13 @@ export { router };
 		},
 		{
 			path: "start/env.ts",
-			content: `import { dirname, resolve } from "node:path";
+			content: `import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Env } from "kura";
 
-const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const appRoot =
+\tbasename(runtimeRoot) === "build" ? resolve(runtimeRoot, "..") : runtimeRoot;
 const env = new Env();
 
 await env.load(resolve(appRoot, ".env")).catch(() => undefined);
@@ -605,7 +607,11 @@ function makeOptionalModuleFiles(
 	return files;
 }
 
-function makePackageJson(appName: string, packageVersion: string) {
+function makePackageJson(
+	appName: string,
+	packageVersion: string,
+	choices: NewAppChoices,
+) {
 	return {
 		name: slugify(appName),
 		version: "0.0.0",
@@ -625,8 +631,7 @@ function makePackageJson(appName: string, packageVersion: string) {
 			config: "bun bin/console.ts config",
 			test: "bun bin/test.ts",
 			typecheck: "tsc --noEmit",
-			build:
-				"bun build bin/server.ts --target=bun --production --outdir=build --packages=external",
+			build: makeBuildScript(choices),
 		},
 		imports: {
 			"#controllers/*": "./app/controllers/*.ts",
@@ -656,6 +661,12 @@ function makePackageJson(appName: string, packageVersion: string) {
 			typescript: "^5.9.3",
 		},
 	};
+}
+
+function makeBuildScript(choices: NewAppChoices): string {
+	const rootOption = choices.preset === "full" ? " --root ." : "";
+
+	return `bun build bin/server.ts --target=bun --production --outdir=build --packages=external${rootOption}`;
 }
 
 function makeTsConfig(choices: NewAppChoices): string {
