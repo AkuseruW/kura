@@ -26,15 +26,15 @@ const creatorPackage = await readPackageJson(
 	"packages/create-kura-app/package.json",
 );
 
-assertPackage(runtimePackage, "@kurajs/core", releaseVersion);
+assertPackage(runtimePackage, "@akuseru_w/kura", releaseVersion);
 assertPackage(creatorPackage, "create-kura-app", releaseVersion);
 
 const expectedRuntimeRange = `^${releaseVersion}`;
-const actualRuntimeRange = creatorPackage.dependencies?.["@kurajs/core"];
+const actualRuntimeRange = creatorPackage.dependencies?.["@akuseru_w/kura"];
 
 if (actualRuntimeRange !== expectedRuntimeRange) {
 	throw new Error(
-		`create-kura-app depends on @kurajs/core [${actualRuntimeRange}], expected [${expectedRuntimeRange}].`,
+		`create-kura-app depends on @akuseru_w/kura [${actualRuntimeRange}], expected [${expectedRuntimeRange}].`,
 	);
 }
 
