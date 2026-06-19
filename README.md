@@ -77,6 +77,39 @@ router.get("/", (ctx) => homeController.index(ctx)).as("home");
 router.get("/health", () => Response.json({ status: "up" })).as("health");
 ```
 
+## Request Context
+
+Route handlers receive a typed context. `ctx.request` stays the native
+`Request`, and Kura adds small helpers for the data apps read most often.
+
+```ts
+router.get("/users/:id", (ctx) => {
+	ctx.setState("startedAt", Date.now());
+
+	return Response.json({
+		id: ctx.param("id"),
+		tab: ctx.query("tab", "overview"),
+		tags: ctx.queries("tag"),
+		tenant: ctx.header("x-tenant"),
+		session: ctx.cookie("session"),
+		startedAt: ctx.getState<number>("startedAt"),
+	});
+});
+```
+
+- `ctx.param()` returns all route params, and `ctx.param("id")` returns
+  `string | null`.
+- `ctx.query()` preserves repeated query values as arrays, while
+  `ctx.query("page")` returns the first value.
+- `ctx.queries("tag")` always returns `string[]`.
+- `ctx.header()` and `ctx.cookie()` read request headers and cookies with
+  predictable `null` or default-value fallbacks.
+- `ctx.bodyValue()`, `ctx.validatedData()`, and `ctx.validatedBody()` expose
+  parsed and validated request input when middleware or route schemas populate
+  it.
+- `ctx.setState()` and `ctx.getState()` store request-local values without
+  touching globals.
+
 API and full-stack starters expose OpenAPI docs from the route table.
 
 ```ts

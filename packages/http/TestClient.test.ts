@@ -17,8 +17,8 @@ describe("TestClient", () => {
 		router.get("/users/:id", (ctx) => {
 			const url = new URL(ctx.request.url);
 			return Response.json({
-				id: ctx.params?.id,
-				query: url.searchParams.get("tab"),
+				id: ctx.param("id"),
+				query: ctx.query("tab"),
 				host: url.host,
 			});
 		});
@@ -37,6 +37,35 @@ describe("TestClient", () => {
 			id: "42",
 			query: "profile",
 			host: "kura.test",
+		});
+	});
+
+	test("exposes ergonomic context helpers inside client requests", async () => {
+		const router = new Router();
+		router.get("/search/:scope", (ctx) =>
+			Response.json({
+				cookie: ctx.cookie("session"),
+				header: ctx.header("x-tenant"),
+				scope: ctx.param("scope"),
+				tags: ctx.queries("tag"),
+			}),
+		);
+		const client = createTestClient(router, {
+			headers: { "x-tenant": "acme" },
+		});
+
+		const response = await client
+			.withCookie("session", "abc123")
+			.get("/search/users", {
+				query: { tag: ["active", "admin"] },
+			});
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({
+			cookie: "abc123",
+			header: "acme",
+			scope: "users",
+			tags: ["active", "admin"],
 		});
 	});
 

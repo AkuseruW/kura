@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createContext } from "./Context";
 import { BodyParser, Cors, MiddlewarePipeline, RequestId } from "./Middleware";
 import { Router } from "./Router";
 import type { Context } from "./Server";
@@ -21,7 +22,7 @@ describe("MiddlewarePipeline", () => {
 			});
 
 		await pipeline.run(
-			{ request: new Request("http://localhost") },
+			createContext(new Request("http://localhost")),
 			async () => {
 				calls.push("handler");
 				return new Response("ok");
@@ -58,7 +59,7 @@ describe("MiddlewarePipeline", () => {
 			return new Response("ok");
 		});
 
-		await handler({ request: new Request("http://localhost") });
+		await handler(createContext(new Request("http://localhost")));
 
 		expect(calls).toEqual([
 			"before-a",
@@ -72,13 +73,13 @@ describe("MiddlewarePipeline", () => {
 
 describe("BodyParser", () => {
 	test("parses JSON bodies", async () => {
-		const ctx: Context = {
-			request: new Request("http://localhost", {
+		const ctx: Context = createContext(
+			new Request("http://localhost", {
 				body: JSON.stringify({ name: "Kura" }),
 				headers: { "content-type": "application/json" },
 				method: "POST",
 			}),
-		};
+		);
 
 		await BodyParser(ctx, async () => new Response("ok"));
 
@@ -86,13 +87,13 @@ describe("BodyParser", () => {
 	});
 
 	test("parses urlencoded bodies", async () => {
-		const ctx: Context = {
-			request: new Request("http://localhost", {
+		const ctx: Context = createContext(
+			new Request("http://localhost", {
 				body: "name=Kura&debug=true",
 				headers: { "content-type": "application/x-www-form-urlencoded" },
 				method: "POST",
 			}),
-		};
+		);
 
 		await BodyParser(ctx, async () => new Response("ok"));
 
@@ -102,12 +103,12 @@ describe("BodyParser", () => {
 	test("parses multipart bodies and exposes formData", async () => {
 		const formData = new FormData();
 		formData.set("name", "Kura");
-		const ctx: Context = {
-			request: new Request("http://localhost", {
+		const ctx: Context = createContext(
+			new Request("http://localhost", {
 				body: formData,
 				method: "POST",
 			}),
-		};
+		);
 
 		await BodyParser(ctx, async () => new Response("ok"));
 
@@ -119,7 +120,7 @@ describe("BodyParser", () => {
 describe("built-in middlewares", () => {
 	test("adds CORS headers", async () => {
 		const response = await Cors({ origin: "https://example.com" })(
-			{ request: new Request("http://localhost") },
+			createContext(new Request("http://localhost")),
 			async () => new Response("ok"),
 		);
 
@@ -138,8 +139,8 @@ describe("built-in middlewares", () => {
 			maxAge: 600,
 			origin: "https://app.example.com",
 		})(
-			{
-				request: new Request("http://localhost/missing", {
+			createContext(
+				new Request("http://localhost/missing", {
 					headers: {
 						"Access-Control-Request-Headers": "X-Trace-Id",
 						"Access-Control-Request-Method": "POST",
@@ -147,7 +148,7 @@ describe("built-in middlewares", () => {
 					},
 					method: "OPTIONS",
 				}),
-			},
+			),
 			async () => {
 				handlerCalled = true;
 				return new Response("missing", { status: 404 });
@@ -172,15 +173,15 @@ describe("built-in middlewares", () => {
 		const response = await Cors({
 			origin: ["https://app.example.com"],
 		})(
-			{
-				request: new Request("http://localhost/users", {
+			createContext(
+				new Request("http://localhost/users", {
 					headers: {
 						"Access-Control-Request-Method": "POST",
 						Origin: "https://evil.example.com",
 					},
 					method: "OPTIONS",
 				}),
-			},
+			),
 			async () => {
 				handlerCalled = true;
 				return new Response("ok");
@@ -195,12 +196,12 @@ describe("built-in middlewares", () => {
 	test("keeps normal OPTIONS routes for non-preflight requests", async () => {
 		let handlerCalled = false;
 		const response = await Cors({ origin: "https://app.example.com" })(
-			{
-				request: new Request("http://localhost/options", {
+			createContext(
+				new Request("http://localhost/options", {
 					headers: { Origin: "https://app.example.com" },
 					method: "OPTIONS",
 				}),
-			},
+			),
 			async () => {
 				handlerCalled = true;
 				return new Response("options route");
@@ -228,15 +229,17 @@ describe("built-in middlewares", () => {
 			.use(BodyParser)
 			.toHandler((ctx) => router.dispatch(ctx));
 
-		const response = await handler({
-			request: new Request("http://localhost/api/users", {
-				headers: {
-					"Access-Control-Request-Method": "POST",
-					Origin: "https://app.example.com",
-				},
-				method: "OPTIONS",
-			}),
-		});
+		const response = await handler(
+			createContext(
+				new Request("http://localhost/api/users", {
+					headers: {
+						"Access-Control-Request-Method": "POST",
+						Origin: "https://app.example.com",
+					},
+					method: "OPTIONS",
+				}),
+			),
+		);
 
 		expect(routeCalled).toBe(false);
 		expect(response.status).toBe(204);
@@ -245,7 +248,7 @@ describe("built-in middlewares", () => {
 	});
 
 	test("adds a request id to the context and response", async () => {
-		const ctx: Context = { request: new Request("http://localhost") };
+		const ctx: Context = createContext(new Request("http://localhost"));
 		const response = await RequestId(ctx, async () => new Response("ok"));
 
 		expect(ctx.requestId).toBeDefined();
