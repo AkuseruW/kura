@@ -12,6 +12,7 @@ import type {
 	RouteOpenApiBodyObject,
 	RouteOpenApiOptions,
 } from "./OpenApi";
+import { KuraResponse } from "./Response";
 import type { Context, ValidatedRouteData } from "./Server";
 
 export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
@@ -144,7 +145,7 @@ export class Router {
 		const match = this.matchRoute(ctx.request.method, url.pathname);
 
 		if (!match) {
-			return new Response("Not Found", { status: 404 });
+			return KuraResponse.notFound();
 		}
 
 		ctx.params = match.params;

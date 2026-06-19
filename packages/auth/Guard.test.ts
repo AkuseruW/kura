@@ -39,7 +39,13 @@ describe("guard middleware", () => {
 		});
 
 		expect(response.status).toBe(401);
-		expect(await response.json()).toEqual({ error: "Unauthorized" });
+		expect(await response.json()).toEqual({
+			error: {
+				code: "E_UNAUTHENTICATED",
+				message: "Unauthenticated",
+				status: 401,
+			},
+		});
 	});
 
 	test("supports custom guard responses", async () => {

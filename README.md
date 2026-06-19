@@ -109,6 +109,38 @@ The generated app serves `/openapi.json` and `/docs`. Set `ui: "swagger"` when
 you prefer Swagger UI. Kura defaults to OpenAPI `3.1.2`; use
 `specVersion: "3.2.0"` when you need the latest OpenAPI spec.
 
+## Response Helpers
+
+Route handlers can always return a native `Response`. For common JSON responses,
+Kura also exposes `KuraResponse`.
+
+```ts
+import { KuraResponse } from "kura";
+
+router.post("/users", async () => {
+	return KuraResponse.created({ id: 1 });
+});
+
+router.get("/me", () => {
+	return KuraResponse.unauthenticated();
+});
+```
+
+Framework-generated JSON errors use a stable shape.
+
+```json
+{
+	"error": {
+		"code": "E_UNAUTHENTICATED",
+		"message": "Unauthenticated",
+		"status": 401
+	}
+}
+```
+
+Helpers also cover `noContent()`, `redirect()`, `download()`, `validation()`,
+and `problem()` for `application/problem+json` responses.
+
 For web apps, views live in `resources/views` and use the `.kura.html`
 extension.
 
@@ -238,6 +270,7 @@ Kura currently includes:
 - Application lifecycle and service container
 - Configuration and environment loading
 - HTTP server, router, middleware pipeline, and controllers
+- Standard JSON response helpers and framework error responses
 - OpenAPI generation with Scalar or Swagger UI docs
 - `.kura.html` view rendering with escaped interpolation
 - Bun fullstack HTML route support for generated browser entrypoints

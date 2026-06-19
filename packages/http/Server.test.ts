@@ -38,7 +38,13 @@ describe("Server", () => {
 		});
 
 		expect(response.status).toBe(404);
-		expect(await response.text()).toBe("Not Found");
+		expect(await response.json()).toEqual({
+			error: {
+				code: "E_NOT_FOUND",
+				message: "Not Found",
+				status: 404,
+			},
+		});
 	});
 
 	test("serves Bun static routes before the Kura fetch handler", async () => {
@@ -88,8 +94,11 @@ describe("Server", () => {
 
 			expect(response.status).toBe(403);
 			expect(await response.json()).toEqual({
-				code: "E_POLICY_DENIED",
-				error: "Policy denied",
+				error: {
+					code: "E_POLICY_DENIED",
+					message: "Policy denied",
+					status: 403,
+				},
 			});
 		} finally {
 			server.stop();
