@@ -102,8 +102,12 @@ describe("TestClient", () => {
 
 		expect(response.status).toBe(422);
 		await expect(response.json()).resolves.toEqual({
-			code: "E_ROUTE_VALIDATION",
-			error: "Validation failed for request body: Validation failed for object",
+			error: {
+				code: "E_ROUTE_VALIDATION",
+				message:
+					"Validation failed for request body: Validation failed for object",
+				status: 422,
+			},
 		});
 	});
 
@@ -208,8 +212,11 @@ describe("TestClient", () => {
 
 		expect(response.status).toBe(403);
 		await expect(response.json()).resolves.toEqual({
-			code: "E_FORBIDDEN",
-			error: "Forbidden",
+			error: {
+				code: "E_FORBIDDEN",
+				message: "Forbidden",
+				status: 403,
+			},
 		});
 	});
 
@@ -219,7 +226,13 @@ describe("TestClient", () => {
 		const response = await client.get("/missing");
 
 		expect(response.status).toBe(404);
-		expect(await response.text()).toBe("Not Found");
+		await expect(response.json()).resolves.toEqual({
+			error: {
+				code: "E_NOT_FOUND",
+				message: "Not Found",
+				status: 404,
+			},
+		});
 	});
 
 	test("asserts response status, headers, redirects, and JSON bodies", async () => {

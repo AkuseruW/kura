@@ -140,13 +140,19 @@ describe("authorizeMiddleware", () => {
 
 		expect(unauthenticated.status).toBe(401);
 		expect(await unauthenticated.json()).toEqual({
-			code: "E_UNAUTHENTICATED",
-			error: "Unauthenticated",
+			error: {
+				code: "E_UNAUTHENTICATED",
+				message: "Unauthenticated",
+				status: 401,
+			},
 		});
 		expect(forbidden.status).toBe(403);
 		expect(await forbidden.json()).toEqual({
-			code: "E_AUTHORIZATION_DENIED",
-			error: "This action is unauthorized",
+			error: {
+				code: "E_AUTHORIZATION_DENIED",
+				message: "This action is unauthorized",
+				status: 403,
+			},
 		});
 	});
 });
@@ -180,8 +186,11 @@ describe("@can", () => {
 		expect(await allowedResponse?.text()).toBe("user-1");
 		expect(deniedResponse?.status).toBe(403);
 		expect(await deniedResponse?.json()).toEqual({
-			code: "E_AUTHORIZATION_DENIED",
-			error: "This action is unauthorized",
+			error: {
+				code: "E_AUTHORIZATION_DENIED",
+				message: "This action is unauthorized",
+				status: 403,
+			},
 		});
 	});
 });

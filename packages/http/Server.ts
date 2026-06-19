@@ -1,5 +1,6 @@
 import type { Serve } from "bun";
 import { BaseException } from "../core/BaseException";
+import { KuraResponse } from "./Response";
 import type { Router } from "./Router";
 
 export type RequestFormData = Awaited<
@@ -48,7 +49,7 @@ export type ServerOptions = {
 
 export class Server {
 	private server: ReturnType<typeof Bun.serve> | null = null;
-	private handler: Handler = () => new Response("Not Found", { status: 404 });
+	private handler: Handler = () => KuraResponse.notFound();
 	private staticRoutes: BunStaticRouteMap | undefined;
 
 	constructor(private options: ServerOptions) {
@@ -79,15 +80,9 @@ export class Server {
 					return await this.handler(ctx);
 				} catch (error) {
 					if (error instanceof BaseException) {
-						return new Response(
-							JSON.stringify({ code: error.code, error: error.message }),
-							{
-								status: error.status,
-								headers: { "Content-Type": "application/json" },
-							},
-						);
+						return KuraResponse.exception(error);
 					}
-					return new Response("Internal Server Error", { status: 500 });
+					return KuraResponse.internalServerError();
 				}
 			},
 		} satisfies Serve.Options<undefined, string>;

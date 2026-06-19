@@ -8,6 +8,7 @@ import {
 	defineCommand,
 } from "../console/Console";
 import { BaseException } from "../core/BaseException";
+import { KuraResponse } from "./Response";
 import type { Router } from "./Router";
 import type {
 	BunDevelopmentOptions,
@@ -445,16 +446,10 @@ function createBunServer(options: ServeServerStartOptions): ServeServer {
 				return await options.handler({ request });
 			} catch (error) {
 				if (error instanceof BaseException) {
-					return new Response(
-						JSON.stringify({ code: error.code, error: error.message }),
-						{
-							status: error.status,
-							headers: { "Content-Type": "application/json" },
-						},
-					);
+					return KuraResponse.exception(error);
 				}
 
-				return new Response("Internal Server Error", { status: 500 });
+				return KuraResponse.internalServerError();
 			}
 		},
 	});

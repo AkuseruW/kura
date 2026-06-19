@@ -331,7 +331,15 @@ export {
 	toOpenApiSchema,
 } from "./packages/http/OpenApi";
 export { KuraRequest } from "./packages/http/Request";
-export { KuraResponse } from "./packages/http/Response";
+export {
+	type HttpExceptionLike,
+	type JsonErrorOptions,
+	type JsonErrorPayload,
+	type KuraHeadersInit,
+	KuraResponse,
+	type KuraResponseInit,
+	type ProblemDetails,
+} from "./packages/http/Response";
 export {
 	type RegisteredRoute,
 	type ResourceAction,
