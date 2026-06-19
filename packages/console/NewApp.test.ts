@@ -159,14 +159,7 @@ function buildGeneratedServer(
 	path: string,
 ): ReturnType<typeof Bun.spawnSync> {
 	return Bun.spawnSync({
-		cmd: [
-			process.execPath,
-			"build",
-			"bin/server.ts",
-			"--target=bun",
-			"--packages=external",
-			"--outdir=build",
-		],
+		cmd: [process.execPath, "run", "build"],
 		cwd: join(root, path),
 		stderr: "pipe",
 		stdout: "pipe",
@@ -628,6 +621,51 @@ describe("new app command", () => {
 			"`app/modules/`",
 		);
 		expect(buildGeneratedServer(root, "demo-modular").exitCode).toBe(0);
+	});
+
+	test("builds fullstack production apps without mutating HTML routes", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerNewAppCommand(console, {
+			root,
+			packageVersion: "file:../kura",
+		});
+
+		const exitCode = await console.run([
+			"new",
+			"demo-full",
+			"--yes",
+			"--preset",
+			"full",
+		]);
+
+		expect(exitCode).toBe(0);
+
+		const packageJson = JSON.parse(
+			await readGenerated(root, "demo-full/package.json"),
+		) as { scripts: { build: string } };
+		expect(packageJson.scripts.build).toContain("--root .");
+
+		const sourceHtml = await readGenerated(
+			root,
+			"demo-full/resources/pages/home.html",
+		);
+		const build = buildGeneratedServer(root, "demo-full");
+
+		expect(build.exitCode).toBe(0);
+		expect(
+			await readGenerated(root, "demo-full/resources/pages/home.html"),
+		).toBe(sourceHtml);
+		expect(
+			await generatedFileExists(root, "demo-full/build/bin/server.js"),
+		).toBe(true);
+		expect(
+			await generatedFileExists(
+				root,
+				"demo-full/build/resources/pages/home.html",
+			),
+		).toBe(true);
 	});
 
 	test("generates a domain architecture structure", async () => {
