@@ -237,6 +237,39 @@ describe("Schema", () => {
 		);
 	});
 
+	test("describes schemas for documentation", () => {
+		const schema = v.object({
+			id: v.number(),
+			name: v.string(),
+			role: v.enum(["admin", "user"]),
+			deletedAt: v.date().nullable(),
+			tags: v.array(v.string()).optional(),
+		});
+
+		expect(schema.describe()).toEqual({
+			type: "object",
+			optional: false,
+			nullable: false,
+			shape: {
+				id: { type: "number", optional: false, nullable: false },
+				name: { type: "string", optional: false, nullable: false },
+				role: {
+					type: "enum",
+					optional: false,
+					nullable: false,
+					values: ["admin", "user"],
+				},
+				deletedAt: { type: "date", optional: false, nullable: true },
+				tags: {
+					type: "array",
+					optional: true,
+					nullable: false,
+					item: { type: "string", optional: false, nullable: false },
+				},
+			},
+		});
+	});
+
 	test("infers and parses optional object fields", () => {
 		const user: InferredUser = inferredUserSchema.parse({
 			deletedAt: null,
