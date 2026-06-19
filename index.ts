@@ -285,6 +285,8 @@ export {
 export {
 	BodyParser,
 	Cors,
+	type CorsOptions,
+	type CorsOrigin,
 	type Middleware,
 	MiddlewarePipeline,
 	RequestId,
