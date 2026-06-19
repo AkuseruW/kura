@@ -18,7 +18,7 @@ export type KuraBenchmarkApp = {
 
 export type BaselineBenchmarkApp = {
 	readonly kind: "baseline";
-	readonly name: "bun-raw";
+	readonly name: "bun-raw" | "elysia";
 	readonly endpoints: readonly BenchmarkEndpoint[];
 	readonly healthPath: string;
 };
@@ -69,6 +69,16 @@ export const baselineBenchmarkApps: readonly BaselineBenchmarkApp[] = [
 	{
 		kind: "baseline",
 		name: "bun-raw",
+		healthPath: "/health",
+		endpoints: [
+			{ label: "health", path: "/health", primary: true },
+			{ label: "home-json", path: "/" },
+			{ label: "api-health", path: "/api/health" },
+		],
+	},
+	{
+		kind: "baseline",
+		name: "elysia",
 		healthPath: "/health",
 		endpoints: [
 			{ label: "health", path: "/health", primary: true },

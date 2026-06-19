@@ -248,7 +248,7 @@ function startServer(
 ): Promise<ReturnType<typeof Bun.spawn>> {
 	const command =
 		app.kind === "baseline"
-			? [process.execPath, "benchmarks/baselines/bun-raw/server.ts"]
+			? baselineCommand(app)
 			: [process.execPath, "bin/server.ts"];
 	const cwd =
 		app.kind === "baseline" ? root : join(root, "benchmarks/apps", app.name);
@@ -260,6 +260,12 @@ function startServer(
 	}
 
 	return startServerProcess(command, cwd, app, port);
+}
+
+function baselineCommand(
+	app: Extract<BenchmarkApp, { kind: "baseline" }>,
+): readonly string[] {
+	return [process.execPath, `benchmarks/baselines/${app.name}/server.ts`];
 }
 
 async function startServerProcess(
@@ -401,6 +407,7 @@ function runTool(
 	const command = toolCommand(tool, url, options);
 	const result = Bun.spawnSync({
 		cmd: [...command],
+		env: { ...Bun.env, NO_COLOR: "false" },
 		stderr: "pipe",
 		stdout: "pipe",
 	});
@@ -429,7 +436,10 @@ function toolCommand(
 			`${options.durationSeconds}s`,
 			"-c",
 			String(options.connections),
-			"--json",
+			"-w",
+			"--no-tui",
+			"--output-format",
+			"json",
 			url,
 		];
 	}
@@ -537,6 +547,9 @@ async function runBunLoad(
 function parseToolStats(_tool: BenchmarkTool, output: string): BenchmarkStats {
 	const json = parseJson(output);
 	if (json !== undefined) {
+		if (_tool === "oha") {
+			return parseOhaStats(json);
+		}
 		return parseJsonStats(JSON.stringify(json));
 	}
 
@@ -551,6 +564,30 @@ function parseToolStats(_tool: BenchmarkTool, output: string): BenchmarkStats {
 			averageLatency === undefined ? undefined : { average: averageLatency },
 		requestsPerSecond,
 		totalRequests,
+	};
+}
+
+function parseOhaStats(json: unknown): BenchmarkStats {
+	return {
+		errors: sumNumberValuesAtPath(json, ["errorDistribution"]),
+		latencyMs: {
+			average: secondsToMilliseconds(
+				firstNumberAtPaths(json, [["summary", "average"]]),
+			),
+			p50: secondsToMilliseconds(
+				firstNumberAtPaths(json, [["latencyPercentiles", "p50"]]),
+			),
+			p95: secondsToMilliseconds(
+				firstNumberAtPaths(json, [["latencyPercentiles", "p95"]]),
+			),
+			p99: secondsToMilliseconds(
+				firstNumberAtPaths(json, [["latencyPercentiles", "p99"]]),
+			),
+		},
+		requestsPerSecond: firstNumberAtPaths(json, [
+			["summary", "requestsPerSec"],
+		]),
+		totalRequests: sumNumberValuesAtPath(json, ["statusCodeDistribution"]),
 	};
 }
 
@@ -644,6 +681,37 @@ function numberAtPath(
 	return typeof current === "number" && Number.isFinite(current)
 		? current
 		: undefined;
+}
+
+function sumNumberValuesAtPath(
+	value: unknown,
+	path: readonly string[],
+): number | undefined {
+	let current = value;
+
+	for (const segment of path) {
+		if (!isRecord(current)) {
+			return undefined;
+		}
+		current = current[segment];
+	}
+
+	if (!isRecord(current)) {
+		return undefined;
+	}
+
+	let sum = 0;
+	for (const item of Object.values(current)) {
+		if (typeof item === "number") {
+			sum += item;
+		}
+	}
+
+	return Number.isFinite(sum) ? sum : undefined;
+}
+
+function secondsToMilliseconds(value: number | undefined): number | undefined {
+	return value === undefined ? undefined : value * 1000;
 }
 
 function matchNumber(text: string, pattern: RegExp): number | undefined {
