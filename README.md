@@ -12,6 +12,10 @@ testing tools, cache, queue, auth primitives, and database building blocks.
 - Bun 1.3 or newer
 - TypeScript 5 when type-checking applications
 
+## License
+
+Kura is open source software licensed under the MIT license.
+
 ## Create An Application
 
 Create a new project with the application starter.
