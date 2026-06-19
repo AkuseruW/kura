@@ -45,7 +45,7 @@ Available starter choices include:
 
 Generated applications install the framework runtime under the local `kura`
 alias, so app code imports from `"kura"` while the published package remains
-scoped on npm.
+scoped as `@kurajs/core` on npm.
 
 ```ts
 import { type Context, view } from "kura";
@@ -303,17 +303,20 @@ bun run lint
 The npm packages are published by GitHub Actions when a semver tag is pushed.
 
 ```sh
-git tag v0.1.6
-git push origin v0.1.6
+git tag v0.1.7
+git push origin v0.1.7
 ```
 
 Before tagging, make sure `package.json`,
-`packages/create-kura-app/package.json`, and the `@akuseru_w/kura` dependency
+`packages/create-kura-app/package.json`, and the `@kurajs/core` dependency
 range inside `create-kura-app` all use the same version. The release workflow
 checks this before publishing.
 
 Publishing uses npm trusted publishing, so both npm packages must allow the
-`publish.yml` GitHub Actions workflow as a trusted publisher.
+`publish.yml` GitHub Actions workflow as a trusted publisher:
+
+- `@kurajs/core`
+- `create-kura-app`
 
 ## Project Status
 
