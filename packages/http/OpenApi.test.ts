@@ -27,6 +27,7 @@ describe("OpenAPI", () => {
 			.openapi({
 				tags: ["Users"],
 				summary: "Update a user",
+				security: [{ bearerAuth: [] }],
 				body: userSchema,
 				responses: {
 					200: userSchema,
@@ -37,6 +38,11 @@ describe("OpenAPI", () => {
 		const document = createOpenApiDocument(router, {
 			title: "Demo API",
 			version: "1.2.3",
+			components: {
+				securitySchemes: {
+					bearerAuth: { type: "http", scheme: "bearer" },
+				},
+			},
 		});
 		const operation = document.paths["/users/{id}"]?.post;
 
@@ -49,6 +55,11 @@ describe("OpenAPI", () => {
 		expect(operation?.operationId).toBe("users_update");
 		expect(operation?.tags).toEqual(["Users"]);
 		expect(operation?.summary).toBe("Update a user");
+		expect(operation?.security).toEqual([{ bearerAuth: [] }]);
+		expect(document.components?.securitySchemes?.bearerAuth).toEqual({
+			type: "http",
+			scheme: "bearer",
+		});
 		expect(operation?.parameters).toEqual([
 			{
 				name: "id",

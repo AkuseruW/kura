@@ -194,6 +194,30 @@ describe("AccessTokenManager", () => {
 		);
 	});
 
+	test("rejects missing and malformed bearer authorization headers", async () => {
+		const manager = new AccessTokenManager<User>({
+			resolveUser: (id) => (id === user.id ? user : null),
+		});
+		const token = await manager.create(user);
+		const guard = new AccessTokenGuard({ manager });
+		const headers = [
+			undefined,
+			"",
+			"Basic credentials",
+			"Bearer",
+			"Bearer ",
+			`Token ${token.value}`,
+		];
+
+		for (const authorization of headers) {
+			const request = new Request("http://localhost/profile", {
+				headers: authorization === undefined ? undefined : { authorization },
+			});
+
+			await expect(guard.authenticate({ request })).resolves.toBe(false);
+		}
+	});
+
 	test("rejects missing, revoked, tampered, expired, and orphaned tokens", async () => {
 		const store = new MemoryAccessTokenStore<number>();
 		let userExists = true;
