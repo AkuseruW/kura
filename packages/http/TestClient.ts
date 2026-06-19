@@ -1,5 +1,6 @@
 import { AssertionError, deepStrictEqual, strictEqual } from "node:assert";
 import { BaseException } from "../core/BaseException";
+import { createContext } from "./Context";
 import { KuraResponse } from "./Response";
 import type { Router } from "./Router";
 import type { Context } from "./Server";
@@ -11,6 +12,7 @@ export type TestHeadersInit = NonNullable<RequestInit["headers"]>;
 export type TestBodyInit = NonNullable<RequestInit["body"]>;
 
 export type TestQueryValue = string | number | boolean | null | undefined;
+export type TestQueryInputValue = TestQueryValue | readonly TestQueryValue[];
 export type TestCookieValue = string | number | boolean;
 export type TestFormValue = TestQueryValue;
 
@@ -22,7 +24,7 @@ export interface TestClientOptions {
 
 export interface TestRequestOptions {
 	readonly headers?: TestHeadersInit;
-	readonly query?: Record<string, TestQueryValue>;
+	readonly query?: Record<string, TestQueryInputValue>;
 	readonly cookies?: Record<string, TestCookieValue>;
 	readonly body?: TestBodyInit;
 	readonly json?: unknown;
@@ -141,7 +143,7 @@ export class TestClient {
 			headers: this.resolveHeaders(options),
 			body: resolveBody(options),
 		});
-		const ctx: Context = { request };
+		const ctx = createContext(request);
 		const auth =
 			options.auth === null ? undefined : (options.auth ?? this.auth);
 
@@ -169,13 +171,14 @@ export class TestClient {
 
 	private resolveUrl(
 		path: string,
-		query: Record<string, TestQueryValue> | undefined,
+		query: Record<string, TestQueryInputValue> | undefined,
 	): string {
 		const url = new URL(path, this.baseUrl);
 
 		for (const [key, value] of Object.entries(query ?? {})) {
-			if (value !== null && value !== undefined) {
-				url.searchParams.set(key, String(value));
+			url.searchParams.delete(key);
+			for (const item of queryValues(value)) {
+				url.searchParams.append(key, String(item));
 			}
 		}
 
@@ -341,6 +344,11 @@ function mergePostBody(
 	}
 
 	return { ...options, json: body };
+}
+
+function queryValues(value: TestQueryInputValue): TestQueryValue[] {
+	const values = Array.isArray(value) ? value : [value];
+	return values.filter((item) => item !== null && item !== undefined);
 }
 
 function resolveBody(options: TestRequestOptions): TestBodyInit | undefined {

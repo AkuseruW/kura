@@ -1,6 +1,7 @@
 import { BaseException } from "../core/BaseException";
 import { Schema } from "../validator/Schema";
 import { formDataToObject, parseRequestFormData } from "./Body";
+import { ensureContext } from "./Context";
 import {
 	type ControllerConstructor,
 	getControllerMiddleware,
@@ -13,7 +14,7 @@ import type {
 	RouteOpenApiOptions,
 } from "./OpenApi";
 import { KuraResponse } from "./Response";
-import type { Context, ValidatedRouteData } from "./Server";
+import type { Context, ContextCore, ValidatedRouteData } from "./Server";
 
 export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
 export type RouteSchemaOptions = {
@@ -140,17 +141,18 @@ export class Router {
 			: null;
 	}
 
-	async dispatch(ctx: Context): Promise<Response> {
-		const url = new URL(ctx.request.url);
-		const match = this.matchRoute(ctx.request.method, url.pathname);
+	async dispatch(ctx: Context | ContextCore): Promise<Response> {
+		const context = ensureContext(ctx);
+		const url = new URL(context.request.url);
+		const match = this.matchRoute(context.request.method, url.pathname);
 
 		if (!match) {
 			return KuraResponse.notFound();
 		}
 
-		ctx.params = match.params;
-		await validateRouteRequest(match.route, ctx, match.params, url);
-		return match.route.handler(ctx);
+		context.params = match.params;
+		await validateRouteRequest(match.route, context, match.params, url);
+		return match.route.handler(context);
 	}
 
 	private matchRoute(

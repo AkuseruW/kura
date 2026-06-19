@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { v } from "../validator/Schema";
+import { createContext } from "./Context";
 import { BaseController, registerController } from "./Controller";
 import { Router, RouteValidationException } from "./Router";
 import type { Context } from "./Server";
@@ -13,7 +14,9 @@ describe("Router", () => {
 
 		const match = router.match("GET", "/users/123");
 
-		const response = await match?.handler({ request, params: match.params });
+		const response = await match?.handler(
+			createContext(request, { params: match.params }),
+		);
 
 		expect(match?.params).toEqual({ id: "123" });
 		expect(await response?.json()).toEqual({ id: "123" });
@@ -33,7 +36,9 @@ describe("Router", () => {
 		router.get("/users/new", () => new Response("new"));
 
 		const match = router.match("GET", "/users/new");
-		const response = await match?.handler({ request, params: match.params });
+		const response = await match?.handler(
+			createContext(request, { params: match.params }),
+		);
 
 		expect(await response?.text()).toBe("new");
 	});
@@ -105,11 +110,56 @@ describe("Router", () => {
 
 		const index = router.match("GET", "/users");
 		const show = router.match("GET", "/users/123");
-		const indexResponse = await index?.handler({ request });
-		const showResponse = await show?.handler({ request, params: show.params });
+		const indexResponse = await index?.handler(createContext(request));
+		const showResponse = await show?.handler(
+			createContext(request, { params: show.params }),
+		);
 
 		expect(await indexResponse?.text()).toBe("index");
 		expect(await showResponse?.text()).toBe("123");
+	});
+
+	test("dispatch exposes ergonomic context helpers", async () => {
+		const router = new Router();
+		router.get("/users/:id", (ctx) => {
+			ctx.setState("visited", true);
+
+			return Response.json({
+				cookie: ctx.cookie("session"),
+				header: ctx.header("x-tenant"),
+				missing: ctx.query("missing"),
+				param: ctx.param("id"),
+				params: ctx.param(),
+				query: ctx.query(),
+				state: ctx.getState("visited"),
+				tab: ctx.query("tab"),
+				tags: ctx.queries("tag"),
+			});
+		});
+
+		const response = await router.dispatch({
+			request: new Request(
+				"http://localhost/users/123?tab=profile&tag=a&tag=b",
+				{
+					headers: {
+						cookie: "session=abc123",
+						"x-tenant": "acme",
+					},
+				},
+			),
+		});
+
+		expect(await response.json()).toEqual({
+			cookie: "abc123",
+			header: "acme",
+			missing: null,
+			param: "123",
+			params: { id: "123" },
+			query: { tab: "profile", tag: ["a", "b"] },
+			state: true,
+			tab: "profile",
+			tags: ["a", "b"],
+		});
 	});
 
 	test("validates route schemas and exposes validated data", async () => {
@@ -117,11 +167,11 @@ describe("Router", () => {
 		router
 			.post("/users/:id", (ctx) =>
 				Response.json({
-					params: ctx.validated?.params,
-					query: ctx.validated?.query,
-					headers: ctx.validated?.headers,
-					cookies: ctx.validated?.cookies,
-					body: ctx.validated?.body,
+					body: ctx.validatedBody(),
+					cookies: ctx.validatedData("cookies"),
+					headers: ctx.validatedData("headers"),
+					params: ctx.validatedData("params"),
+					query: ctx.validatedData("query"),
 				}),
 			)
 			.schema({

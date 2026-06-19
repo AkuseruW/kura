@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ConsoleKernel, MemoryConsoleOutput } from "../console/Console";
+import { createContext } from "./Context";
 import { Router } from "./Router";
 import {
 	createServeCommand,
@@ -54,6 +55,10 @@ function fakeClock(...timestamps: number[]): () => number {
 
 		return value;
 	};
+}
+
+function testContext(url: string, init?: RequestInit) {
+	return createContext(new Request(url, init));
 }
 
 function serverStartedOutput(options: {
@@ -132,9 +137,9 @@ describe("serve console command", () => {
 			}),
 		);
 		expect(fake.starts).toHaveLength(1);
-		const response = await fake.starts[0]?.handler({
-			request: new Request("http://localhost"),
-		});
+		const response = await fake.starts[0]?.handler(
+			testContext("http://localhost"),
+		);
 		expect(await response?.text()).toBe("ok");
 	});
 
@@ -152,11 +157,11 @@ describe("serve console command", () => {
 
 		expect(await console.run(["serve"])).toBe(0);
 
-		const response = await fake.starts[0]?.handler({
-			request: new Request("http://localhost/docs?ui=scalar", {
+		const response = await fake.starts[0]?.handler(
+			testContext("http://localhost/docs?ui=scalar", {
 				method: "GET",
 			}),
-		});
+		);
 
 		expect(response?.status).toBe(200);
 		expect(output.text()).toContain("GET /docs?ui=scalar 200 3ms");
@@ -176,9 +181,9 @@ describe("serve console command", () => {
 
 		expect(await console.run(["serve", "--no-request-log"])).toBe(0);
 
-		const response = await fake.starts[0]?.handler({
-			request: new Request("http://localhost/docs", { method: "GET" }),
-		});
+		const response = await fake.starts[0]?.handler(
+			testContext("http://localhost/docs", { method: "GET" }),
+		);
 
 		expect(response?.status).toBe(200);
 		expect(output.text()).not.toContain("GET /docs 200");
@@ -231,9 +236,9 @@ describe("serve console command", () => {
 		});
 
 		expect(await console.run(["serve"])).toBe(0);
-		const response = await fake.starts[0]?.handler({
-			request: new Request("http://localhost/users/42", { method: "GET" }),
-		});
+		const response = await fake.starts[0]?.handler(
+			testContext("http://localhost/users/42", { method: "GET" }),
+		);
 
 		expect(response?.status).toBe(200);
 		expect(await response?.text()).toBe("42");
@@ -261,9 +266,9 @@ describe("serve console command", () => {
 
 		expect(await console.run(["serve"])).toBe(0);
 		expect(loadedEntries).toEqual(["/project/src/server.ts"]);
-		const response = await fake.starts[0]?.handler({
-			request: new Request("http://localhost"),
-		});
+		const response = await fake.starts[0]?.handler(
+			testContext("http://localhost"),
+		);
 		expect(await response?.text()).toBe("loaded");
 	});
 
@@ -297,9 +302,9 @@ describe("serve console command", () => {
 			hmr: true,
 			console: true,
 		});
-		const response = await fake.starts[0]?.handler({
-			request: new Request("http://localhost"),
-		});
+		const response = await fake.starts[0]?.handler(
+			testContext("http://localhost"),
+		);
 
 		expect(await response?.text()).toBe("fallback");
 	});
@@ -366,9 +371,9 @@ describe("serve console command", () => {
 				"Change detected: start/routes.ts\nReloaded in 18ms\n\n  URL     http://127.0.0.1:3333/",
 			].join("\n"),
 		);
-		const response = await fake.starts[1]?.handler({
-			request: new Request("http://localhost"),
-		});
+		const response = await fake.starts[1]?.handler(
+			testContext("http://localhost"),
+		);
 		expect(await response?.text()).toBe("loaded:2");
 	});
 

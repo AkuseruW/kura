@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BaseException } from "../core/BaseException";
+import { createContext } from "./Context";
 import { Router } from "./Router";
 import type { Context } from "./Server";
 import { Server } from "./Server";
@@ -16,9 +17,11 @@ describe("Server", () => {
 				handler: (ctx: Context) => Promise<Response> | Response;
 			}
 		).handler;
-		const response = await handler({
-			request: new Request("http://localhost/users/123", { method: "GET" }),
-		});
+		const response = await handler(
+			createContext(
+				new Request("http://localhost/users/123", { method: "GET" }),
+			),
+		);
 
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe("123");
@@ -33,9 +36,9 @@ describe("Server", () => {
 				handler: (ctx: Context) => Promise<Response> | Response;
 			}
 		).handler;
-		const response = await handler({
-			request: new Request("http://localhost/missing", { method: "GET" }),
-		});
+		const response = await handler(
+			createContext(new Request("http://localhost/missing", { method: "GET" })),
+		);
 
 		expect(response.status).toBe(404);
 		expect(await response.json()).toEqual({
