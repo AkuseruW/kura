@@ -4,6 +4,7 @@ import type {
 	ControllerConstructor,
 } from "../http/Controller";
 import type { Middleware } from "../http/Middleware";
+import { KuraResponse } from "../http/Response";
 import type { Context } from "../http/Server";
 
 export type PolicyAction =
@@ -47,13 +48,7 @@ export class AuthorizationException extends BaseException {
 	}
 
 	toResponse(): Response {
-		return new Response(
-			JSON.stringify({ code: this.code, error: this.message }),
-			{
-				status: this.status,
-				headers: { "Content-Type": "application/json" },
-			},
-		);
+		return KuraResponse.exception(this);
 	}
 }
 

@@ -340,6 +340,7 @@ describe("new app command", () => {
 		expect(apiRoutes).toContain("const authLoginRequestSchema =");
 		expect(apiRoutes).toContain("const authRegisterRequestSchema =");
 		expect(apiRoutes).toContain("const authLoginResponseSchema =");
+		expect(apiRoutes).toContain("const authErrorResponseSchema =");
 		expect(apiRoutes).toContain("200: appInfoResponseSchema");
 		expect(apiRoutes).toContain("200: healthResponseSchema");
 		expect(apiRoutes).toContain("200: authCurrentUserResponseSchema");
@@ -350,13 +351,13 @@ describe("new app command", () => {
 		expect(apiRoutes).toContain("body: authRegisterRequestSchema");
 		expect(apiRoutes).toContain("201: authLoginResponseSchema");
 		expect(apiRoutes).toContain(
-			'409: { description: "Email already registered", body: authMessageResponseSchema }',
+			'409: { description: "Email already registered", body: authErrorResponseSchema }',
 		);
 		expect(apiRoutes).toContain(
-			'401: { description: "Invalid credentials", body: authMessageResponseSchema }',
+			'401: { description: "Invalid credentials", body: authErrorResponseSchema }',
 		);
 		expect(apiRoutes).toContain(
-			'422: { description: "Validation error", body: authMessageResponseSchema }',
+			'422: { description: "Validation error", body: authErrorResponseSchema }',
 		);
 		expect(apiRoutes).toContain(
 			'bearerAuth: { type: "http", scheme: "bearer" }',
@@ -366,7 +367,10 @@ describe("new app command", () => {
 		).toContain('framework: "kura"');
 		expect(
 			await readGenerated(root, "demo-api/app/controllers/auth_controller.ts"),
-		).toContain('import { authService } from "#services/auth_service"');
+		).toContain('import { KuraResponse, type Context } from "kura"');
+		expect(
+			await readGenerated(root, "demo-api/app/controllers/auth_controller.ts"),
+		).toContain("return KuraResponse.validation");
 		expect(
 			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
 		).toContain("AccessTokenManager");

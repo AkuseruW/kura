@@ -27,7 +27,7 @@ export function guard(
 			return result;
 		}
 		if (result === false) {
-			return new KuraResponse().unauthorized();
+			return KuraResponse.unauthenticated();
 		}
 		if (result === true) {
 			if (options.guardName) {

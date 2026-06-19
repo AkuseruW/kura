@@ -743,6 +743,7 @@ function makeServerEntrypoint(choices: NewAppChoices): string {
 \ttype BunDevelopmentOptions,
 \ttype BunStaticRouteMap,
 \ttype Context,
+\tKuraResponse,
 \tMiddlewarePipeline,
 \tServer,
 } from "kura";
@@ -750,7 +751,7 @@ import home from "../resources/pages/home.html";
 import env from "#start/env";
 import { routerMiddleware, serverMiddleware } from "#start/kernel";
 import { router } from "#start/routes";`
-			: `import { type Context, MiddlewarePipeline, Server } from "kura";
+			: `import { type Context, KuraResponse, MiddlewarePipeline, Server } from "kura";
 import env from "#start/env";
 import { routerMiddleware, serverMiddleware } from "#start/kernel";
 import { router } from "#start/routes";`;
@@ -818,7 +819,7 @@ function dispatchRouter(ctx: Context): Response | Promise<Response> {
 \tconst match = router.match(ctx.request.method, url.pathname);
 
 \tif (!match) {
-\t\treturn new Response("Not Found", { status: 404 });
+\t\treturn KuraResponse.notFound();
 \t}
 
 \tctx.params = match.params;
@@ -1531,7 +1532,7 @@ function makeAuthController(choices: NewAppChoices): string {
 		"application",
 	);
 
-	return `import type { Context } from "kura";
+	return `import { KuraResponse, type Context } from "kura";
 import { authService } from "${authServiceImport}";
 
 export class AuthController {
@@ -1539,10 +1540,10 @@ export class AuthController {
 		const user = await authService.authenticate(ctx);
 
 		if (!user) {
-			return json({ message: "Unauthenticated" }, 401);
+			return KuraResponse.unauthenticated();
 		}
 
-		return json({
+		return KuraResponse.ok({
 			guard: ctx.auth?.guard ?? "${choices.auth === "session" ? "session" : "api"}",
 			user,
 		});
@@ -1552,42 +1553,56 @@ export class AuthController {
 		const input = readLoginInput(ctx);
 
 		if (!input) {
-			return json({ message: "Email and password are required." }, 422);
+			return KuraResponse.validation({
+				email: ["Email is required."],
+				password: ["Password is required."],
+			}, "Email and password are required.");
 		}
 
 		const result = await authService.login(input.email, input.password);
 
 		if (!result) {
-			return json({ message: "Invalid credentials." }, 401);
+			return KuraResponse.error({
+				code: "E_INVALID_CREDENTIALS",
+				message: "Invalid credentials.",
+				status: 401,
+			});
 		}
 
-		return json(result.body, 200, result.headers);
+		return KuraResponse.ok(result.body, { headers: result.headers });
 	}
 
 	async register(ctx: Context): Promise<Response> {
 		const input = readRegisterInput(ctx);
 
 		if (!input) {
-			return json({ message: "Email and password are required." }, 422);
+			return KuraResponse.validation({
+				email: ["Email is required."],
+				password: ["Password is required."],
+			}, "Email and password are required.");
 		}
 
 		const result = await authService.register(input.email, input.password);
 
 		if (!result) {
-			return json({ message: "Email is already registered." }, 409);
+			return KuraResponse.error({
+				code: "E_EMAIL_ALREADY_REGISTERED",
+				message: "Email is already registered.",
+				status: 409,
+			});
 		}
 
-		return json(result.body, 201, result.headers);
+		return KuraResponse.created(result.body, { headers: result.headers });
 	}
 
 	async logout(ctx: Context): Promise<Response> {
 		const result = await authService.logout(ctx);
 
 		if (!result) {
-			return json({ message: "Unauthenticated" }, 401);
+			return KuraResponse.unauthenticated();
 		}
 
-		return json(result.body, 200, result.headers);
+		return KuraResponse.ok(result.body, { headers: result.headers });
 	}
 }
 
@@ -1623,20 +1638,6 @@ function readCredentialsInput(ctx: Context): LoginInput | null {
 	}
 
 	return { email, password };
-}
-
-function json(
-	body: Record<string, unknown>,
-	status = 200,
-	headers: Record<string, string> = {},
-): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: {
-			"Content-Type": "application/json",
-			...headers,
-		},
-	});
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2583,7 +2584,7 @@ function makeRoutes(choices: NewAppChoices): string {
 				: []),
 			"\t\tresponses: {",
 			"\t\t\t200: authCurrentUserResponseSchema,",
-			'\t\t\t401: { description: "Unauthenticated", body: authMessageResponseSchema },',
+			'\t\t\t401: { description: "Unauthenticated", body: authErrorResponseSchema },',
 			"\t\t},",
 			"\t});",
 			'\tauth.post("/login", (ctx) => authController.login(ctx)).as("login").openapi({',
@@ -2592,8 +2593,8 @@ function makeRoutes(choices: NewAppChoices): string {
 			"\t\tbody: authLoginRequestSchema,",
 			"\t\tresponses: {",
 			"\t\t\t200: authLoginResponseSchema,",
-			'\t\t\t401: { description: "Invalid credentials", body: authMessageResponseSchema },',
-			'\t\t\t422: { description: "Validation error", body: authMessageResponseSchema },',
+			'\t\t\t401: { description: "Invalid credentials", body: authErrorResponseSchema },',
+			'\t\t\t422: { description: "Validation error", body: authErrorResponseSchema },',
 			"\t\t},",
 			"\t});",
 			'\tauth.post("/register", (ctx) => authController.register(ctx)).as("register").openapi({',
@@ -2602,8 +2603,8 @@ function makeRoutes(choices: NewAppChoices): string {
 			"\t\tbody: authRegisterRequestSchema,",
 			"\t\tresponses: {",
 			"\t\t\t201: authLoginResponseSchema,",
-			'\t\t\t409: { description: "Email already registered", body: authMessageResponseSchema },',
-			'\t\t\t422: { description: "Validation error", body: authMessageResponseSchema },',
+			'\t\t\t409: { description: "Email already registered", body: authErrorResponseSchema },',
+			'\t\t\t422: { description: "Validation error", body: authErrorResponseSchema },',
 			"\t\t},",
 			"\t});",
 			'\tauth.post("/logout", (ctx) => authController.logout(ctx)).as("logout").openapi({',
@@ -2614,7 +2615,7 @@ function makeRoutes(choices: NewAppChoices): string {
 				: []),
 			"\t\tresponses: {",
 			"\t\t\t200: okResponseSchema,",
-			'\t\t\t401: { description: "Unauthenticated", body: authMessageResponseSchema },',
+			'\t\t\t401: { description: "Unauthenticated", body: authErrorResponseSchema },',
 			"\t\t},",
 			"\t});",
 			"});",
@@ -2714,12 +2715,21 @@ function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
 			'\trequired: ["token", "tokenType", "expiresIn", "user"],',
 			"} as const;",
 			"",
-			"const authMessageResponseSchema = {",
+			"const authErrorResponseSchema = {",
 			'\ttype: "object",',
 			"\tproperties: {",
-			'\t\tmessage: { type: "string" },',
+			"\t\terror: {",
+			'\t\t\ttype: "object",',
+			"\t\t\tproperties: {",
+			'\t\t\t\tcode: { type: "string" },',
+			'\t\t\t\tmessage: { type: "string" },',
+			'\t\t\t\tstatus: { type: "number" },',
+			'\t\t\t\tdetails: { type: "object", additionalProperties: true },',
+			"\t\t\t},",
+			'\t\t\trequired: ["code", "message", "status"],',
+			"\t\t},",
 			"\t},",
-			'\trequired: ["message"],',
+			'\trequired: ["error"],',
 			"} as const;",
 			"",
 			"const okResponseSchema = {",
