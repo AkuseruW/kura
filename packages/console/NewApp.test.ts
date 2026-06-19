@@ -312,11 +312,21 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/start/kernel.ts")).toContain(
 			"serverMiddleware",
 		);
-		expect(await readGenerated(root, "demo-api/start/routes.ts")).toContain(
+		const apiRoutes = await readGenerated(root, "demo-api/start/routes.ts");
+		expect(apiRoutes).toContain(
 			'import { ApiController } from "#controllers/api_controller"',
 		);
-		expect(await readGenerated(root, "demo-api/start/routes.ts")).toContain(
+		expect(apiRoutes).toContain(
 			'router.get("/", (ctx) => apiController.index(ctx)).as("home")',
+		);
+		expect(apiRoutes).toContain("const appInfoResponseSchema =");
+		expect(apiRoutes).toContain("const healthResponseSchema =");
+		expect(apiRoutes).toContain("const authCurrentUserResponseSchema =");
+		expect(apiRoutes).toContain("200: appInfoResponseSchema");
+		expect(apiRoutes).toContain("200: healthResponseSchema");
+		expect(apiRoutes).toContain("200: authCurrentUserResponseSchema");
+		expect(apiRoutes).toContain(
+			'501: { description: "Not implemented", body: authMessageResponseSchema }',
 		);
 		expect(
 			await readGenerated(root, "demo-api/app/controllers/api_controller.ts"),
