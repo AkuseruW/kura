@@ -23,7 +23,7 @@ The starter generates a TypeScript Kura app with:
 - A local `kura` import alias, so application code imports from `"kura"`
 
 The generated app aliases the runtime dependency to `kura`, while the published
-framework package is `@kurajs/core`.
+framework package is `@akuseru_w/kura`.
 
 ```ts
 import { Router } from "kura";

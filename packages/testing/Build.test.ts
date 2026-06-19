@@ -24,7 +24,7 @@ describe("production build", () => {
 				readonly bin: Record<string, string>;
 				readonly files: readonly string[];
 			};
-			expect(runtimePackage.name).toBe("@kurajs/core");
+			expect(runtimePackage.name).toBe("@akuseru_w/kura");
 			expect(runtimePackage.files).toContain("dist");
 			expect(runtimePackage.bin.kura).toBe("dist/bin/kura.js");
 
@@ -42,7 +42,9 @@ describe("production build", () => {
 			expect(createPackageManifest.bin["create-kura-app"]).toBe(
 				"dist/index.js",
 			);
-			expect(createPackageManifest.dependencies["@kurajs/core"]).toBe("^0.1.7");
+			expect(createPackageManifest.dependencies["@akuseru_w/kura"]).toBe(
+				"^0.1.7",
+			);
 
 			const build = Bun.spawnSync({
 				cmd: [process.execPath, "run", "build"],

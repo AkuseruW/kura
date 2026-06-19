@@ -49,7 +49,7 @@ Available starter choices include:
 
 Generated applications install the framework runtime under the local `kura`
 alias, so app code imports from `"kura"` while the published package remains
-scoped as `@kurajs/core` on npm.
+published as `@akuseru_w/kura` on npm.
 
 ```ts
 import { type Context, view } from "kura";
@@ -312,14 +312,14 @@ git push origin v0.1.7
 ```
 
 Before tagging, make sure `package.json`,
-`packages/create-kura-app/package.json`, and the `@kurajs/core` dependency
+`packages/create-kura-app/package.json`, and the `@akuseru_w/kura` dependency
 range inside `create-kura-app` all use the same version. The release workflow
 checks this before publishing.
 
 Publishing uses npm trusted publishing, so both npm packages must allow the
 `publish.yml` GitHub Actions workflow as a trusted publisher:
 
-- `@kurajs/core`
+- `@akuseru_w/kura`
 - `create-kura-app`
 
 ## Project Status

@@ -2,7 +2,7 @@ import { access, readFile, realpath } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const runtimePackageName = "@kurajs/core";
+const runtimePackageName = "@akuseru_w/kura";
 
 export async function resolveDefaultPackageVersion(
 	targetPath: string,

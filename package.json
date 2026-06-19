@@ -1,5 +1,5 @@
 {
-	"name": "@kurajs/core",
+	"name": "@akuseru_w/kura",
 	"version": "0.1.7",
 	"description": "A Bun-native TypeScript web framework.",
 	"keywords": [

@@ -48,7 +48,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
 
-          for package in "@kurajs/core" "create-kura-app"; do
+          for package in "@akuseru_w/kura" "create-kura-app"; do
             if npm view "$package@$version" version >/dev/null 2>&1; then
               echo "::error::$package@$version already exists on npm"
               exit 1
