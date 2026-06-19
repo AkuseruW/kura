@@ -1,18 +1,34 @@
+import { BaseException } from "../core/BaseException";
+import { Schema } from "../validator/Schema";
+import { formDataToObject, parseRequestFormData } from "./Body";
 import {
 	type ControllerConstructor,
 	getControllerMiddleware,
 	resolveController,
 } from "./Controller";
 import type { Middleware } from "./Middleware";
-import type { RouteOpenApiOptions } from "./OpenApi";
-import type { Context } from "./Server";
+import type {
+	OpenApiSchemaInput,
+	RouteOpenApiBodyObject,
+	RouteOpenApiOptions,
+} from "./OpenApi";
+import type { Context, ValidatedRouteData } from "./Server";
 
 export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
+export type RouteSchemaOptions = {
+	readonly params?: Schema<unknown>;
+	readonly query?: Schema<unknown>;
+	readonly headers?: Schema<unknown>;
+	readonly cookies?: Schema<unknown>;
+	readonly body?: Schema<unknown>;
+	readonly responses?: Record<string | number, Schema<unknown>>;
+};
 export type RegisteredRoute = {
 	readonly method: string;
 	readonly path: string;
 	readonly name?: string;
 	readonly params: readonly string[];
+	readonly schema?: RouteSchemaOptions;
 	readonly openapi?: RouteOpenApiOptions;
 };
 
@@ -34,8 +50,22 @@ type Route = {
 	pattern: RegExp;
 	params: string[];
 	handler: RouteHandler;
+	schema?: RouteSchemaOptions;
 	openapi?: RouteOpenApiOptions;
 };
+
+export class RouteValidationException extends BaseException {
+	constructor(
+		public readonly source: keyof ValidatedRouteData,
+		error: unknown,
+	) {
+		super(
+			`Validation failed for request ${source}: ${errorMessage(error)}`,
+			"E_ROUTE_VALIDATION",
+			422,
+		);
+	}
+}
 
 export class Router {
 	private routes: Route[] = [];
@@ -102,9 +132,33 @@ export class Router {
 		method: string,
 		path: string,
 	): { handler: RouteHandler; params: Record<string, string> } | null {
+		const match = this.matchRoute(method, path);
+
+		return match
+			? { handler: match.route.handler, params: match.params }
+			: null;
+	}
+
+	async dispatch(ctx: Context): Promise<Response> {
+		const url = new URL(ctx.request.url);
+		const match = this.matchRoute(ctx.request.method, url.pathname);
+
+		if (!match) {
+			return new Response("Not Found", { status: 404 });
+		}
+
+		ctx.params = match.params;
+		await validateRouteRequest(match.route, ctx, match.params, url);
+		return match.route.handler(ctx);
+	}
+
+	private matchRoute(
+		method: string,
+		path: string,
+	): { route: Route; params: Record<string, string> } | null {
 		const exactRoute = this.exactRoutes.get(method)?.get(path);
 		if (exactRoute) {
-			return { handler: exactRoute.handler, params: {} };
+			return { route: exactRoute, params: {} };
 		}
 
 		for (const route of this.dynamicRoutes.get(method) ?? []) {
@@ -114,7 +168,7 @@ export class Router {
 				route.params.forEach((name, i) => {
 					params[name] = match[i + 1] ?? "";
 				});
-				return { handler: route.handler, params };
+				return { route, params };
 			}
 		}
 		return null;
@@ -128,10 +182,13 @@ export class Router {
 				name: route.name,
 				params: [...route.params],
 			};
+			const routeWithSchema = route.schema
+				? { ...registeredRoute, schema: route.schema }
+				: registeredRoute;
 
 			return route.openapi
-				? { ...registeredRoute, openapi: route.openapi }
-				: registeredRoute;
+				? { ...routeWithSchema, openapi: route.openapi }
+				: routeWithSchema;
 		});
 	}
 
@@ -177,6 +234,11 @@ class RouteBuilder {
 
 	openapi(options: RouteOpenApiOptions): this {
 		this.route.openapi = options;
+		return this;
+	}
+
+	schema(options: RouteSchemaOptions): this {
+		this.route.schema = mergeRouteSchemas(this.route.schema, options);
 		return this;
 	}
 }
@@ -357,6 +419,217 @@ class GroupRouteBuilder {
 		this.routeBuilder.openapi(options);
 		return this;
 	}
+
+	schema(options: RouteSchemaOptions): this {
+		this.routeBuilder.schema(options);
+		return this;
+	}
+}
+
+async function validateRouteRequest(
+	route: Route,
+	ctx: Context,
+	params: Record<string, string>,
+	url: URL,
+): Promise<void> {
+	const schemas = requestSchemasForRoute(route);
+	const validated: ValidatedRouteData = { ...(ctx.validated ?? {}) };
+
+	if (schemas.params) {
+		validated.params = await validateRequestPart(
+			"params",
+			schemas.params,
+			params,
+		);
+	}
+
+	if (schemas.query) {
+		validated.query = await validateRequestPart(
+			"query",
+			schemas.query,
+			searchParamsToObject(url.searchParams),
+		);
+	}
+
+	if (schemas.headers) {
+		validated.headers = await validateRequestPart(
+			"headers",
+			schemas.headers,
+			headersToObject(ctx.request.headers),
+		);
+	}
+
+	if (schemas.cookies) {
+		validated.cookies = await validateRequestPart(
+			"cookies",
+			schemas.cookies,
+			cookiesToObject(ctx.request.headers.get("cookie")),
+		);
+	}
+
+	if (schemas.body) {
+		validated.body = await validateRequestPart(
+			"body",
+			schemas.body,
+			await requestBody(ctx),
+		);
+	}
+
+	if (Object.keys(validated).length > 0) {
+		ctx.validated = validated;
+	}
+}
+
+function requestSchemasForRoute(
+	route: Route,
+): Omit<RouteSchemaOptions, "responses"> {
+	return {
+		params: route.schema?.params,
+		query: route.schema?.query,
+		headers: route.schema?.headers,
+		cookies: route.schema?.cookies,
+		body: route.schema?.body ?? schemaFromOpenApiBody(route.openapi?.body),
+	};
+}
+
+async function validateRequestPart(
+	source: keyof ValidatedRouteData,
+	schema: Schema<unknown>,
+	value: unknown,
+): Promise<unknown> {
+	try {
+		return await schema.parseAsync(value);
+	} catch (error) {
+		throw new RouteValidationException(source, error);
+	}
+}
+
+async function requestBody(ctx: Context): Promise<unknown> {
+	if (ctx.body !== undefined) {
+		return ctx.body;
+	}
+
+	const contentType = ctx.request.headers.get("content-type") ?? "";
+
+	if (contentType.includes("application/json")) {
+		ctx.body = await ctx.request.json();
+		return ctx.body;
+	}
+
+	if (
+		contentType.includes("multipart/form-data") ||
+		contentType.includes("application/x-www-form-urlencoded")
+	) {
+		const formData = await parseRequestFormData(ctx.request, contentType);
+		ctx.formData = formData;
+		ctx.body = formDataToObject(formData);
+		return ctx.body;
+	}
+
+	if (contentType.startsWith("text/")) {
+		ctx.body = await ctx.request.text();
+		return ctx.body;
+	}
+
+	return undefined;
+}
+
+function schemaFromOpenApiBody(
+	body: RouteOpenApiOptions["body"] | undefined,
+): Schema<unknown> | undefined {
+	if (body instanceof Schema) {
+		return body;
+	}
+
+	if (isRouteOpenApiBodyObject(body) && body.schema instanceof Schema) {
+		return body.schema;
+	}
+
+	return undefined;
+}
+
+function searchParamsToObject(
+	searchParams: URLSearchParams,
+): Record<string, string | readonly string[]> {
+	const output: Record<string, string | readonly string[]> = {};
+
+	for (const [key, value] of searchParams) {
+		const current = output[key];
+
+		if (current === undefined) {
+			output[key] = value;
+		} else if (typeof current === "string") {
+			output[key] = [current, value];
+		} else {
+			output[key] = [...current, value];
+		}
+	}
+
+	return output;
+}
+
+function headersToObject(headers: Headers): Record<string, string> {
+	const output: Record<string, string> = {};
+
+	for (const [key, value] of headers) {
+		output[key.toLowerCase()] = value;
+	}
+
+	return output;
+}
+
+function cookiesToObject(cookieHeader: string | null): Record<string, string> {
+	const output: Record<string, string> = {};
+
+	for (const cookie of cookieHeader?.split(";") ?? []) {
+		const [rawName, ...valueParts] = cookie.split("=");
+		const name = rawName?.trim();
+
+		if (!name) {
+			continue;
+		}
+
+		output[name] = decodeURIComponent(valueParts.join("=").trim());
+	}
+
+	return output;
+}
+
+function mergeRouteSchemas(
+	current: RouteSchemaOptions | undefined,
+	next: RouteSchemaOptions,
+): RouteSchemaOptions {
+	return {
+		...current,
+		...next,
+		responses: {
+			...(current?.responses ?? {}),
+			...(next.responses ?? {}),
+		},
+	};
+}
+
+function isRouteOpenApiBodyObject(
+	value: RouteOpenApiOptions["body"] | undefined,
+): value is RouteOpenApiBodyObject {
+	return (
+		!(value instanceof Schema) &&
+		isRecord(value) &&
+		"schema" in value &&
+		isOpenApiSchemaInput(value.schema)
+	);
+}
+
+function isOpenApiSchemaInput(value: unknown): value is OpenApiSchemaInput {
+	return value instanceof Schema || isRecord(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : "validation failed";
 }
 
 function escapeRegex(value: string): string {

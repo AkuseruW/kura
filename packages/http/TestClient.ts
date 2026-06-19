@@ -330,17 +330,7 @@ export class TestResponse {
 }
 
 function handlerFromRouter(router: Router): TestClientHandler {
-	return async (ctx) => {
-		const url = new URL(ctx.request.url);
-		const match = router.match(ctx.request.method, url.pathname);
-
-		if (!match) {
-			return new Response("Not Found", { status: 404 });
-		}
-
-		ctx.params = match.params;
-		return match.handler(ctx);
-	};
+	return (ctx) => router.dispatch(ctx);
 }
 
 function mergePostBody(
