@@ -9,6 +9,8 @@ dist
 # generated local app sandboxes
 demo
 demo-*
+benchmarks/apps
+benchmarks/results
 
 # code coverage
 coverage

@@ -43,6 +43,8 @@
 		"bun": ">=1.3.0"
 	},
 	"scripts": {
+		"bench:run": "bun run benchmarks/scripts/run.ts",
+		"bench:scaffold": "bun run benchmarks/scripts/scaffold.ts",
 		"build": "bun run scripts/build.ts",
 		"lint": "biome check .",
 		"format": "biome format . --write",
