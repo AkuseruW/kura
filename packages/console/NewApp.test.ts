@@ -249,6 +249,13 @@ describe("new app command", () => {
 		expect(output.text()).toContain("Structure standard");
 		expect(output.text()).toContain("Database sqlite");
 		expect(output.text()).toContain("Modules  mail, storage");
+		expect(output.text()).toContain("Feature Status");
+		expect(output.text()).toMatch(/Database\s+config-only/);
+		expect(output.text()).toMatch(/Auth\s+starter/);
+		expect(output.text()).toMatch(/Cache\s+runtime-ready/);
+		expect(output.text()).toMatch(/Queue\s+runtime-ready/);
+		expect(output.text()).toMatch(/Mail\s+starter/);
+		expect(output.text()).toMatch(/Storage\s+starter/);
 		expect(output.text()).toContain("Created demo-api in 42ms");
 		expect(output.text()).toContain("Useful commands");
 		expect(output.text()).toContain("bun kura routes");
@@ -387,21 +394,28 @@ describe("new app command", () => {
 				"demo-api/database/migrations/00000000000001_create_access_tokens.ts",
 			),
 		).toContain('schema.createTable("auth_access_tokens"');
-		expect(await readGenerated(root, "demo-api/config/mail.ts")).toContain(
-			"const mailConfig = defineConfig",
-		);
+		const mailConfig = await readGenerated(root, "demo-api/config/mail.ts");
+		expect(mailConfig).toContain("const mailConfig = defineConfig");
+		expect(mailConfig).toContain("Support level: starter");
 		expect(
 			await readGenerated(root, "demo-api/app/mails/welcome_mail.ts"),
 		).toContain("WelcomeMail");
-		expect(await readGenerated(root, "demo-api/config/storage.ts")).toContain(
-			"const storageConfig = defineConfig",
+		const storageConfig = await readGenerated(
+			root,
+			"demo-api/config/storage.ts",
 		);
+		expect(storageConfig).toContain("const storageConfig = defineConfig");
+		expect(storageConfig).toContain("Support level: starter");
 		expect(
 			await readGenerated(root, "demo-api/app/services/storage_service.ts"),
 		).toContain("class StorageService");
-		expect(await readGenerated(root, "demo-api/README.md")).toContain(
-			"HTTP kernel",
-		);
+		const readme = await readGenerated(root, "demo-api/README.md");
+		expect(readme).toContain("HTTP kernel");
+		expect(readme).toContain("## Feature Status");
+		expect(readme).toContain("- Database (config-only): SQLite");
+		expect(readme).toContain("- Auth (starter): Access token");
+		expect(readme).toContain("- Mail (starter): Config and mailable class");
+		expect(readme).toContain("- Storage (starter): Local storage service");
 		const appConfig = await readGenerated(root, "demo-api/config/app.ts");
 		expect(appConfig).toContain("export const appUrl");
 		expect(appConfig).toContain("const appConfig = defineConfig");
@@ -410,6 +424,7 @@ describe("new app command", () => {
 		expect(appConfig).toContain('architecture: "standard"');
 		const authConfig = await readGenerated(root, "demo-api/config/auth.ts");
 		expect(authConfig).toContain("const authConfig = defineConfig");
+		expect(authConfig).toContain("Support level: starter");
 		expect(authConfig).toContain("guards: {");
 		expect(authConfig).toContain('driver: "access_tokens"');
 		expect(
@@ -420,6 +435,7 @@ describe("new app command", () => {
 			"demo-api/config/database.ts",
 		);
 		expect(databaseConfig).toContain("const databaseConfig = defineConfig");
+		expect(databaseConfig).toContain("Support level: config-only");
 		expect(databaseConfig).toContain('env.get("DB_CONNECTION", "sqlite")');
 		expect(databaseConfig).toContain("connections: {");
 		expect(
@@ -432,9 +448,9 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/config/logger.ts")).toContain(
 			"loggers: {",
 		);
-		expect(await readGenerated(root, "demo-api/config/queue.ts")).toContain(
-			'env.get("QUEUE_CONNECTION", "memory")',
-		);
+		const queueConfig = await readGenerated(root, "demo-api/config/queue.ts");
+		expect(queueConfig).toContain('env.get("QUEUE_CONNECTION", "memory")');
+		expect(queueConfig).toContain("Support level: runtime-ready");
 		expect(await generatedFileExists(root, "demo-api/config/session.ts")).toBe(
 			false,
 		);
@@ -850,6 +866,13 @@ describe("new app command", () => {
 		expect(output.text()).toContain("Preset   web");
 		expect(output.text()).toContain("Structure standard");
 		expect(output.text()).toContain("Modules  i18n, websockets");
+		expect(output.text()).toContain("Feature Status");
+		expect(output.text()).toMatch(/Database\s+config-only/);
+		expect(output.text()).toMatch(/Auth\s+starter/);
+		expect(output.text()).toMatch(/Cache\s+config-only/);
+		expect(output.text()).toMatch(/Queue\s+config-only/);
+		expect(output.text()).toMatch(/i18n\s+starter/);
+		expect(output.text()).toMatch(/WebSockets\s+starter/);
 		expect(output.text()).toContain("Scaffold");
 		expect(output.text()).toContain("Dependencies installed");
 		expect(output.text()).not.toContain("  bun install");
@@ -1081,11 +1104,14 @@ describe("new app command", () => {
 		expect(messages[1]).toContain("  2. Modular");
 		expect(messages[1]).toContain("  3. Domain");
 		expect(messages[2]).toContain("Features\n\n  1. Database");
+		expect(messages[2]).toContain("Choose a database config scaffold");
+		expect(messages[2]).toContain("Scaffold starter auth routes and services");
 		expect(messages[2]).toContain("  8. WebSockets");
 		expect(messages[2]).toContain(
 			"Select names or numbers, comma separated [none]",
 		);
 		expect(messages[3]).toContain("Database\n\n  1. None");
+		expect(messages[3]).toContain("Config-only: DATABASE_URL connection");
 		expect(messages[8]).toContain("Create project");
 		expect(output.text()).toContain("fake install");
 		expect(output.text()).toContain("Scaffold");

@@ -150,6 +150,47 @@ describe("dev tool console commands", () => {
 		expect(output.text()).toContain("OK");
 		expect(output.text()).toContain("1 route registered");
 	});
+
+	test("warns about scaffold-only generated features", async () => {
+		const root = await makeRoot();
+		await writeFile(join(root, "package.json"), "{}");
+		await writeFile(join(root, ".env"), "APP_KEY=local-development-key");
+		await writeFile(join(root, "tsconfig.json"), "{}");
+		await mkdir(join(root, "config"));
+		setEnv("APP_KEY", "local-development-key");
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, {
+			root,
+			loadConfig: () =>
+				new Config({
+					app: {
+						starter: {
+							database: "postgres",
+							auth: "session",
+							cache: "redis",
+							queue: "redis",
+							modules: ["mail", "storage", "i18n", "websockets"],
+						},
+					},
+				}),
+		});
+
+		expect(await console.run(["doctor"])).toBe(0);
+
+		expect(output.text()).toContain("feature:database");
+		expect(output.text()).toContain("config-only: Postgres config");
+		expect(output.text()).toContain("feature:auth");
+		expect(output.text()).toContain("starter: Session auth routes");
+		expect(output.text()).toContain("feature:cache");
+		expect(output.text()).toContain("Redis cache settings are scaffolded");
+		expect(output.text()).toContain("feature:queue");
+		expect(output.text()).toContain("Redis queue settings are scaffolded");
+		expect(output.text()).toContain("feature:mail");
+		expect(output.text()).toContain("feature:storage");
+		expect(output.text()).toContain("feature:i18n");
+		expect(output.text()).toContain("feature:websockets");
+	});
 });
 
 async function makeRoot(): Promise<string> {
