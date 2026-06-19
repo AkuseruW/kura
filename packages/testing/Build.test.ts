@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -89,6 +89,8 @@ describe("production build", () => {
 					"new",
 					"demo",
 					"--yes",
+					"--preset",
+					"full",
 					"--root",
 					appRoot,
 				],
@@ -146,8 +148,54 @@ describe("production build", () => {
 
 			expect(appBuild.exitCode).toBe(0);
 			await expect(
-				access(join(appRoot, "demo/build/server.js")),
+				access(join(appRoot, "demo/build/bin/server.js")),
 			).resolves.toBeNull();
+			await expect(
+				access(join(appRoot, "demo/build/resources/pages/home.html")),
+			).resolves.toBeNull();
+			expect(
+				await readFile(join(appRoot, "demo/resources/pages/home.html"), "utf8"),
+			).toContain("../client/app.ts");
+
+			const port = reservePort();
+			await writeFile(
+				join(appRoot, "demo/.env"),
+				[
+					"APP_NAME=Kura",
+					"TZ=UTC",
+					`PORT=${port}`,
+					"HOST=localhost",
+					"NODE_ENV=production",
+					"LOG_LEVEL=silent",
+					"APP_KEY=local-development-key",
+					`APP_URL=http://localhost:${port}`,
+					"",
+				].join("\n"),
+			);
+			const server = Bun.spawn({
+				cmd: [process.execPath, "bin/server.ts"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			try {
+				await waitForHttp(`http://localhost:${port}/health`);
+
+				const home = await fetch(`http://localhost:${port}/`);
+				expect(home.status).toBe(200);
+				expect(home.headers.get("content-type")).toContain("text/html");
+				const homeHtml = await home.text();
+				expect(homeHtml).toContain("<h1>Kura</h1>");
+				expect(homeHtml).not.toContain("Build Failed");
+
+				const health = await fetch(`http://localhost:${port}/api/health`);
+				expect(health.status).toBe(200);
+				expect(await health.json()).toEqual({ status: "up" });
+			} finally {
+				server.kill();
+				await server.exited.catch(() => undefined);
+			}
 
 			const localRunner = Bun.spawnSync({
 				cmd: [process.execPath, "kura"],
@@ -239,9 +287,48 @@ describe("production build", () => {
 			});
 			await rm(appRoot, { force: true, recursive: true });
 		}
-	}, 15000);
+	}, 25000);
 });
 
 async function expectFile(path: string): Promise<void> {
 	await expect(access(join(root, path))).resolves.toBeNull();
+}
+
+function reservePort(): number {
+	const server = Bun.serve({
+		port: 0,
+		fetch: () => new Response("ok"),
+	});
+	const port = server.port;
+	server.stop();
+
+	if (port === undefined) {
+		throw new Error("Unable to reserve a test port");
+	}
+
+	return port;
+}
+
+async function waitForHttp(url: string): Promise<void> {
+	const deadline = Date.now() + 5_000;
+	let lastError: unknown;
+
+	while (Date.now() < deadline) {
+		try {
+			const response = await fetch(url);
+			await response.arrayBuffer();
+			if (response.ok) {
+				return;
+			}
+			lastError = new Error(`HTTP ${response.status}`);
+		} catch (error) {
+			lastError = error;
+		}
+
+		await Bun.sleep(25);
+	}
+
+	throw lastError instanceof Error
+		? lastError
+		: new Error(`Timed out waiting for ${url}`);
 }
