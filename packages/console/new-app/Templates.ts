@@ -1,3 +1,4 @@
+import { featureSupportRows } from "./FeatureStatus";
 import type { NewAppChoices, NewAppDirectory, NewAppFile } from "./Types";
 
 export function makeNewAppFiles(options: {
@@ -993,6 +994,9 @@ import env from "#start/env";
 
 /**
  * Authentication configuration.
+ *
+ * Support level: starter. The generated auth service uses demo persistence;
+ * review storage, token/session security, and password policy before production.
  */
 const authConfig = defineConfig({
 \tenabled: ${choices.auth === "none" ? "false" : "true"},
@@ -1068,6 +1072,9 @@ import env from "#start/env";
 
 /**
  * Cache configuration.
+ *
+ * Support level: runtime-ready for memory/file stores; config-only for Redis
+ * until a Redis client is registered in the application.
  */
 const cacheConfig = defineConfig({
 \tdefault: env.get("CACHE_STORE", "${choices.cache}"),
@@ -1104,6 +1111,9 @@ import env from "#start/env";
 
 /**
  * Database configuration.
+ *
+ * Support level: config-only for SQL connections. Register a database driver
+ * before running real queries or migrations.
  */
 const databaseConfig = defineConfig({
 \tdefault: env.get("DB_CONNECTION", "${defaultConnection}"),
@@ -1250,6 +1260,9 @@ import env from "#start/env";
 
 /**
  * Queue configuration.
+ *
+ * Support level: runtime-ready for memory/sqlite workers; config-only for Redis
+ * until a Redis client is registered in the application.
  */
 const queueConfig = defineConfig({
 \tdefault: env.get("QUEUE_CONNECTION", "${choices.queue}"),
@@ -2305,6 +2318,11 @@ function makeMailConfig(): string {
 	return `import { defineConfig } from "kura";
 import env from "#start/env";
 
+/**
+ * Mail configuration.
+ *
+ * Support level: starter. Connect a real transport before sending email.
+ */
 const mailConfig = defineConfig({
 \tdefault: env.get("MAIL_MAILER", "log"),
 
@@ -2341,6 +2359,11 @@ export class WelcomeMail {
 function makeStorageConfig(): string {
 	return `import { defineConfig } from "kura";
 
+/**
+ * Storage configuration.
+ *
+ * Support level: starter. Review disks and public access before production.
+ */
 const storageConfig = defineConfig({
 \tdefault: "local",
 
@@ -2376,6 +2399,11 @@ export class StorageService {
 function makeI18nConfig(): string {
 	return `import { defineConfig } from "kura";
 
+/**
+ * i18n configuration.
+ *
+ * Support level: starter. Add locales and loaders as your app grows.
+ */
 const i18nConfig = defineConfig({
 \tdefaultLocale: "en",
 \tfallbackLocale: "en",
@@ -2398,6 +2426,11 @@ function makeEnglishMessages(): string {
 function makeWebSocketsConfig(): string {
 	return `import { defineConfig } from "kura";
 
+/**
+ * WebSocket configuration.
+ *
+ * Support level: starter. Wire upgrades and auth before production realtime.
+ */
 const websocketsConfig = defineConfig({
 \tenabled: true,
 \tpath: "/ws",
@@ -2717,6 +2750,10 @@ Generated with Kura.
 - Queue: ${choices.queue}
 - Modules: ${choices.modules.length > 0 ? choices.modules.join(", ") : "none"}
 
+## Feature Status
+
+${makeFeatureSupportBullets(choices)}
+
 ## Generated Starter
 
 ${makeGeneratedStarterBullets(choices)}
@@ -2753,6 +2790,12 @@ ${makeResourcesStructureBullet(choices)}
 - \`start/\`: environment, kernel, and routes loaded during boot.
 - \`kura.config.ts\`: Kura application manifest.
 `;
+}
+
+function makeFeatureSupportBullets(choices: NewAppChoices): string {
+	return featureSupportRows(choices)
+		.map((row) => `- ${row.name} (${row.status}): ${row.message}`)
+		.join("\n");
 }
 
 function makeGeneratedStarterBullets(choices: NewAppChoices): string {

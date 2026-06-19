@@ -10,6 +10,10 @@ import {
 	type ConsoleOptions,
 	defineCommand,
 } from "./Console";
+import {
+	featureSupportWarnings,
+	readFeatureSupportChoices,
+} from "./new-app/FeatureStatus";
 
 export type DevToolConsoleOptions = {
 	readonly root?: string;
@@ -323,6 +327,10 @@ async function runDoctorChecks(
 			: "dependencies are not installed",
 	});
 
+	if (configExists || options.loadConfig) {
+		checks.push(...(await runFeatureSupportChecks(root, options)));
+	}
+
 	if (options.loadRouter) {
 		try {
 			const router = await options.loadRouter();
@@ -345,6 +353,34 @@ async function runDoctorChecks(
 	}
 
 	return checks;
+}
+
+async function runFeatureSupportChecks(
+	root: string,
+	options: DevToolConsoleOptions,
+): Promise<readonly DoctorCheck[]> {
+	try {
+		const config = await resolveConfig(options, { root });
+		const choices = readFeatureSupportChoices(config.get("app.starter"));
+
+		if (!choices) {
+			return [];
+		}
+
+		return featureSupportWarnings(choices).map((row) => ({
+			name: `feature:${row.name.toLowerCase()}`,
+			status: "warn" as const,
+			message: `${row.status}: ${row.message}`,
+		}));
+	} catch (error) {
+		return [
+			{
+				name: "feature-status",
+				status: "warn",
+				message: `starter feature status could not be inspected: ${errorMessage(error)}`,
+			},
+		];
+	}
 }
 
 async function exists(path: string): Promise<boolean> {

@@ -63,22 +63,22 @@ const databasePresetChoices = [
 	{
 		value: "none",
 		label: "None",
-		description: "No database configured",
+		description: "Runtime-ready: no database configured",
 	},
 	{
 		value: "sqlite",
 		label: "SQLite",
-		description: "Local file database",
+		description: "Config-only: local file connection; add a driver",
 	},
 	{
 		value: "postgres",
 		label: "Postgres",
-		description: "Production SQL database",
+		description: "Config-only: DATABASE_URL connection; add a driver",
 	},
 	{
 		value: "mysql",
 		label: "MySQL",
-		description: "Production SQL database",
+		description: "Config-only: DATABASE_URL connection; add a driver",
 	},
 ] as const satisfies readonly NewAppPromptChoice<DatabasePreset>[];
 
@@ -86,17 +86,17 @@ const authPresetChoices = [
 	{
 		value: "none",
 		label: "None",
-		description: "No auth scaffold",
+		description: "Runtime-ready: no auth scaffold",
 	},
 	{
 		value: "session",
 		label: "Session",
-		description: "Cookie-based browser auth",
+		description: "Starter: cookie routes and demo persistence",
 	},
 	{
 		value: "access-token",
 		label: "Access Token",
-		description: "Opaque Bearer token API auth",
+		description: "Starter: Bearer token routes and demo persistence",
 	},
 ] as const satisfies readonly NewAppPromptChoice<AuthPreset>[];
 
@@ -104,17 +104,17 @@ const cachePresetChoices = [
 	{
 		value: "memory",
 		label: "Memory",
-		description: "In-memory cache store",
+		description: "Runtime-ready: in-memory cache store",
 	},
 	{
 		value: "file",
 		label: "File",
-		description: "Filesystem cache store",
+		description: "Runtime-ready: filesystem cache store",
 	},
 	{
 		value: "redis",
 		label: "Redis",
-		description: "Redis-backed cache store",
+		description: "Config-only: Redis connection settings",
 	},
 ] as const satisfies readonly NewAppPromptChoice<CachePreset>[];
 
@@ -122,22 +122,22 @@ const queuePresetChoices = [
 	{
 		value: "none",
 		label: "None",
-		description: "No queue configured",
+		description: "Runtime-ready: no queue configured",
 	},
 	{
 		value: "memory",
 		label: "Memory",
-		description: "In-memory jobs",
+		description: "Runtime-ready: in-memory jobs",
 	},
 	{
 		value: "sqlite",
 		label: "SQLite",
-		description: "Persistent local jobs",
+		description: "Runtime-ready: persistent local jobs",
 	},
 	{
 		value: "redis",
 		label: "Redis",
-		description: "Redis-backed jobs",
+		description: "Config-only: Redis queue connection",
 	},
 ] as const satisfies readonly NewAppPromptChoice<QueuePreset>[];
 
@@ -145,22 +145,22 @@ const modulePresetChoices = [
 	{
 		value: "mail",
 		label: "Mail",
-		description: "Email delivery",
+		description: "Starter: config and mailable class",
 	},
 	{
 		value: "storage",
 		label: "Storage",
-		description: "File storage",
+		description: "Starter: local storage service",
 	},
 	{
 		value: "i18n",
 		label: "i18n",
-		description: "Translations",
+		description: "Starter: translation config and messages",
 	},
 	{
 		value: "websockets",
 		label: "WebSockets",
-		description: "Realtime server",
+		description: "Starter: Bun WebSocket config and service",
 	},
 ] as const satisfies readonly NewAppPromptChoice<ModulePreset>[];
 
@@ -168,12 +168,12 @@ const featurePresetChoices = [
 	{
 		value: "database",
 		label: "Database",
-		description: "Add database configuration and migrations",
+		description: "Choose a database config scaffold",
 	},
 	{
 		value: "auth",
 		label: "Auth",
-		description: "Scaffold user auth starter files",
+		description: "Scaffold starter auth routes and services",
 	},
 	{
 		value: "cache",

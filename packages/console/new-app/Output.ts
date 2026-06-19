@@ -1,4 +1,5 @@
 import { relative } from "node:path";
+import { featureSupportRows } from "./FeatureStatus";
 import type { NewAppChoices, NewAppFile } from "./Types";
 
 export function formatNewAppPlan(options: {
@@ -26,6 +27,9 @@ export function formatNewAppPlan(options: {
 		formatRow("Cache", options.choices.cache),
 		formatRow("Queue", options.choices.queue),
 		formatRow("Modules", formatModules(options.choices.modules)),
+		"",
+		"  Feature Status",
+		...formatFeatureSupportRows(options.choices),
 		"",
 		"  Scaffold",
 		formatRow("Files", String(fileCount)),
@@ -70,6 +74,9 @@ export function formatNewAppCreated(options: {
 		formatRow("Queue", options.choices.queue),
 		formatRow("Modules", formatModules(options.choices.modules)),
 		"",
+		"  Feature Status",
+		...formatFeatureSupportRows(options.choices),
+		"",
 		`Created ${appPath} in ${formatDuration(options.duration)}`,
 	];
 
@@ -104,6 +111,12 @@ export function formatNewAppCreated(options: {
 
 function formatRow(label: string, value: string): string {
 	return `  ${label.padEnd(8)} ${value}`;
+}
+
+function formatFeatureSupportRows(choices: NewAppChoices): string[] {
+	return featureSupportRows(choices).map(
+		(row) => `  ${row.name.padEnd(10)} ${row.status.padEnd(13)} ${row.message}`,
+	);
 }
 
 function formatModules(modules: readonly string[]): string {
