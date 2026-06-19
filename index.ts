@@ -1,4 +1,20 @@
 export {
+	type AccessTokenAuthentication,
+	type AccessTokenCreateOptions,
+	type AccessTokenCreateRecord,
+	AccessTokenGuard,
+	type AccessTokenGuardOptions,
+	AccessTokenManager,
+	type AccessTokenManagerOptions,
+	type AccessTokenRecord,
+	type AccessTokenStore,
+	type AccessTokenUser,
+	type AccessTokenUserId,
+	type AccessTokenUserProvider,
+	MemoryAccessTokenStore,
+	type PlainAccessToken,
+} from "./packages/auth/AccessToken";
+export {
 	AuthManager,
 	auth,
 	GuardAuthenticator,

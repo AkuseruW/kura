@@ -127,7 +127,12 @@ function formatRouteRows(choices: NewAppChoices): string[] {
 				: ["  GET /", "  GET /health"];
 
 	if (choices.auth !== "none") {
-		rows.push("  GET /auth/me", "  POST /auth/login", "  POST /auth/logout");
+		rows.push(
+			"  GET /auth/me",
+			"  POST /auth/login",
+			"  POST /auth/register",
+			"  POST /auth/logout",
+		);
 	}
 
 	return rows;

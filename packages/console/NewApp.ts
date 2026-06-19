@@ -63,7 +63,7 @@ export function createNewAppCommand(
 					name: "auth",
 					value: "string",
 					default: "none",
-					description: "Auth setup: none, session, or jwt",
+					description: "Auth setup: none, session, or access-token",
 				},
 				{
 					name: "cache",

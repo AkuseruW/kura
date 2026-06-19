@@ -36,7 +36,7 @@ Available starter choices include:
 - `preset`: `api`, `web`, or `full`
 - `architecture`: `standard`, `modular`, or `domain`
 - `database`: `none`, `sqlite`, `postgres`, or `mysql`
-- `auth`: `none`, `session`, or `jwt`
+- `auth`: `none`, `session`, or `access-token`
 - `cache`: `memory`, `file`, or `redis`
 - `queue`: `none`, `memory`, `sqlite`, or `redis`
 - `module`: `mail`, `storage`, `i18n`, or `websockets`
@@ -242,7 +242,7 @@ Kura currently includes:
 - Console kernel and generator commands
 - Cache manager with memory, file, and Redis drivers
 - Queue manager with memory, SQLite, and Redis drivers
-- Auth guards, session guard, JWT guard, and policy helpers
+- Auth guards, access token guard, session guard, JWT guard, and policy helpers
 - Database manager, query builder, migrations, models, factories, and seeders
 - Test client and framework fakes
 

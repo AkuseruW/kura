@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConsoleKernel, MemoryConsoleOutput } from "./Console";
 import { type NewAppPrompt, registerNewAppCommand } from "./NewApp";
+import { resolveChoices } from "./new-app/Choices";
 import { TerminalPrompt } from "./new-app/Prompt";
 
 const roots: string[] = [];
@@ -212,6 +213,10 @@ describe("new app command", () => {
 		);
 	});
 
+	test("accepts jwt as a legacy access token auth alias", () => {
+		expect(resolveChoices({ auth: "jwt" }).auth).toBe("access-token");
+	});
+
 	test("generates a non-interactive API application", async () => {
 		const root = await makeRoot();
 		const output = new MemoryConsoleOutput();
@@ -229,7 +234,7 @@ describe("new app command", () => {
 			"--database",
 			"sqlite",
 			"--auth",
-			"jwt",
+			"access-token",
 			"--cache",
 			"file",
 			"--queue",
@@ -304,7 +309,10 @@ describe("new app command", () => {
 			"new MiddlewarePipeline()",
 		);
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
-			"pipeline.toHandler(dispatchRouter)",
+			"export const handler = createHandler();",
+		);
+		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
+			"return pipeline.toHandler(dispatchRouter)",
 		);
 		expect(await readGenerated(root, "demo-api/start/env.ts")).toContain(
 			"new Env()",
@@ -322,18 +330,38 @@ describe("new app command", () => {
 		expect(apiRoutes).toContain("const appInfoResponseSchema =");
 		expect(apiRoutes).toContain("const healthResponseSchema =");
 		expect(apiRoutes).toContain("const authCurrentUserResponseSchema =");
+		expect(apiRoutes).toContain("const authLoginRequestSchema =");
+		expect(apiRoutes).toContain("const authRegisterRequestSchema =");
+		expect(apiRoutes).toContain("const authLoginResponseSchema =");
 		expect(apiRoutes).toContain("200: appInfoResponseSchema");
 		expect(apiRoutes).toContain("200: healthResponseSchema");
 		expect(apiRoutes).toContain("200: authCurrentUserResponseSchema");
+		expect(apiRoutes).toContain("body: authLoginRequestSchema");
+		expect(apiRoutes).toContain("200: authLoginResponseSchema");
+		expect(apiRoutes).toContain('auth.post("/register"');
+		expect(apiRoutes).toContain("body: authRegisterRequestSchema");
+		expect(apiRoutes).toContain("201: authLoginResponseSchema");
 		expect(apiRoutes).toContain(
-			'501: { description: "Not implemented", body: authMessageResponseSchema }',
+			'409: { description: "Email already registered", body: authMessageResponseSchema }',
+		);
+		expect(apiRoutes).toContain(
+			'401: { description: "Invalid credentials", body: authMessageResponseSchema }',
+		);
+		expect(apiRoutes).toContain(
+			'422: { description: "Validation error", body: authMessageResponseSchema }',
 		);
 		expect(
 			await readGenerated(root, "demo-api/app/controllers/api_controller.ts"),
 		).toContain('framework: "kura"');
 		expect(
 			await readGenerated(root, "demo-api/app/controllers/auth_controller.ts"),
-		).toContain("Wire this action to your jwt guard");
+		).toContain('import { authService } from "#services/auth_service"');
+		expect(
+			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
+		).toContain("AccessTokenManager");
+		expect(
+			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
+		).toContain("async register(");
 		expect(await readGenerated(root, "demo-api/app/models/user.ts")).toContain(
 			"export class User extends BaseModel<UserAttributes>",
 		);
@@ -349,6 +377,12 @@ describe("new app command", () => {
 				"demo-api/database/migrations/00000000000001_create_sessions.ts",
 			),
 		).toBe(false);
+		expect(
+			await readGenerated(
+				root,
+				"demo-api/database/migrations/00000000000001_create_access_tokens.ts",
+			),
+		).toContain('schema.createTable("auth_access_tokens"');
 		expect(await readGenerated(root, "demo-api/config/mail.ts")).toContain(
 			"const mailConfig = defineConfig",
 		);
@@ -373,7 +407,7 @@ describe("new app command", () => {
 		const authConfig = await readGenerated(root, "demo-api/config/auth.ts");
 		expect(authConfig).toContain("const authConfig = defineConfig");
 		expect(authConfig).toContain("guards: {");
-		expect(authConfig).toContain('driver: "jwt"');
+		expect(authConfig).toContain('driver: "access_tokens"');
 		expect(
 			await readGenerated(root, "demo-api/config/bodyparser.ts"),
 		).toContain("const bodyParserConfig = defineConfig");
@@ -835,7 +869,10 @@ describe("new app command", () => {
 		);
 		expect(
 			await readGenerated(root, "demo-web/app/controllers/auth_controller.ts"),
-		).toContain("Wire this action to your session guard");
+		).toContain('import { authService } from "#services/auth_service"');
+		expect(
+			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
+		).toContain('guard: "session"');
 		expect(
 			await readGenerated(
 				root,

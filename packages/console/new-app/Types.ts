@@ -1,7 +1,7 @@
 export type AppPreset = "api" | "web" | "full";
 export type ArchitecturePreset = "standard" | "modular" | "domain";
 export type DatabasePreset = "none" | "sqlite" | "postgres" | "mysql";
-export type AuthPreset = "none" | "session" | "jwt";
+export type AuthPreset = "none" | "session" | "access-token";
 export type CachePreset = "memory" | "file" | "redis";
 export type QueuePreset = "none" | "memory" | "sqlite" | "redis";
 export type PackageManager = "bun";

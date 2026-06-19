@@ -316,6 +316,16 @@ function authControllerPath(choices: NewAppChoices): string {
 	);
 }
 
+function authServicePath(choices: NewAppChoices): string {
+	return sourcePath(
+		choices,
+		"auth",
+		"auth_service.ts",
+		"app/services",
+		"application",
+	);
+}
+
 function userModelPath(choices: NewAppChoices): string {
 	if (choices.architecture === "domain") {
 		return "app/domains/auth/infrastructure/persistence/user_record.ts";
@@ -451,6 +461,10 @@ function makeAuthFiles(choices: NewAppChoices): readonly NewAppFile[] {
 				content: makeAuthController(choices),
 			},
 			{
+				path: authServicePath(choices),
+				content: makeAuthService(choices),
+			},
+			{
 				path: userDomainEntityPath(),
 				content: makeDomainUserEntity(),
 			},
@@ -474,6 +488,14 @@ function makeAuthFiles(choices: NewAppChoices): readonly NewAppFile[] {
 				path: "database/migrations/00000000000000_create_users.ts",
 				content: makeUsersMigration(),
 			},
+			...(choices.auth === "access-token"
+				? [
+						{
+							path: "database/migrations/00000000000001_create_access_tokens.ts",
+							content: makeAccessTokensMigration(),
+						},
+					]
+				: []),
 			...(choices.auth === "session"
 				? [
 						{
@@ -491,6 +513,10 @@ function makeAuthFiles(choices: NewAppChoices): readonly NewAppFile[] {
 			content: makeAuthController(choices),
 		},
 		{
+			path: authServicePath(choices),
+			content: makeAuthService(choices),
+		},
+		{
 			path: userModelPath(choices),
 			content: makeUserModel(),
 		},
@@ -504,6 +530,13 @@ function makeAuthFiles(choices: NewAppChoices): readonly NewAppFile[] {
 		files.push({
 			path: "database/migrations/00000000000001_create_sessions.ts",
 			content: makeSessionsMigration(),
+		});
+	}
+
+	if (choices.auth === "access-token") {
+		files.push({
+			path: "database/migrations/00000000000001_create_access_tokens.ts",
+			content: makeAccessTokensMigration(),
 		});
 	}
 
@@ -755,9 +788,9 @@ export const development = (
 export { router };
 export default router;
 ${staticRouteExports}
-export function createServer(): Server {
-\tconst server = new Server(${serverOptions});
+export const handler = createHandler();
 
+function createHandler() {
 \tconst pipeline = new MiddlewarePipeline();
 
 \tfor (const middleware of serverMiddleware) {
@@ -768,7 +801,13 @@ export function createServer(): Server {
 \t\tpipeline.use(middleware);
 \t}
 
-\tserver.setHandler(pipeline.toHandler(dispatchRouter));
+\treturn pipeline.toHandler(dispatchRouter);
+}
+
+export function createServer(): Server {
+\tconst server = new Server(${serverOptions});
+
+\tserver.setHandler(handler);
 
 \treturn server;
 }
@@ -818,7 +857,7 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 	if (choices.auth !== "none") {
 		lines.push("HASH_DRIVER=bcrypt");
 		lines.push(
-			`AUTH_GUARD=${choices.auth === "session" ? "web" : choices.auth === "jwt" ? "api" : "none"}`,
+			`AUTH_GUARD=${choices.auth === "session" ? "web" : choices.auth === "access-token" ? "api" : "none"}`,
 		);
 	}
 
@@ -957,7 +996,7 @@ import env from "#start/env";
  */
 const authConfig = defineConfig({
 \tenabled: ${choices.auth === "none" ? "false" : "true"},
-\tdefault: env.get("AUTH_GUARD", "${choices.auth === "session" ? "web" : choices.auth === "jwt" ? "api" : "none"}"),
+\tdefault: env.get("AUTH_GUARD", "${choices.auth === "session" ? "web" : choices.auth === "access-token" ? "api" : "none"}"),
 
 \tguards: {
 \t\tweb: {
@@ -970,11 +1009,7 @@ const authConfig = defineConfig({
 \t\t},
 
 \t\tapi: {
-\t\t\tdriver: "jwt",
-\t\t\ttoken: {
-\t\t\t\texpiresIn: "2h",
-\t\t\t\tsecret: env.required("APP_KEY"),
-\t\t\t},
+\t\t\tdriver: "access_tokens",
 \t\t\tprovider: {
 \t\t\t\ttype: "model",
 \t\t\t\tmodel: "${userModelImport}",
@@ -1475,41 +1510,527 @@ p {
 }
 
 function makeAuthController(choices: NewAppChoices): string {
+	const authServiceImport = moduleImport(
+		choices,
+		"auth",
+		"auth_service",
+		"#services/auth_service",
+		"application",
+	);
+
 	return `import type { Context } from "kura";
+import { authService } from "${authServiceImport}";
 
 export class AuthController {
-\tme(ctx: Context): Response {
-\t\treturn json({
-\t\t\tguard: ctx.auth?.guard ?? "${choices.auth}",
-\t\t\tuser: ctx.auth?.user ?? null,
-\t\t});
-\t}
+	async me(ctx: Context): Promise<Response> {
+		const user = await authService.authenticate(ctx);
 
-\tlogin(_ctx: Context): Response {
-\t\treturn json(
-\t\t\t{
-\t\t\t\tmessage: "Wire this action to your ${choices.auth} guard and user provider.",
-\t\t\t},
-\t\t\t501,
-\t\t);
-\t}
+		if (!user) {
+			return json({ message: "Unauthenticated" }, 401);
+		}
 
-\tlogout(_ctx: Context): Response {
-\t\treturn json({ ok: true });
-\t}
+		return json({
+			guard: ctx.auth?.guard ?? "${choices.auth === "session" ? "session" : "api"}",
+			user,
+		});
+	}
+
+	async login(ctx: Context): Promise<Response> {
+		const input = readLoginInput(ctx);
+
+		if (!input) {
+			return json({ message: "Email and password are required." }, 422);
+		}
+
+		const result = await authService.login(input.email, input.password);
+
+		if (!result) {
+			return json({ message: "Invalid credentials." }, 401);
+		}
+
+		return json(result.body, 200, result.headers);
+	}
+
+	async register(ctx: Context): Promise<Response> {
+		const input = readRegisterInput(ctx);
+
+		if (!input) {
+			return json({ message: "Email and password are required." }, 422);
+		}
+
+		const result = await authService.register(input.email, input.password);
+
+		if (!result) {
+			return json({ message: "Email is already registered." }, 409);
+		}
+
+		return json(result.body, 201, result.headers);
+	}
+
+	async logout(ctx: Context): Promise<Response> {
+		const result = await authService.logout(ctx);
+
+		if (!result) {
+			return json({ message: "Unauthenticated" }, 401);
+		}
+
+		return json(result.body, 200, result.headers);
+	}
 }
 
-function json(data: Record<string, unknown>, status = 200): Response {
-\treturn new Response(JSON.stringify(data), {
-\t\tstatus,
-\t\theaders: {
-\t\t\t"Content-Type": "application/json",
-\t\t},
-\t});
+type LoginInput = {
+	readonly email: string;
+	readonly password: string;
+};
+
+type RegisterInput = LoginInput;
+
+function readLoginInput(ctx: Context): LoginInput | null {
+	return readCredentialsInput(ctx);
+}
+
+function readRegisterInput(ctx: Context): RegisterInput | null {
+	return readCredentialsInput(ctx);
+}
+
+function readCredentialsInput(ctx: Context): LoginInput | null {
+	if (!isRecord(ctx.body)) {
+		return null;
+	}
+
+	const email =
+		typeof ctx.body.email === "string"
+			? ctx.body.email.trim().toLowerCase()
+			: "";
+	const password =
+		typeof ctx.body.password === "string" ? ctx.body.password : "";
+
+	if (!email || !password) {
+		return null;
+	}
+
+	return { email, password };
+}
+
+function json(
+	body: Record<string, unknown>,
+	status = 200,
+	headers: Record<string, string> = {},
+): Response {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: {
+			"Content-Type": "application/json",
+			...headers,
+		},
+	});
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
 `;
 }
 
+function makeAuthService(choices: NewAppChoices): string {
+	return choices.auth === "session"
+		? makeSessionAuthService()
+		: makeAccessTokenAuthService();
+}
+
+function makeAccessTokenAuthService(): string {
+	return `import {
+	AccessTokenManager,
+	Hash,
+	MemoryAccessTokenStore,
+	type Context,
+} from "kura";
+
+type DemoUser = {
+	readonly id: number;
+	readonly email: string;
+	readonly passwordHash: string;
+};
+
+type PublicUser = {
+	readonly id: number;
+	readonly email: string;
+};
+
+type AuthServiceResult = {
+	readonly body: Record<string, unknown>;
+	readonly headers?: Record<string, string>;
+};
+
+const DEMO_EMAIL = "demo@example.com";
+const DEMO_PASSWORD = "password";
+const TOKEN_TTL_SECONDS = 60 * 60 * 2;
+const tokenStore = new MemoryAccessTokenStore<number>();
+
+class AuthService {
+	private readonly users = new Map<number, DemoUser>();
+	private nextUserId = 1;
+	private readonly tokens = new AccessTokenManager<DemoUser>({
+		store: tokenStore,
+		resolveUser: async (id) => this.findUserById(Number(id)),
+	});
+
+	async register(
+		email: string,
+		password: string,
+	): Promise<AuthServiceResult | null> {
+		await this.ensureDemoUser();
+
+		if (await this.findUserByEmail(email)) {
+			return null;
+		}
+
+		const user = await this.createUser(email, password);
+
+		return this.createLoginResult(user);
+	}
+
+	async login(
+		email: string,
+		password: string,
+	): Promise<AuthServiceResult | null> {
+		const user = await this.findUserByEmail(email);
+
+		if (!user) {
+			return null;
+		}
+
+		const validCredentials =
+			email === user.email && (await Hash.verify(user.passwordHash, password));
+
+		if (!validCredentials) {
+			return null;
+		}
+
+		return this.createLoginResult(user);
+	}
+
+	async authenticate(ctx: Context): Promise<PublicUser | null> {
+		const token = bearerToken(ctx.request);
+		const auth = await this.tokens.authenticate(token);
+
+		if (!auth) {
+			return null;
+		}
+
+		const user = publicUser(auth.user);
+		ctx.auth = {
+			guard: "api",
+			user,
+			token: auth.token,
+			claims: {
+				abilities: [...auth.record.abilities],
+				tokenIdentifier: auth.record.identifier,
+			},
+		};
+
+		return user;
+	}
+
+	async logout(ctx: Context): Promise<AuthServiceResult | null> {
+		const token = bearerToken(ctx.request);
+
+		if (!token || !(await this.tokens.authenticate(token))) {
+			return null;
+		}
+
+		await this.tokens.revoke(token);
+
+		return { body: { ok: true } };
+	}
+
+	private async createLoginResult(user: DemoUser): Promise<AuthServiceResult> {
+		const token = await this.tokens.create(user, {
+			type: "api",
+			name: "login",
+			expiresIn: TOKEN_TTL_SECONDS,
+		});
+
+		return {
+			body: {
+				token: token.value,
+				tokenType: "Bearer",
+				expiresIn: TOKEN_TTL_SECONDS,
+				user: publicUser(user),
+			},
+		};
+	}
+
+	private async findUserById(id: number): Promise<DemoUser | null> {
+		await this.ensureDemoUser();
+
+		return this.users.get(id) ?? null;
+	}
+
+	private async findUserByEmail(email: string): Promise<DemoUser | null> {
+		await this.ensureDemoUser();
+
+		return (
+			[...this.users.values()].find((user) => user.email === email) ?? null
+		);
+	}
+
+	private async ensureDemoUser(): Promise<void> {
+		if (this.users.size > 0) {
+			return;
+		}
+
+		await this.createUser(DEMO_EMAIL, DEMO_PASSWORD);
+	}
+
+	private async createUser(email: string, password: string): Promise<DemoUser> {
+		const user = {
+			id: this.nextUserId,
+			email,
+			passwordHash: await Hash.make(password),
+		};
+
+		this.nextUserId += 1;
+		this.users.set(user.id, user);
+
+		return user;
+	}
+}
+
+export const authService = new AuthService();
+
+function bearerToken(request: Request): string | null {
+	return (
+		request.headers.get("authorization")?.match(/^Bearer\\s+(.+)$/i)?.[1] ?? null
+	);
+}
+
+function publicUser(user: DemoUser): PublicUser {
+	return {
+		id: user.id,
+		email: user.email,
+	};
+}
+`;
+}
+
+function makeSessionAuthService(): string {
+	return `import { Hash, type Context } from "kura";
+
+type DemoUser = {
+	readonly id: number;
+	readonly email: string;
+	readonly passwordHash: string;
+};
+
+type PublicUser = {
+	readonly id: number;
+	readonly email: string;
+};
+
+type SessionRecord = {
+	readonly id: string;
+	readonly userId: number;
+	readonly expiresAt: Date;
+};
+
+type AuthServiceResult = {
+	readonly body: Record<string, unknown>;
+	readonly headers?: Record<string, string>;
+};
+
+const DEMO_EMAIL = "demo@example.com";
+const DEMO_PASSWORD = "password";
+const SESSION_COOKIE_NAME = "kura-session";
+const SESSION_TTL_SECONDS = 60 * 60 * 2;
+
+class AuthService {
+	private readonly users = new Map<number, DemoUser>();
+	private nextUserId = 1;
+	private readonly sessions = new Map<string, SessionRecord>();
+
+	async register(
+		email: string,
+		password: string,
+	): Promise<AuthServiceResult | null> {
+		await this.ensureDemoUser();
+
+		if (await this.findUserByEmail(email)) {
+			return null;
+		}
+
+		const user = await this.createUser(email, password);
+
+		return this.createLoginResult(user);
+	}
+
+	async login(
+		email: string,
+		password: string,
+	): Promise<AuthServiceResult | null> {
+		const user = await this.findUserByEmail(email);
+
+		if (!user) {
+			return null;
+		}
+
+		const validCredentials =
+			email === user.email && (await Hash.verify(user.passwordHash, password));
+
+		if (!validCredentials) {
+			return null;
+		}
+
+		return this.createLoginResult(user);
+	}
+
+	async authenticate(ctx: Context): Promise<PublicUser | null> {
+		const sessionId = readSessionCookie(ctx.request);
+		const session = sessionId ? this.sessions.get(sessionId) : null;
+
+		if (!session || session.expiresAt.getTime() <= Date.now()) {
+			return null;
+		}
+
+		const user = await this.findUserById(session.userId);
+
+		if (!user) {
+			return null;
+		}
+
+		const publicProfile = publicUser(user);
+		ctx.auth = {
+			guard: "session",
+			user: publicProfile,
+			token: session.id,
+			claims: { sessionId: session.id },
+		};
+
+		return publicProfile;
+	}
+
+	async logout(ctx: Context): Promise<AuthServiceResult | null> {
+		const sessionId = readSessionCookie(ctx.request);
+
+		if (!sessionId || !this.sessions.delete(sessionId)) {
+			return null;
+		}
+
+		return {
+			body: { ok: true },
+			headers: {
+				"Set-Cookie": serializeSessionCookie("", 0),
+			},
+		};
+	}
+
+	private createLoginResult(user: DemoUser): AuthServiceResult {
+		const session = this.createSession(user.id);
+
+		return {
+			body: {
+				token: null,
+				tokenType: "Cookie",
+				expiresIn: SESSION_TTL_SECONDS,
+				user: publicUser(user),
+			},
+			headers: {
+				"Set-Cookie": serializeSessionCookie(session.id, SESSION_TTL_SECONDS),
+			},
+		};
+	}
+
+	private async findUserById(id: number): Promise<DemoUser | null> {
+		await this.ensureDemoUser();
+
+		return this.users.get(id) ?? null;
+	}
+
+	private async findUserByEmail(email: string): Promise<DemoUser | null> {
+		await this.ensureDemoUser();
+
+		return (
+			[...this.users.values()].find((user) => user.email === email) ?? null
+		);
+	}
+
+	private async ensureDemoUser(): Promise<void> {
+		if (this.users.size > 0) {
+			return;
+		}
+
+		await this.createUser(DEMO_EMAIL, DEMO_PASSWORD);
+	}
+
+	private async createUser(email: string, password: string): Promise<DemoUser> {
+		const user = {
+			id: this.nextUserId,
+			email,
+			passwordHash: await Hash.make(password),
+		};
+
+		this.nextUserId += 1;
+		this.users.set(user.id, user);
+
+		return user;
+	}
+
+	private createSession(userId: number): SessionRecord {
+		const session: SessionRecord = {
+			id: crypto.randomUUID(),
+			userId,
+			expiresAt: new Date(Date.now() + SESSION_TTL_SECONDS * 1000),
+		};
+
+		this.sessions.set(session.id, session);
+
+		return session;
+	}
+}
+
+export const authService = new AuthService();
+
+function readSessionCookie(request: Request): string | null {
+	const cookieHeader = request.headers.get("cookie");
+
+	if (!cookieHeader) {
+		return null;
+	}
+
+	for (const cookie of cookieHeader.split(";")) {
+		const [name, value] = cookie.trim().split("=");
+
+		if (name === SESSION_COOKIE_NAME && value) {
+			return decodeURIComponent(value);
+		}
+	}
+
+	return null;
+}
+
+function serializeSessionCookie(sessionId: string, maxAge: number): string {
+	const secure = Bun.env.NODE_ENV === "production" ? "; Secure" : "";
+
+	return [
+		SESSION_COOKIE_NAME + "=" + encodeURIComponent(sessionId),
+		"HttpOnly",
+		"SameSite=Lax",
+		"Path=/",
+		"Max-Age=" + String(maxAge),
+		secure,
+	]
+		.filter(Boolean)
+		.join("; ");
+}
+
+function publicUser(user: DemoUser): PublicUser {
+	return {
+		id: user.id,
+		email: user.email,
+	};
+}
+`;
+}
 function makeUserModel(): string {
 	return `import { BaseModel, column, type QueryRow } from "kura";
 
@@ -1729,6 +2250,31 @@ export default class CreateUsers extends Migration {
 
 \toverride down(schema: SchemaBuilder): void {
 \t\tschema.dropTable("users");
+\t}
+}
+`;
+}
+
+function makeAccessTokensMigration(): string {
+	return `import { Migration, type SchemaBuilder } from "kura";
+
+export default class CreateAccessTokens extends Migration {
+\toverride up(schema: SchemaBuilder): void {
+\t\tschema.createTable("auth_access_tokens", (table) => {
+\t\t\ttable.id();
+\t\t\ttable.integer("tokenable_id").notNull();
+\t\t\ttable.string("type").notNull();
+\t\t\ttable.string("name").nullable();
+\t\t\ttable.string("token_hash").notNull().unique();
+\t\t\ttable.text("abilities").notNull();
+\t\t\ttable.timestamp("last_used_at").nullable();
+\t\t\ttable.timestamp("expires_at").nullable();
+\t\t\ttable.timestamps();
+\t\t});
+\t}
+
+\toverride down(schema: SchemaBuilder): void {
+\t\tschema.dropTable("auth_access_tokens");
 \t}
 }
 `;
@@ -2001,13 +2547,27 @@ function makeRoutes(choices: NewAppChoices): string {
 			'\t\tsummary: "Current authenticated user",',
 			"\t\tresponses: {",
 			"\t\t\t200: authCurrentUserResponseSchema,",
+			'\t\t\t401: { description: "Unauthenticated", body: authMessageResponseSchema },',
 			"\t\t},",
 			"\t});",
 			'\tauth.post("/login", (ctx) => authController.login(ctx)).as("login").openapi({',
 			'\t\ttags: ["Auth"],',
 			'\t\tsummary: "Login",',
+			"\t\tbody: authLoginRequestSchema,",
 			"\t\tresponses: {",
-			'\t\t\t501: { description: "Not implemented", body: authMessageResponseSchema },',
+			"\t\t\t200: authLoginResponseSchema,",
+			'\t\t\t401: { description: "Invalid credentials", body: authMessageResponseSchema },',
+			'\t\t\t422: { description: "Validation error", body: authMessageResponseSchema },',
+			"\t\t},",
+			"\t});",
+			'\tauth.post("/register", (ctx) => authController.register(ctx)).as("register").openapi({',
+			'\t\ttags: ["Auth"],',
+			'\t\tsummary: "Register",',
+			"\t\tbody: authRegisterRequestSchema,",
+			"\t\tresponses: {",
+			"\t\t\t201: authLoginResponseSchema,",
+			'\t\t\t409: { description: "Email already registered", body: authMessageResponseSchema },',
+			'\t\t\t422: { description: "Validation error", body: authMessageResponseSchema },',
 			"\t\t},",
 			"\t});",
 			'\tauth.post("/logout", (ctx) => authController.logout(ctx)).as("logout").openapi({',
@@ -2015,6 +2575,7 @@ function makeRoutes(choices: NewAppChoices): string {
 			'\t\tsummary: "Logout",',
 			"\t\tresponses: {",
 			"\t\t\t200: okResponseSchema,",
+			'\t\t\t401: { description: "Unauthenticated", body: authMessageResponseSchema },',
 			"\t\t},",
 			"\t});",
 			"});",
@@ -2065,10 +2626,39 @@ function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
 			"const authCurrentUserResponseSchema = {",
 			'\ttype: "object",',
 			"\tproperties: {",
-			`\t\tguard: { type: "string", enum: ["${choices.auth}"] },`,
+			`\t\tguard: { type: "string", enum: ["${choices.auth === "session" ? "session" : "api"}"] },`,
 			'\t\tuser: { type: ["object", "null"], additionalProperties: true },',
 			"\t},",
 			'\trequired: ["guard", "user"],',
+			"} as const;",
+			"",
+			"const authLoginRequestSchema = {",
+			'\ttype: "object",',
+			"\tproperties: {",
+			'\t\temail: { type: "string", format: "email" },',
+			'\t\tpassword: { type: "string", format: "password" },',
+			"\t},",
+			'\trequired: ["email", "password"],',
+			"} as const;",
+			"",
+			"const authRegisterRequestSchema = {",
+			'\ttype: "object",',
+			"\tproperties: {",
+			'\t\temail: { type: "string", format: "email" },',
+			'\t\tpassword: { type: "string", format: "password" },',
+			"\t},",
+			'\trequired: ["email", "password"],',
+			"} as const;",
+			"",
+			"const authLoginResponseSchema = {",
+			'\ttype: "object",',
+			"\tproperties: {",
+			`\t\ttoken: { type: ${choices.auth === "session" ? '["string", "null"]' : '"string"'} },`,
+			`\t\ttokenType: { type: "string", enum: ["${choices.auth === "session" ? "Cookie" : "Bearer"}"] },`,
+			'\t\texpiresIn: { type: "number" },',
+			'\t\tuser: { type: "object", additionalProperties: true },',
+			"\t},",
+			'\trequired: ["token", "tokenType", "expiresIn", "user"],',
 			"} as const;",
 			"",
 			"const authMessageResponseSchema = {",

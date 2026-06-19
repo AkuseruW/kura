@@ -94,9 +94,9 @@ const authPresetChoices = [
 		description: "Cookie-based browser auth",
 	},
 	{
-		value: "jwt",
-		label: "JWT",
-		description: "Bearer token API auth",
+		value: "access-token",
+		label: "Access Token",
+		description: "Opaque Bearer token API auth",
 	},
 ] as const satisfies readonly NewAppPromptChoice<AuthPreset>[];
 
@@ -207,7 +207,7 @@ export function resolveChoices(options: ConsoleOptions): NewAppChoices {
 			"standard",
 		),
 		database: readChoice(options, "database", databasePresets, "none"),
-		auth: readChoice(options, "auth", authPresets, "none"),
+		auth: readAuthChoice(options),
 		cache: readChoice(options, "cache", cachePresets, "memory"),
 		queue: readChoice(options, "queue", queuePresets, "none"),
 		modules: readModules(options),
@@ -267,15 +267,13 @@ export async function promptChoices(
 				)
 			: "none",
 		auth: featureSet.has("auth")
-			? readPreset(
+			? readAuthPreset(
 					await prompt.select(
 						"Auth",
 						authPresets,
 						defaults.auth === "none" ? "session" : defaults.auth,
 						authPresetChoices,
 					),
-					authPresets,
-					"auth",
 				)
 			: "none",
 		cache: featureSet.has("cache")
@@ -309,6 +307,12 @@ export async function promptChoices(
 			no: "Skip dependency installation",
 		}),
 	};
+}
+
+function readAuthChoice(options: ConsoleOptions): AuthPreset {
+	const value = readStringOption(options, "auth") ?? "none";
+
+	return readAuthPreset(value);
 }
 
 export function readStringOption(
@@ -347,6 +351,12 @@ function readPreset<TChoice extends string>(
 	throw new Error(
 		`Invalid ${name} [${value}]. Expected one of: ${choices.join(", ")}`,
 	);
+}
+
+function readAuthPreset(value: string): AuthPreset {
+	const normalizedValue = value === "jwt" ? "access-token" : value;
+
+	return readPreset(normalizedValue, authPresets, "auth");
 }
 
 function readModules(options: ConsoleOptions): readonly ModulePreset[] {

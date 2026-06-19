@@ -130,6 +130,11 @@ export function createServeCommand(options: ServeConsoleOptions = {}): Command {
 					alias: "w",
 					description: "Reload the server when project files change",
 				},
+				{
+					name: "request-log",
+					default: true,
+					description: "Log HTTP requests",
+				},
 			],
 		},
 		async (context) => {
@@ -169,6 +174,7 @@ type ServeConfig = {
 	readonly host: string;
 	readonly port: number;
 	readonly watch: boolean;
+	readonly requestLog: boolean;
 	readonly keepAlive: boolean;
 	readonly environment: string;
 	readonly color: boolean;
@@ -195,7 +201,7 @@ async function startDevServer(
 	let server = config.serverFactory({
 		host: config.host,
 		port: config.port,
-		handler: target.handler,
+		handler: withRequestLogging(target.handler, config, write),
 		staticRoutes: target.staticRoutes,
 		development: target.development,
 	});
@@ -216,7 +222,7 @@ async function startDevServer(
 				const nextServer = config.serverFactory({
 					host: config.host,
 					port: config.port,
-					handler: target.handler,
+					handler: withRequestLogging(target.handler, config, write),
 					staticRoutes: target.staticRoutes,
 					development: target.development,
 				});
@@ -262,6 +268,7 @@ function resolveServeConfig(
 		host,
 		port,
 		watch: isEnabled(consoleOptions, "watch"),
+		requestLog: consoleOptions["request-log"] !== false,
 		keepAlive: options.keepAlive !== false,
 		environment: options.environment ?? Bun.env.NODE_ENV ?? "development",
 		color: options.color ?? shouldUseColor(),
@@ -273,6 +280,38 @@ function resolveServeConfig(
 		loader: options.loader ?? loadServeEntry,
 		serverFactory: options.serverFactory ?? createBunServer,
 		watcherFactory: options.watcherFactory ?? createNodeWatcher,
+	};
+}
+
+function withRequestLogging(
+	handler: ServeHandler,
+	config: ServeConfig,
+	write: (message: string) => void,
+): ServeHandler {
+	if (!config.requestLog) {
+		return handler;
+	}
+
+	return async (ctx) => {
+		const startedAt = config.clock();
+		let status = 500;
+
+		try {
+			const response = await handler(ctx);
+			status = response.status;
+			return response;
+		} catch (error) {
+			status = error instanceof BaseException ? error.status : 500;
+			throw error;
+		} finally {
+			write(
+				formatRequestLog(
+					ctx.request,
+					status,
+					elapsedMilliseconds(startedAt, config.clock()),
+				),
+			);
+		}
 	};
 }
 
@@ -620,6 +659,17 @@ function formatServerReloadFailed(config: ServeConfig, error: unknown): string {
 		"",
 		theme.muted("Fix the error and save a file to retry."),
 	].join("\n");
+}
+
+function formatRequestLog(
+	request: Request,
+	status: number,
+	duration: number,
+): string {
+	const url = new URL(request.url);
+	const target = `${url.pathname}${url.search}`;
+
+	return `${request.method} ${target} ${status} ${formatDuration(duration)}`;
 }
 
 function formatServerRow(
