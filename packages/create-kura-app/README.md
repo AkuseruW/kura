@@ -22,6 +22,9 @@ The starter generates a TypeScript Kura app with:
 - Optional auth, database, cache, queue, mail, storage, i18n, and WebSocket files
 - A local `kura` import alias, so application code imports from `"kura"`
 
+The generated app aliases the runtime dependency to `kura`, while the published
+framework package is `@kurajs/core`.
+
 ```ts
 import { Router } from "kura";
 ```

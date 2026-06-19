@@ -5,7 +5,7 @@ type KuraRuntime = {
 	readonly runKuraCli: (argv?: readonly string[]) => Promise<number>;
 };
 
-const runtimePackageName = "@akuseru_w/kura";
+const runtimePackageName = "@kurajs/core";
 
 const { runKuraCli } = await loadKuraRuntime();
 const exitCode = await runKuraCli(["new", ...Bun.argv.slice(2)]);

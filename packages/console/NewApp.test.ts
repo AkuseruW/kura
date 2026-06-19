@@ -719,7 +719,7 @@ describe("new app command", () => {
 		) as { dependencies: { kura: string } };
 		expect(packageJson.dependencies.kura).not.toBe("latest");
 		expect(
-			packageJson.dependencies.kura === "npm:@akuseru_w/kura@^0.1.6" ||
+			packageJson.dependencies.kura === "npm:@kurajs/core@^0.1.7" ||
 				(packageJson.dependencies.kura.startsWith("file:") &&
 					packageJson.dependencies.kura.endsWith("dist")),
 		).toBe(true);
