@@ -1930,16 +1930,27 @@ function makeRoutes(choices: NewAppChoices): string {
 		lines.push("", "const authController = new AuthController();");
 	}
 
+	const openApiSchemaDefinitions = makeOpenApiSchemaDefinitions(choices);
+	if (openApiSchemaDefinitions.length > 0) {
+		lines.push("", ...openApiSchemaDefinitions);
+	}
+
 	if (choices.preset === "api") {
 		lines.push(
 			"",
 			'router.get("/", (ctx) => apiController.index(ctx)).as("home").openapi({',
 			'\ttags: ["App"],',
 			'\tsummary: "Application information",',
+			"\tresponses: {",
+			"\t\t200: appInfoResponseSchema,",
+			"\t},",
 			"});",
 			'router.get("/health", (ctx) => apiController.health(ctx)).as("health").openapi({',
 			'\ttags: ["Health"],',
 			'\tsummary: "Health check",',
+			"\tresponses: {",
+			"\t\t200: healthResponseSchema,",
+			"\t},",
 			"});",
 		);
 	}
@@ -1958,15 +1969,24 @@ function makeRoutes(choices: NewAppChoices): string {
 			'router.get("/health", (ctx) => apiController.health(ctx)).as("health").openapi({',
 			'\ttags: ["Health"],',
 			'\tsummary: "Health check",',
+			"\tresponses: {",
+			"\t\t200: healthResponseSchema,",
+			"\t},",
 			"});",
 			'router.group().prefix("/api").as("api.").routes((api) => {',
 			'\tapi.get("/", (ctx) => apiController.index(ctx)).as("index").openapi({',
 			'\t\ttags: ["App"],',
 			'\t\tsummary: "Application information",',
+			"\t\tresponses: {",
+			"\t\t\t200: appInfoResponseSchema,",
+			"\t\t},",
 			"\t});",
 			'\tapi.get("/health", (ctx) => apiController.health(ctx)).as("health").openapi({',
 			'\t\ttags: ["Health"],',
 			'\t\tsummary: "Health check",',
+			"\t\tresponses: {",
+			"\t\t\t200: healthResponseSchema,",
+			"\t\t},",
 			"\t});",
 			"});",
 		);
@@ -1979,14 +1999,23 @@ function makeRoutes(choices: NewAppChoices): string {
 			'\tauth.get("/me", (ctx) => authController.me(ctx)).as("me").openapi({',
 			'\t\ttags: ["Auth"],',
 			'\t\tsummary: "Current authenticated user",',
+			"\t\tresponses: {",
+			"\t\t\t200: authCurrentUserResponseSchema,",
+			"\t\t},",
 			"\t});",
 			'\tauth.post("/login", (ctx) => authController.login(ctx)).as("login").openapi({',
 			'\t\ttags: ["Auth"],',
 			'\t\tsummary: "Login",',
+			"\t\tresponses: {",
+			'\t\t\t501: { description: "Not implemented", body: authMessageResponseSchema },',
+			"\t\t},",
 			"\t});",
 			'\tauth.post("/logout", (ctx) => authController.logout(ctx)).as("logout").openapi({',
 			'\t\ttags: ["Auth"],',
 			'\t\tsummary: "Logout",',
+			"\t\tresponses: {",
+			"\t\t\t200: okResponseSchema,",
+			"\t\t},",
 			"\t});",
 			"});",
 		);
@@ -2000,6 +2029,67 @@ function makeRoutes(choices: NewAppChoices): string {
 	}
 
 	return `${imports.join("\n")}\n\n${lines.join("\n")}\n`;
+}
+
+function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
+	const lines: string[] = [];
+
+	if (choices.preset === "api" || choices.preset === "full") {
+		lines.push(
+			"const appInfoResponseSchema = {",
+			'\ttype: "object",',
+			"\tproperties: {",
+			'\t\tframework: { type: "string", enum: ["kura"] },',
+			`\t\tpreset: { type: "string", enum: ["${choices.preset}"] },`,
+			'\t\tok: { type: "boolean" },',
+			"\t},",
+			'\trequired: ["framework", "preset", "ok"],',
+			"} as const;",
+			"",
+			"const healthResponseSchema = {",
+			'\ttype: "object",',
+			"\tproperties: {",
+			'\t\tstatus: { type: "string", enum: ["up"] },',
+			"\t},",
+			'\trequired: ["status"],',
+			"} as const;",
+		);
+	}
+
+	if (choices.auth !== "none") {
+		if (lines.length > 0) {
+			lines.push("");
+		}
+
+		lines.push(
+			"const authCurrentUserResponseSchema = {",
+			'\ttype: "object",',
+			"\tproperties: {",
+			`\t\tguard: { type: "string", enum: ["${choices.auth}"] },`,
+			'\t\tuser: { type: ["object", "null"], additionalProperties: true },',
+			"\t},",
+			'\trequired: ["guard", "user"],',
+			"} as const;",
+			"",
+			"const authMessageResponseSchema = {",
+			'\ttype: "object",',
+			"\tproperties: {",
+			'\t\tmessage: { type: "string" },',
+			"\t},",
+			'\trequired: ["message"],',
+			"} as const;",
+			"",
+			"const okResponseSchema = {",
+			'\ttype: "object",',
+			"\tproperties: {",
+			'\t\tok: { type: "boolean" },',
+			"\t},",
+			'\trequired: ["ok"],',
+			"} as const;",
+		);
+	}
+
+	return lines;
 }
 
 function makeReadme(appName: string, choices: NewAppChoices): string {
