@@ -768,7 +768,7 @@ export function createServer(): Server {
 \t\tpipeline.use(middleware);
 \t}
 
-\tserver.setHandler((ctx) => pipeline.run(ctx, async () => dispatchRouter(ctx)));
+\tserver.setHandler(pipeline.toHandler(dispatchRouter));
 
 \treturn server;
 }

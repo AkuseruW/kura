@@ -26,6 +26,17 @@ describe("Router", () => {
 		expect(router.match("GET", "/files/reportxjson")).toBeNull();
 	});
 
+	test("matches exact routes before parameter routes", async () => {
+		const router = new Router();
+		router.get("/users/:id", (ctx) => new Response(ctx.params?.id));
+		router.get("/users/new", () => new Response("new"));
+
+		const match = router.match("GET", "/users/new");
+		const response = await match?.handler({ request, params: match.params });
+
+		expect(await response?.text()).toBe("new");
+	});
+
 	test("builds named routes and fails when params are missing", () => {
 		const router = new Router();
 		router.get("/users/:id", () => new Response()).as("users.show");
