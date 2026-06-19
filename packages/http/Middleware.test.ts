@@ -35,6 +35,38 @@ describe("MiddlewarePipeline", () => {
 			"after-a",
 		]);
 	});
+
+	test("composes middlewares into a reusable handler", async () => {
+		const calls: string[] = [];
+		const pipeline = new MiddlewarePipeline()
+			.use(async (_ctx, next) => {
+				calls.push("before-a");
+				const response = await next();
+				calls.push("after-a");
+				return response;
+			})
+			.use(async (_ctx, next) => {
+				calls.push("before-b");
+				const response = await next();
+				calls.push("after-b");
+				return response;
+			});
+
+		const handler = pipeline.toHandler(() => {
+			calls.push("handler");
+			return new Response("ok");
+		});
+
+		await handler({ request: new Request("http://localhost") });
+
+		expect(calls).toEqual([
+			"before-a",
+			"before-b",
+			"handler",
+			"after-b",
+			"after-a",
+		]);
+	});
 });
 
 describe("BodyParser", () => {

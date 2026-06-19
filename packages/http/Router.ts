@@ -39,6 +39,8 @@ type Route = {
 
 export class Router {
 	private routes: Route[] = [];
+	private exactRoutes: Map<string, Map<string, Route>> = new Map();
+	private dynamicRoutes: Map<string, Route[]> = new Map();
 	private namedRoutes: Map<string, string> = new Map();
 
 	private addRoute(
@@ -49,6 +51,7 @@ export class Router {
 		const { pattern, params } = this.pathToRegex(path);
 		const route = { method, path, pattern, params, handler };
 		this.routes.push(route);
+		this.indexRoute(route);
 		return new RouteBuilder(this.namedRoutes, route);
 	}
 
@@ -99,8 +102,12 @@ export class Router {
 		method: string,
 		path: string,
 	): { handler: RouteHandler; params: Record<string, string> } | null {
-		for (const route of this.routes) {
-			if (route.method !== method) continue;
+		const exactRoute = this.exactRoutes.get(method)?.get(path);
+		if (exactRoute) {
+			return { handler: exactRoute.handler, params: {} };
+		}
+
+		for (const route of this.dynamicRoutes.get(method) ?? []) {
 			const match = path.match(route.pattern);
 			if (match) {
 				const params: Record<string, string> = {};
@@ -134,6 +141,25 @@ export class Router {
 
 	group(): GroupBuilder {
 		return new GroupBuilder(this);
+	}
+
+	private indexRoute(route: Route): void {
+		if (route.params.length === 0) {
+			const routes = this.exactRoutes.get(route.method) ?? new Map();
+			if (!this.exactRoutes.has(route.method)) {
+				this.exactRoutes.set(route.method, routes);
+			}
+			if (!routes.has(route.path)) {
+				routes.set(route.path, route);
+			}
+			return;
+		}
+
+		const routes = this.dynamicRoutes.get(route.method) ?? [];
+		if (!this.dynamicRoutes.has(route.method)) {
+			this.dynamicRoutes.set(route.method, routes);
+		}
+		routes.push(route);
 	}
 }
 

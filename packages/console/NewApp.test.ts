@@ -304,7 +304,7 @@ describe("new app command", () => {
 			"new MiddlewarePipeline()",
 		);
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
-			"dispatchRouter(ctx)",
+			"pipeline.toHandler(dispatchRouter)",
 		);
 		expect(await readGenerated(root, "demo-api/start/env.ts")).toContain(
 			"new Env()",
