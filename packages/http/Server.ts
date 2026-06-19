@@ -14,6 +14,7 @@ export type Context = {
 	params?: Record<string, string>;
 	body?: unknown;
 	formData?: RequestFormData;
+	validated?: ValidatedRouteData;
 	requestId?: string;
 	auth?: {
 		guard: string;
@@ -22,6 +23,14 @@ export type Context = {
 		token?: string;
 		claims?: Record<string, unknown>;
 	};
+};
+
+export type ValidatedRouteData = {
+	params?: unknown;
+	query?: unknown;
+	headers?: unknown;
+	cookies?: unknown;
+	body?: unknown;
 };
 
 type Handler = (ctx: Context) => Response | Promise<Response>;
@@ -55,16 +64,7 @@ export class Server {
 	}
 
 	setRouter(router: Router): void {
-		this.handler = async (ctx) => {
-			const url = new URL(ctx.request.url);
-			const match = router.match(ctx.request.method, url.pathname);
-			if (!match) {
-				return new Response("Not Found", { status: 404 });
-			}
-
-			ctx.params = match.params;
-			return match.handler(ctx);
-		};
+		this.handler = (ctx) => router.dispatch(ctx);
 	}
 
 	start(): void {

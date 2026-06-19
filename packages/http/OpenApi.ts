@@ -1,5 +1,5 @@
 import { Schema, type SchemaDescription } from "../validator/Schema";
-import type { RegisteredRoute, Router } from "./Router";
+import type { RegisteredRoute, Router, RouteSchemaOptions } from "./Router";
 
 export type OpenApiJsonPrimitive = string | number | boolean | null;
 export type OpenApiJsonValue =
@@ -282,7 +282,15 @@ function createOperation(
 ): OpenApiOperationObject {
 	const options = route.openapi;
 	const parameters = [
-		...route.params.map(createPathParameter),
+		...createSchemaParameters(
+			"path",
+			route.schema?.params,
+			specVersion,
+			route.params,
+		),
+		...createSchemaParameters("query", route.schema?.query, specVersion),
+		...createSchemaParameters("header", route.schema?.headers, specVersion),
+		...createSchemaParameters("cookie", route.schema?.cookies, specVersion),
 		...(options?.parameters ?? []),
 	];
 	const operationId =
@@ -294,21 +302,79 @@ function createOperation(
 		description: options?.description,
 		operationId,
 		parameters: parameters.length > 0 ? parameters : undefined,
-		requestBody: options?.body
-			? createRequestBody(options.body, specVersion)
-			: undefined,
-		responses: createResponses(options?.responses, specVersion),
+		requestBody: requestBodyForRoute(route, specVersion),
+		responses: createResponses(
+			options?.responses ?? route.schema?.responses,
+			specVersion,
+		),
 		deprecated: options?.deprecated,
 		security: options?.security,
 	};
 }
 
-function createPathParameter(name: string): OpenApiParameterObject {
+function requestBodyForRoute(
+	route: RegisteredRoute,
+	specVersion: OpenApiVersion,
+): OpenApiRequestBodyObject | undefined {
+	if (route.openapi?.body) {
+		return createRequestBody(route.openapi.body, specVersion);
+	}
+
+	return route.schema?.body
+		? createRequestBody(route.schema.body, specVersion)
+		: undefined;
+}
+
+function createSchemaParameters(
+	location: OpenApiParameterObject["in"],
+	schema: RouteSchemaOptions[keyof Pick<
+		RouteSchemaOptions,
+		"cookies" | "headers" | "params" | "query"
+	>],
+	specVersion: OpenApiVersion,
+	pathParams: readonly string[] = [],
+): readonly OpenApiParameterObject[] {
+	if (!schema) {
+		return location === "path"
+			? pathParams.map((name) => createPathParameter(name))
+			: [];
+	}
+
+	const description = schema.describe();
+	if (description.type !== "object" || !description.shape) {
+		return location === "path"
+			? pathParams.map((name) => createPathParameter(name))
+			: [];
+	}
+
+	if (location === "path") {
+		return pathParams.map((name) =>
+			createPathParameter(
+				name,
+				description.shape?.[name]
+					? schemaDescriptionToOpenApi(description.shape[name], specVersion)
+					: undefined,
+			),
+		);
+	}
+
+	return Object.entries(description.shape).map(([name, field]) => ({
+		name,
+		in: location,
+		required: !field.optional,
+		schema: schemaDescriptionToOpenApi(field, specVersion),
+	}));
+}
+
+function createPathParameter(
+	name: string,
+	schema: OpenApiSchemaObject | OpenApiReferenceObject = { type: "string" },
+): OpenApiParameterObject {
 	return {
 		name,
 		in: "path",
 		required: true,
-		schema: { type: "string" },
+		schema,
 	};
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { v } from "../validator/Schema";
 import { BaseController, registerController } from "./Controller";
-import { Router } from "./Router";
+import { Router, RouteValidationException } from "./Router";
 import type { Context } from "./Server";
 
 const request = new Request("http://localhost/users/1");
@@ -109,5 +110,74 @@ describe("Router", () => {
 
 		expect(await indexResponse?.text()).toBe("index");
 		expect(await showResponse?.text()).toBe("123");
+	});
+
+	test("validates route schemas and exposes validated data", async () => {
+		const router = new Router();
+		router
+			.post("/users/:id", (ctx) =>
+				Response.json({
+					params: ctx.validated?.params,
+					query: ctx.validated?.query,
+					headers: ctx.validated?.headers,
+					cookies: ctx.validated?.cookies,
+					body: ctx.validated?.body,
+				}),
+			)
+			.schema({
+				params: v.object({ id: v.string() }),
+				query: v.object({ tab: v.string().optional() }),
+				headers: v.object({ "x-tenant": v.string() }),
+				cookies: v.object({ session: v.string() }),
+				body: v.object({ name: v.string() }),
+			});
+
+		const response = await router.dispatch({
+			request: new Request("http://localhost/users/123?tab=profile", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					cookie: "session=abc123",
+					"x-tenant": "acme",
+				},
+				body: JSON.stringify({ name: "Ada" }),
+			}),
+		});
+
+		expect(await response.json()).toEqual({
+			params: { id: "123" },
+			query: { tab: "profile" },
+			headers: {
+				"content-type": "application/json",
+				cookie: "session=abc123",
+				"x-tenant": "acme",
+			},
+			cookies: { session: "abc123" },
+			body: { name: "Ada" },
+		});
+	});
+
+	test("rejects invalid route schemas before handlers run", async () => {
+		const router = new Router();
+		let called = false;
+		router
+			.post("/users", () => {
+				called = true;
+				return Response.json({ ok: true });
+			})
+			.schema({
+				body: v.object({ name: v.string() }),
+			});
+
+		await expect(
+			router.dispatch({
+				request: new Request("http://localhost/users", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ name: 42 }),
+				}),
+			}),
+		).rejects.toThrow(RouteValidationException);
+		expect(called).toBe(false);
 	});
 });

@@ -156,6 +156,70 @@ describe("OpenAPI", () => {
 		});
 	});
 
+	test("creates request and response documentation from route schemas", () => {
+		const router = new Router();
+		const bodySchema = v.object({ email: v.string().email() });
+		const responseSchema = v.object({ id: v.string(), email: v.string() });
+
+		router
+			.post("/teams/:teamId/users", () => Response.json({}))
+			.schema({
+				params: v.object({ teamId: v.string() }),
+				query: v.object({ invite: v.string().optional() }),
+				headers: v.object({ "x-request-source": v.string().optional() }),
+				cookies: v.object({ session: v.string().optional() }),
+				body: bodySchema,
+				responses: {
+					201: responseSchema,
+				},
+			})
+			.openapi({
+				tags: ["Users"],
+				summary: "Create team user",
+			});
+
+		const document = createOpenApiDocument(router);
+		const operation = document.paths["/teams/{teamId}/users"]?.post;
+
+		expect(operation?.parameters).toEqual([
+			{
+				name: "teamId",
+				in: "path",
+				required: true,
+				schema: { type: "string" },
+			},
+			{
+				name: "invite",
+				in: "query",
+				required: false,
+				schema: { type: "string" },
+			},
+			{
+				name: "x-request-source",
+				in: "header",
+				required: false,
+				schema: { type: "string" },
+			},
+			{
+				name: "session",
+				in: "cookie",
+				required: false,
+				schema: { type: "string" },
+			},
+		]);
+		expect(operation?.requestBody).toEqual({
+			required: true,
+			content: {
+				"application/json": {
+					schema: toOpenApiSchema(bodySchema),
+				},
+			},
+		});
+		expect(operation?.responses["201"]?.content?.["application/json"]).toEqual({
+			schema: toOpenApiSchema(responseSchema),
+		});
+	});
+
 	test("registers hidden JSON and UI routes", async () => {
 		const router = new Router();
 		router

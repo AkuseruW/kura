@@ -336,6 +336,8 @@ export {
 	type ResourceController,
 	type RouteHandler,
 	Router,
+	type RouteSchemaOptions,
+	RouteValidationException,
 } from "./packages/http/Router";
 export {
 	createServeCommand,
@@ -356,6 +358,7 @@ export {
 	type Context,
 	Server,
 	type ServerOptions,
+	type ValidatedRouteData,
 } from "./packages/http/Server";
 export {
 	createTestClient,

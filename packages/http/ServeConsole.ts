@@ -431,17 +431,7 @@ function developmentFromTarget(
 }
 
 function handlerFromRouter(router: Router): ServeHandler {
-	return async (ctx) => {
-		const url = new URL(ctx.request.url);
-		const match = router.match(ctx.request.method, url.pathname);
-
-		if (!match) {
-			return new Response("Not Found", { status: 404 });
-		}
-
-		ctx.params = match.params;
-		return match.handler(ctx);
-	};
+	return (ctx) => router.dispatch(ctx);
 }
 
 function createBunServer(options: ServeServerStartOptions): ServeServer {

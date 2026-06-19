@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { guard } from "../auth/Guard";
 import { SessionGuard } from "../auth/SessionGuard";
 import { BaseException } from "../core/BaseException";
+import { v } from "../validator/Schema";
 import { BodyParser } from "./Middleware";
 import { Router } from "./Router";
 import {
@@ -85,6 +86,24 @@ describe("TestClient", () => {
 		await expect(response.json()).resolves.toEqual({
 			name: "Ada",
 			roles: "editor",
+		});
+	});
+
+	test("renders route validation errors as 422 responses", async () => {
+		const router = new Router();
+		router
+			.post("/users", (ctx) => Response.json(ctx.validated?.body))
+			.schema({
+				body: v.object({ name: v.string() }),
+			});
+		const client = createTestClient(router);
+
+		const response = await client.post("/users", { name: 42 });
+
+		expect(response.status).toBe(422);
+		await expect(response.json()).resolves.toEqual({
+			code: "E_ROUTE_VALIDATION",
+			error: "Validation failed for request body: Validation failed for object",
 		});
 	});
 
