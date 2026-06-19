@@ -73,6 +73,38 @@ router.get("/", (ctx) => homeController.index(ctx)).as("home");
 router.get("/health", () => Response.json({ status: "up" })).as("health");
 ```
 
+API and full-stack starters expose OpenAPI docs from the route table.
+
+```ts
+import { registerOpenApiRoutes, Router, v } from "kura";
+
+export const router = new Router();
+
+const userResponse = v.object({
+	id: v.number(),
+	email: v.string().email(),
+});
+
+router.get("/users/:id", (ctx) => Response.json({ id: ctx.params?.id })).openapi({
+	tags: ["Users"],
+	summary: "Get a user",
+	responses: {
+		200: userResponse,
+	},
+});
+
+registerOpenApiRoutes(router, {
+	title: "My API",
+	version: "1.0.0",
+	specVersion: "3.1.2",
+	ui: "scalar",
+});
+```
+
+The generated app serves `/openapi.json` and `/docs`. Set `ui: "swagger"` when
+you prefer Swagger UI. Kura defaults to OpenAPI `3.1.2`; use
+`specVersion: "3.2.0"` when you need the latest OpenAPI spec.
+
 For web apps, views live in `resources/views` and use the `.kura.html`
 extension.
 
@@ -202,6 +234,7 @@ Kura currently includes:
 - Application lifecycle and service container
 - Configuration and environment loading
 - HTTP server, router, middleware pipeline, and controllers
+- OpenAPI generation with Scalar or Swagger UI docs
 - `.kura.html` view rendering with escaped interpolation
 - Bun fullstack HTML route support for generated browser entrypoints
 - Body parsing, CORS, request IDs, request logging, and metrics helpers

@@ -4,6 +4,7 @@ import {
 	resolveController,
 } from "./Controller";
 import type { Middleware } from "./Middleware";
+import type { RouteOpenApiOptions } from "./OpenApi";
 import type { Context } from "./Server";
 
 export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
@@ -12,6 +13,7 @@ export type RegisteredRoute = {
 	readonly path: string;
 	readonly name?: string;
 	readonly params: readonly string[];
+	readonly openapi?: RouteOpenApiOptions;
 };
 
 export type ResourceController = {
@@ -32,6 +34,7 @@ type Route = {
 	pattern: RegExp;
 	params: string[];
 	handler: RouteHandler;
+	openapi?: RouteOpenApiOptions;
 };
 
 export class Router {
@@ -111,12 +114,18 @@ export class Router {
 	}
 
 	list(): readonly RegisteredRoute[] {
-		return this.routes.map((route) => ({
-			method: route.method,
-			path: route.path,
-			name: route.name,
-			params: [...route.params],
-		}));
+		return this.routes.map((route) => {
+			const registeredRoute: RegisteredRoute = {
+				method: route.method,
+				path: route.path,
+				name: route.name,
+				params: [...route.params],
+			};
+
+			return route.openapi
+				? { ...registeredRoute, openapi: route.openapi }
+				: registeredRoute;
+		});
 	}
 
 	resource(name: string, controller: ResourceControllerInput): ResourceBuilder {
@@ -134,9 +143,15 @@ class RouteBuilder {
 		private route: Route,
 	) {}
 
-	as(name: string): void {
+	as(name: string): this {
 		this.route.name = name;
 		this.namedRoutes.set(name, this.route.path);
+		return this;
+	}
+
+	openapi(options: RouteOpenApiOptions): this {
+		this.route.openapi = options;
+		return this;
 	}
 }
 
@@ -307,8 +322,14 @@ class GroupRouteBuilder {
 		private namePrefix: string,
 	) {}
 
-	as(name: string): void {
+	as(name: string): this {
 		this.routeBuilder.as(this.namePrefix + name);
+		return this;
+	}
+
+	openapi(options: RouteOpenApiOptions): this {
+		this.routeBuilder.openapi(options);
+		return this;
 	}
 }
 

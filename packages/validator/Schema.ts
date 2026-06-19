@@ -33,6 +33,15 @@ type CrossFieldValidationRule = {
 	readonly validate: (value: Record<string, unknown>) => boolean;
 };
 
+export type SchemaDescription = {
+	readonly type: string;
+	readonly optional: boolean;
+	readonly nullable: boolean;
+	readonly item?: SchemaDescription;
+	readonly shape?: Record<string, SchemaDescription>;
+	readonly values?: readonly string[];
+};
+
 export type AsyncValidationContext = {
 	readonly database?: DatabaseManager;
 };
@@ -52,6 +61,9 @@ export class Schema<T = unknown> {
 	private acceptsNull = false;
 	private requiresAsyncRules = false;
 	private crossFieldRules: CrossFieldValidationRule[] = [];
+	private itemSchema?: Schema<unknown>;
+	private shape?: ObjectShape;
+	private enumValues?: readonly string[];
 
 	string(): Schema<string> {
 		const schema = new Schema<string>();
@@ -186,6 +198,7 @@ export class Schema<T = unknown> {
 		schema._type = "array";
 		schema.rules.push((v) => Array.isArray(v));
 		if (itemSchema) {
+			schema.itemSchema = itemSchema as Schema<unknown>;
 			schema.requiresAsyncRules = itemSchema.requiresAsyncValidation();
 			if (!itemSchema.requiresAsyncValidation()) {
 				schema.rules.push((v) =>
@@ -218,6 +231,7 @@ export class Schema<T = unknown> {
 		type Result = InferObject<U>;
 		const schema = new Schema<Result>();
 		schema._type = "object";
+		schema.shape = shape;
 		schema.requiresAsyncRules = Object.values(shape).some((fieldSchema) =>
 			fieldSchema.requiresAsyncValidation(),
 		);
@@ -296,6 +310,7 @@ export class Schema<T = unknown> {
 	enum<const U extends string>(values: readonly U[]): Schema<U> {
 		const schema = new Schema<U>();
 		schema._type = "enum";
+		schema.enumValues = values;
 		schema.rules.push((v) => typeof v === "string" && values.includes(v as U));
 		return schema;
 	}
@@ -537,6 +552,40 @@ export class Schema<T = unknown> {
 		} catch {
 			return false;
 		}
+	}
+
+	describe(): SchemaDescription {
+		const description: {
+			type: string;
+			optional: boolean;
+			nullable: boolean;
+			item?: SchemaDescription;
+			shape?: Record<string, SchemaDescription>;
+			values?: readonly string[];
+		} = {
+			type: this._type,
+			optional: this.acceptsUndefined,
+			nullable: this.acceptsNull,
+		};
+
+		if (this.itemSchema) {
+			description.item = this.itemSchema.describe();
+		}
+
+		if (this.shape) {
+			description.shape = Object.fromEntries(
+				Object.entries(this.shape).map(([key, fieldSchema]) => [
+					key,
+					fieldSchema.describe(),
+				]),
+			);
+		}
+
+		if (this.enumValues) {
+			description.values = this.enumValues;
+		}
+
+		return description;
 	}
 
 	private addDatabaseRule(
