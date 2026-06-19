@@ -26,7 +26,7 @@
 		"dist"
 	],
 	"bin": {
-		"kura": "./dist/bin/kura.js"
+		"kura": "dist/bin/kura.js"
 	},
 	"exports": {
 		".": {

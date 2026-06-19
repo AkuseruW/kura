@@ -26,7 +26,7 @@ describe("production build", () => {
 			};
 			expect(runtimePackage.name).toBe("@kurajs/core");
 			expect(runtimePackage.files).toContain("dist");
-			expect(runtimePackage.bin.kura).toBe("./dist/bin/kura.js");
+			expect(runtimePackage.bin.kura).toBe("dist/bin/kura.js");
 
 			const createPackageManifest = JSON.parse(
 				await readFile(
@@ -40,7 +40,7 @@ describe("production build", () => {
 			};
 			expect(createPackageManifest.name).toBe("create-kura-app");
 			expect(createPackageManifest.bin["create-kura-app"]).toBe(
-				"./dist/index.js",
+				"dist/index.js",
 			);
 			expect(createPackageManifest.dependencies["@kurajs/core"]).toBe("^0.1.7");
 
