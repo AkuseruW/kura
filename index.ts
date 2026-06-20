@@ -279,6 +279,28 @@ export {
 	resolveController,
 } from "./packages/http/Controller";
 export {
+	BadRequestException,
+	ConflictException,
+	createHttpErrorHandler,
+	defaultHttpErrorCode,
+	ForbiddenException,
+	type HttpErrorContext,
+	type HttpErrorHandler,
+	type HttpErrorHandlerInput,
+	type HttpErrorHandlerOptions,
+	type HttpErrorRenderer,
+	HttpException,
+	type HttpExceptionOptions,
+	handleHttpError,
+	httpStatusFromError,
+	InternalServerErrorException,
+	type NormalizedHttpError,
+	NotFoundException,
+	normalizeHttpError,
+	UnauthorizedException,
+	UnprocessableEntityException,
+} from "./packages/http/ErrorHandler";
+export {
 	type HealthRouteOptions,
 	registerHealthRoutes,
 } from "./packages/http/Health";

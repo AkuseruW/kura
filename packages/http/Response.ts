@@ -38,6 +38,8 @@ export type HttpExceptionLike = {
 	readonly message: string;
 	readonly code: string;
 	readonly status: number;
+	readonly details?: unknown;
+	readonly headers?: KuraHeadersInit;
 };
 
 export class KuraResponse {
@@ -236,7 +238,8 @@ export class KuraResponse {
 	): Response {
 		return KuraResponse.error({
 			code: error.code,
-			headers,
+			details: error.details,
+			headers: headers ?? error.headers,
 			message: error.message,
 			status: error.status,
 		});

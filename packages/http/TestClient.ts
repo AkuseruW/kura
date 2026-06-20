@@ -1,7 +1,10 @@
 import { AssertionError, deepStrictEqual, strictEqual } from "node:assert";
-import { BaseException } from "../core/BaseException";
 import { createContext } from "./Context";
-import { KuraResponse } from "./Response";
+import {
+	type HttpErrorHandler,
+	type HttpErrorHandlerInput,
+	resolveHttpErrorHandler,
+} from "./ErrorHandler";
 import type { Router } from "./Router";
 import type { Context } from "./Server";
 
@@ -20,6 +23,7 @@ export interface TestClientOptions {
 	readonly baseUrl?: string;
 	readonly headers?: TestHeadersInit;
 	readonly cookies?: Record<string, TestCookieValue>;
+	readonly errorHandler?: HttpErrorHandlerInput;
 }
 
 export interface TestRequestOptions {
@@ -56,6 +60,7 @@ export class TestClient {
 	private readonly handler: TestClientHandler;
 	private readonly baseUrl: string;
 	private readonly headers: Headers;
+	private readonly errorHandler: HttpErrorHandler;
 	private readonly cookies = new Map<string, string>();
 	private auth: Context["auth"];
 	private sessionCookieName = "kura_session";
@@ -64,6 +69,7 @@ export class TestClient {
 		this.handler = isRouter(target) ? handlerFromRouter(target) : target;
 		this.baseUrl = options.baseUrl ?? "http://localhost";
 		this.headers = new Headers(options.headers);
+		this.errorHandler = resolveHttpErrorHandler(options.errorHandler);
 
 		for (const [name, value] of Object.entries(options.cookies ?? {})) {
 			this.cookies.set(name, String(value));
@@ -161,11 +167,10 @@ export class TestClient {
 		try {
 			return await this.handler(ctx);
 		} catch (error) {
-			if (error instanceof BaseException) {
-				return KuraResponse.exception(error);
-			}
-
-			return KuraResponse.internalServerError();
+			return this.errorHandler(error, {
+				context: ctx,
+				request: ctx.request,
+			});
 		}
 	}
 

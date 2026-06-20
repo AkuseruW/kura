@@ -7,9 +7,13 @@ import {
 	type ConsoleOptions,
 	defineCommand,
 } from "../console/Console";
-import { BaseException } from "../core/BaseException";
 import { createContext } from "./Context";
-import { KuraResponse } from "./Response";
+import {
+	type HttpErrorHandler,
+	type HttpErrorHandlerInput,
+	httpStatusFromError,
+	resolveHttpErrorHandler,
+} from "./ErrorHandler";
 import type { Router } from "./Router";
 import type {
 	BunDevelopmentOptions,
@@ -35,6 +39,7 @@ export interface ServeConsoleOptions {
 	readonly keepAlive?: boolean;
 	readonly clock?: ServeClock;
 	readonly color?: boolean;
+	readonly errorHandler?: HttpErrorHandlerInput;
 }
 
 export type ServeEntryLoader = (
@@ -71,6 +76,7 @@ export interface ServeServerStartOptions {
 	readonly handler: ServeHandler;
 	readonly staticRoutes?: BunStaticRouteMap;
 	readonly development?: BunDevelopmentOptions;
+	readonly errorHandler?: HttpErrorHandler;
 }
 
 export type ServeServerFactory = (
@@ -185,6 +191,7 @@ type ServeConfig = {
 	readonly explicitRouter?: Router;
 	readonly explicitStaticRoutes?: BunStaticRouteMap;
 	readonly explicitDevelopment?: BunDevelopmentOptions;
+	readonly errorHandler: HttpErrorHandler;
 	readonly loader: ServeEntryLoader;
 	readonly serverFactory: ServeServerFactory;
 	readonly watcherFactory: ServeWatcherFactory;
@@ -203,9 +210,13 @@ async function startDevServer(
 	let server = config.serverFactory({
 		host: config.host,
 		port: config.port,
-		handler: withRequestLogging(target.handler, config, write),
+		handler: withHttpErrorHandling(
+			withRequestLogging(target.handler, config, write),
+			config,
+		),
 		staticRoutes: target.staticRoutes,
 		development: target.development,
+		errorHandler: config.errorHandler,
 	});
 	let reloading = false;
 	const runtime: ServeRuntime = { server };
@@ -224,9 +235,13 @@ async function startDevServer(
 				const nextServer = config.serverFactory({
 					host: config.host,
 					port: config.port,
-					handler: withRequestLogging(target.handler, config, write),
+					handler: withHttpErrorHandling(
+						withRequestLogging(target.handler, config, write),
+						config,
+					),
 					staticRoutes: target.staticRoutes,
 					development: target.development,
+					errorHandler: config.errorHandler,
 				});
 				server = nextServer;
 				runtime.server = nextServer;
@@ -279,9 +294,31 @@ function resolveServeConfig(
 		explicitRouter: options.router,
 		explicitStaticRoutes: options.staticRoutes,
 		explicitDevelopment: options.development,
+		errorHandler: resolveHttpErrorHandler(options.errorHandler, {
+			debug:
+				(options.environment ?? Bun.env.NODE_ENV ?? "development") ===
+				"development",
+		}),
 		loader: options.loader ?? loadServeEntry,
 		serverFactory: options.serverFactory ?? createBunServer,
 		watcherFactory: options.watcherFactory ?? createNodeWatcher,
+	};
+}
+
+function withHttpErrorHandling(
+	handler: ServeHandler,
+	config: ServeConfig,
+): ServeHandler {
+	return async (ctx) => {
+		try {
+			return await handler(ctx);
+		} catch (error) {
+			return config.errorHandler(error, {
+				context: ctx,
+				environment: config.environment,
+				request: ctx.request,
+			});
+		}
 	};
 }
 
@@ -303,7 +340,7 @@ function withRequestLogging(
 			status = response.status;
 			return response;
 		} catch (error) {
-			status = error instanceof BaseException ? error.status : 500;
+			status = httpStatusFromError(error);
 			throw error;
 		} finally {
 			write(
@@ -442,17 +479,7 @@ function createBunServer(options: ServeServerStartOptions): ServeServer {
 		port: options.port,
 		routes: options.staticRoutes,
 		development: options.development,
-		fetch: async (request) => {
-			try {
-				return await options.handler(createContext(request));
-			} catch (error) {
-				if (error instanceof BaseException) {
-					return KuraResponse.exception(error);
-				}
-
-				return KuraResponse.internalServerError();
-			}
-		},
+		fetch: (request) => options.handler(createContext(request)),
 	});
 
 	return {
