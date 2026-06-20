@@ -333,6 +333,7 @@ describe("new app command", () => {
 		expect(apiRoutes).toContain(
 			'import { registerOpenApiRoutes } from "kura/openapi"',
 		);
+		expect(apiRoutes).toContain('import { v } from "kura/validation"');
 		expect(apiRoutes).toContain(
 			'import { ApiController } from "#controllers/api_controller"',
 		);
@@ -350,9 +351,15 @@ describe("new app command", () => {
 		expect(apiRoutes).toContain("200: healthResponseSchema");
 		expect(apiRoutes).toContain("200: authCurrentUserResponseSchema");
 		expect(apiRoutes).toContain("security: [{ bearerAuth: [] }]");
+		expect(apiRoutes).toContain("const authLoginRequestSchema = v.object");
+		expect(apiRoutes).toContain("const authRegisterRequestSchema = v.object");
+		expect(apiRoutes).toContain(".schema({\n\t\tbody: authLoginRequestSchema");
 		expect(apiRoutes).toContain("body: authLoginRequestSchema");
 		expect(apiRoutes).toContain("200: authLoginResponseSchema");
 		expect(apiRoutes).toContain('auth.post("/register"');
+		expect(apiRoutes).toContain(
+			".schema({\n\t\tbody: authRegisterRequestSchema",
+		);
 		expect(apiRoutes).toContain("body: authRegisterRequestSchema");
 		expect(apiRoutes).toContain("201: authLoginResponseSchema");
 		expect(apiRoutes).toContain(
@@ -375,7 +382,7 @@ describe("new app command", () => {
 		).toContain('import { KuraResponse, type Context } from "kura/http"');
 		expect(
 			await readGenerated(root, "demo-api/app/controllers/auth_controller.ts"),
-		).toContain("return KuraResponse.validation");
+		).toContain("ctx.validatedBody<LoginInput>()");
 		expect(
 			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
 		).toContain('from "kura/auth"');
@@ -964,7 +971,13 @@ describe("new app command", () => {
 			'import { HomeController } from "#controllers/home_controller"',
 		);
 		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
+			'import { v } from "kura/validation"',
+		);
+		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
 			'router.group().prefix("/auth").as("auth.")',
+		);
+		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
+			".schema({\n\t\tbody: authLoginRequestSchema",
 		);
 		expect(
 			await readGenerated(root, "demo-web/app/controllers/auth_controller.ts"),

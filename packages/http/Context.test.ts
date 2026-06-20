@@ -44,16 +44,32 @@ describe("Context helpers", () => {
 			state: { requestStarted: true },
 			validated: {
 				body: { name: "Ada" },
+				cookies: { session: "abc123" },
+				headers: { "x-tenant": "acme" },
+				params: { id: "42" },
 				query: { tab: "profile" },
 			},
 		});
 
 		expect(ctx.validatedData()).toEqual({
 			body: { name: "Ada" },
+			cookies: { session: "abc123" },
+			headers: { "x-tenant": "acme" },
+			params: { id: "42" },
 			query: { tab: "profile" },
 		});
 		expect(ctx.validatedData<{ tab: string }>("query")).toEqual({
 			tab: "profile",
+		});
+		expect(ctx.validatedParams<{ id: string }>()).toEqual({ id: "42" });
+		expect(ctx.validatedQuery<{ tab: string }>()).toEqual({
+			tab: "profile",
+		});
+		expect(ctx.validatedHeaders<{ "x-tenant": string }>()).toEqual({
+			"x-tenant": "acme",
+		});
+		expect(ctx.validatedCookies<{ session: string }>()).toEqual({
+			session: "abc123",
 		});
 		expect(ctx.validatedBody<{ name: string }>()?.name).toBe("Ada");
 		expect(ctx.getState<boolean>("requestStarted")).toBe(true);

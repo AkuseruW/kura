@@ -1567,13 +1567,12 @@ export class AuthController {
 	}
 
 	async login(ctx: Context): Promise<Response> {
-		const input = readLoginInput(ctx);
+		const input = normalizeCredentials(ctx.validatedBody<LoginInput>());
 
 		if (!input) {
 			return KuraResponse.validation({
-				email: ["Email is required."],
-				password: ["Password is required."],
-			}, "Email and password are required.");
+				body: ["Validated credentials are required."],
+			});
 		}
 
 		const result = await authService.login(input.email, input.password);
@@ -1590,13 +1589,12 @@ export class AuthController {
 	}
 
 	async register(ctx: Context): Promise<Response> {
-		const input = readRegisterInput(ctx);
+		const input = normalizeCredentials(ctx.validatedBody<RegisterInput>());
 
 		if (!input) {
 			return KuraResponse.validation({
-				email: ["Email is required."],
-				password: ["Password is required."],
-			}, "Email and password are required.");
+				body: ["Validated credentials are required."],
+			});
 		}
 
 		const result = await authService.register(input.email, input.password);
@@ -1630,35 +1628,19 @@ type LoginInput = {
 
 type RegisterInput = LoginInput;
 
-function readLoginInput(ctx: Context): LoginInput | null {
-	return readCredentialsInput(ctx);
-}
-
-function readRegisterInput(ctx: Context): RegisterInput | null {
-	return readCredentialsInput(ctx);
-}
-
-function readCredentialsInput(ctx: Context): LoginInput | null {
-	if (!isRecord(ctx.body)) {
+function normalizeCredentials(input: LoginInput | undefined): LoginInput | null {
+	if (!input) {
 		return null;
 	}
 
-	const email =
-		typeof ctx.body.email === "string"
-			? ctx.body.email.trim().toLowerCase()
-			: "";
-	const password =
-		typeof ctx.body.password === "string" ? ctx.body.password : "";
+	const email = input.email.trim().toLowerCase();
+	const password = input.password;
 
 	if (!email || !password) {
 		return null;
 	}
 
 	return { email, password };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 `;
 }
@@ -2482,11 +2464,7 @@ function makeWebSocketService(): string {
 }
 
 function makeRoutes(choices: NewAppChoices): string {
-	const imports = [
-		choices.preset === "api" || choices.preset === "full"
-			? 'import { Router } from "kura/http";'
-			: 'import { Router } from "kura/http";',
-	];
+	const imports = ['import { Router } from "kura/http";'];
 	const lines = ["export const router = new Router();"];
 
 	if (choices.preset === "api" || choices.preset === "full") {
@@ -2517,6 +2495,7 @@ function makeRoutes(choices: NewAppChoices): string {
 	}
 
 	if (choices.auth !== "none") {
+		imports.push('import { v } from "kura/validation";');
 		imports.push(
 			`import { AuthController } from "${moduleImport(
 				choices,
@@ -2606,7 +2585,9 @@ function makeRoutes(choices: NewAppChoices): string {
 			'\t\t\t401: { description: "Unauthenticated", body: authErrorResponseSchema },',
 			"\t\t},",
 			"\t});",
-			'\tauth.post("/login", (ctx) => authController.login(ctx)).as("login").openapi({',
+			'\tauth.post("/login", (ctx) => authController.login(ctx)).as("login").schema({',
+			"\t\tbody: authLoginRequestSchema,",
+			"\t}).openapi({",
 			'\t\ttags: ["Auth"],',
 			'\t\tsummary: "Login",',
 			"\t\tbody: authLoginRequestSchema,",
@@ -2616,7 +2597,9 @@ function makeRoutes(choices: NewAppChoices): string {
 			'\t\t\t422: { description: "Validation error", body: authErrorResponseSchema },',
 			"\t\t},",
 			"\t});",
-			'\tauth.post("/register", (ctx) => authController.register(ctx)).as("register").openapi({',
+			'\tauth.post("/register", (ctx) => authController.register(ctx)).as("register").schema({',
+			"\t\tbody: authRegisterRequestSchema,",
+			"\t}).openapi({",
 			'\t\ttags: ["Auth"],',
 			'\t\tsummary: "Register",',
 			"\t\tbody: authRegisterRequestSchema,",
@@ -2705,23 +2688,15 @@ function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
 			'\trequired: ["guard", "user"],',
 			"} as const;",
 			"",
-			"const authLoginRequestSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			'\t\temail: { type: "string", format: "email" },',
-			'\t\tpassword: { type: "string", format: "password" },',
-			"\t},",
-			'\trequired: ["email", "password"],',
-			"} as const;",
+			"const authLoginRequestSchema = v.object({",
+			"\temail: v.string().email(),",
+			"\tpassword: v.string().min(1),",
+			"});",
 			"",
-			"const authRegisterRequestSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			'\t\temail: { type: "string", format: "email" },',
-			'\t\tpassword: { type: "string", format: "password" },',
-			"\t},",
-			'\trequired: ["email", "password"],',
-			"} as const;",
+			"const authRegisterRequestSchema = v.object({",
+			"\temail: v.string().email(),",
+			"\tpassword: v.string().min(1),",
+			"});",
 			"",
 			"const authLoginResponseSchema = {",
 			'\ttype: "object",',

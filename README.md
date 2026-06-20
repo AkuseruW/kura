@@ -114,9 +114,9 @@ router.get("/users/:id", (ctx) => {
 - `ctx.queries("tag")` always returns `string[]`.
 - `ctx.header()` and `ctx.cookie()` read request headers and cookies with
   predictable `null` or default-value fallbacks.
-- `ctx.bodyValue()`, `ctx.validatedData()`, and `ctx.validatedBody()` expose
-  parsed and validated request input when middleware or route schemas populate
-  it.
+- `ctx.bodyValue()`, `ctx.validatedData()`, `ctx.validatedParams()`,
+  `ctx.validatedQuery()`, and `ctx.validatedBody()` expose parsed and validated
+  request input when middleware or route schemas populate it.
 - `ctx.setState()` and `ctx.getState()` store request-local values without
   touching globals.
 
@@ -153,6 +153,25 @@ registerOpenApiRoutes(router, {
 The generated app serves `/openapi.json` and `/docs`. Set `ui: "swagger"` when
 you prefer Swagger UI. Kura defaults to OpenAPI `3.1.2`; use
 `specVersion: "3.2.0"` when you need the latest OpenAPI spec.
+
+Route schemas also validate requests before handlers run. Invalid input returns
+the standard `422` JSON error response, and handlers can read parsed values from
+the validated helpers.
+
+```ts
+const createUserRequest = v.object({
+	email: v.string().email(),
+	password: v.string().min(8),
+});
+
+router.post("/users", (ctx) => {
+	const input = ctx.validatedBody<{ email: string; password: string }>();
+
+	return Response.json({ email: input?.email });
+}).schema({
+	body: createUserRequest,
+});
+```
 
 ## Response Helpers
 
