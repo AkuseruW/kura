@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BaseException } from "../core/BaseException";
 import { createContext } from "./Context";
+import { BodyLimit, MiddlewarePipeline, RequestTimeout } from "./Middleware";
 import { Router } from "./Router";
 import type { Context } from "./Server";
 import { Server } from "./Server";
@@ -107,4 +108,80 @@ describe("Server", () => {
 			server.stop();
 		}
 	});
+
+	test("renders body limit exceptions from the fetch pipeline", async () => {
+		let handlerCalled = false;
+		const server = new Server({ port: 0 });
+		server.setHandler(
+			new MiddlewarePipeline().use(BodyLimit({ maxBytes: 4 })).toHandler(() => {
+				handlerCalled = true;
+				return new Response("ok");
+			}),
+		);
+		server.start();
+		const instance = (
+			server as unknown as {
+				server: ReturnType<typeof Bun.serve>;
+			}
+		).server;
+
+		try {
+			const response = await fetch(instance.url, {
+				body: "too-large",
+				headers: { "content-length": "9" },
+				method: "POST",
+			});
+
+			expect(handlerCalled).toBe(false);
+			expect(response.status).toBe(413);
+			expect(await response.json()).toEqual({
+				error: {
+					code: "E_REQUEST_BODY_TOO_LARGE",
+					message: "Request body exceeds the configured limit of 4 bytes",
+					status: 413,
+				},
+			});
+		} finally {
+			server.stop();
+		}
+	});
+
+	test("renders request timeout exceptions from the fetch pipeline", async () => {
+		const server = new Server({ port: 0 });
+		server.setHandler(
+			new MiddlewarePipeline()
+				.use(RequestTimeout({ ms: 5 }))
+				.toHandler(async () => {
+					await sleep(30);
+					return new Response("late");
+				}),
+		);
+		server.start();
+		const instance = (
+			server as unknown as {
+				server: ReturnType<typeof Bun.serve>;
+			}
+		).server;
+
+		try {
+			const response = await fetch(instance.url);
+
+			expect(response.status).toBe(408);
+			expect(await response.json()).toEqual({
+				error: {
+					code: "E_REQUEST_TIMEOUT",
+					message: "Request exceeded the configured timeout of 5ms",
+					status: 408,
+				},
+			});
+		} finally {
+			server.stop();
+		}
+	});
 });
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}
