@@ -1,4 +1,71 @@
-import type { RequestFormData, RequestFormDataEntry } from "./Server";
+import type { Context, RequestFormData, RequestFormDataEntry } from "./Context";
+
+export type RequestBodyKind = "json" | "form" | "text" | "unknown";
+export type ParseRequestBodyOptions = {
+	readonly parseText?: boolean;
+};
+
+export async function parseRequestBody(
+	ctx: Context,
+	options: ParseRequestBodyOptions = {},
+): Promise<unknown> {
+	if (ctx.body !== undefined) {
+		return ctx.body;
+	}
+
+	if (!ctx.request.body) {
+		return undefined;
+	}
+
+	const contentType = ctx.request.headers.get("content-type") ?? "";
+	const bodyKind = requestBodyKindFromContentType(contentType);
+
+	if (bodyKind === "json") {
+		ctx.body = await ctx.request.json();
+		return ctx.body;
+	}
+
+	if (bodyKind === "form") {
+		const formData = await parseRequestFormData(ctx.request, contentType);
+		ctx.formData = formData;
+		ctx.body = formDataToObject(formData);
+		return ctx.body;
+	}
+
+	if (bodyKind === "text" && options.parseText !== false) {
+		ctx.body = await ctx.request.text();
+		return ctx.body;
+	}
+
+	return undefined;
+}
+
+export function requestMayHaveBody(request: Request): boolean {
+	return (
+		request.method !== "GET" && request.method !== "HEAD" && !!request.body
+	);
+}
+
+export function requestBodyKindFromContentType(
+	contentType: string | null,
+): RequestBodyKind {
+	if (contentType?.includes("application/json")) {
+		return "json";
+	}
+
+	if (
+		contentType?.includes("multipart/form-data") ||
+		contentType?.includes("application/x-www-form-urlencoded")
+	) {
+		return "form";
+	}
+
+	if (contentType?.startsWith("text/")) {
+		return "text";
+	}
+
+	return "unknown";
+}
 
 export async function parseRequestFormData(
 	request: Request,

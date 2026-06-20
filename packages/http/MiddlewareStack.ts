@@ -9,20 +9,28 @@ export function applyMiddlewares(
 		return handler;
 	}
 
-	return async (ctx) => {
-		let index = -1;
-		const dispatch = async (position: number): Promise<Response> => {
-			if (position <= index) {
-				throw new Error("next() called multiple times");
-			}
-			index = position;
-			const middleware = middlewares[position];
-			if (middleware) {
-				return middleware(ctx, () => dispatch(position + 1));
-			}
-			return handler(ctx);
-		};
+	let composed = handler;
 
-		return dispatch(0);
-	};
+	for (let index = middlewares.length - 1; index >= 0; index -= 1) {
+		const middleware = middlewares[index];
+		if (!middleware) {
+			continue;
+		}
+
+		const nextHandler = composed;
+		composed = async (ctx) => {
+			let nextCalled = false;
+
+			return middleware(ctx, async () => {
+				if (nextCalled) {
+					throw new Error("next() called multiple times");
+				}
+
+				nextCalled = true;
+				return nextHandler(ctx);
+			});
+		};
+	}
+
+	return composed;
 }

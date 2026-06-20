@@ -1,5 +1,6 @@
 import { BaseException } from "../core/BaseException";
-import { formDataToObject, parseRequestFormData } from "./Body";
+import { parseRequestBody, requestMayHaveBody } from "./Body";
+import { applyMiddlewares } from "./MiddlewareStack";
 import type { Context } from "./Server";
 
 export type Middleware = (
@@ -30,22 +31,7 @@ export class MiddlewarePipeline {
 	}
 
 	toHandler(handler: MiddlewareHandler): MiddlewareHandler {
-		const middlewares = [...this.middlewares];
-		if (middlewares.length === 0) {
-			return handler;
-		}
-
-		return async (ctx) => {
-			let index = 0;
-			const next = async (): Promise<Response> => {
-				const middleware = middlewares[index++];
-				if (middleware) {
-					return middleware(ctx, next);
-				}
-				return handler(ctx);
-			};
-			return next();
-		};
+		return applyMiddlewares(handler, this.middlewares);
 	}
 }
 
@@ -124,22 +110,10 @@ export const RequestTimeout = (options: RequestTimeoutOptions): Middleware => {
 };
 
 export const BodyParser: Middleware = async (ctx, next) => {
-	if (ctx.request.method === "GET" || ctx.request.method === "HEAD") {
-		return next();
+	if (requestMayHaveBody(ctx.request)) {
+		await parseRequestBody(ctx, { parseText: false });
 	}
 
-	const contentType = ctx.request.headers.get("content-type");
-	if (contentType?.includes("application/json")) {
-		ctx.body = await ctx.request.json();
-	} else if (contentType?.includes("multipart/form-data")) {
-		const formData = await parseRequestFormData(ctx.request, contentType);
-		ctx.formData = formData;
-		ctx.body = formDataToObject(formData);
-	} else if (contentType?.includes("application/x-www-form-urlencoded")) {
-		const formData = await parseRequestFormData(ctx.request, contentType);
-		ctx.formData = formData;
-		ctx.body = formDataToObject(formData);
-	}
 	return next();
 };
 

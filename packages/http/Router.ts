@@ -16,7 +16,11 @@ export {
 	RouteValidationException,
 } from "./RouteValidation";
 
-import { validateRouteRequest } from "./RouteValidation";
+import {
+	compileRouteValidationPlan,
+	type RouteValidationPlan,
+	validateRouteRequest,
+} from "./RouteValidation";
 import type { Context, ContextCore } from "./Server";
 
 export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
@@ -57,12 +61,13 @@ export type Route = {
 	handler: RouteHandler;
 	schema?: RouteSchemaOptions;
 	openapi?: RouteOpenApiOptions;
+	validation?: RouteValidationPlan;
 };
 
 export class Router {
 	private routes: Route[] = [];
 	private exactRoutes: Map<string, Map<string, Route>> = new Map();
-	private dynamicRoutes: Map<string, Route[]> = new Map();
+	private dynamicRoutes: Map<string, Map<number, Route[]>> = new Map();
 	private namedRoutes: Map<string, string> = new Map();
 
 	private addRoute(
@@ -71,7 +76,14 @@ export class Router {
 		handler: RouteHandler,
 	): RouteBuilder {
 		const { pattern, params } = this.pathToRegex(path);
-		const route = { method, path, pattern, params, handler };
+		const route = {
+			method,
+			path,
+			pattern,
+			params,
+			handler,
+			validation: compileRouteValidationPlan({}),
+		};
 		this.routes.push(route);
 		this.indexRoute(route);
 		return new RouteBuilder(this.namedRoutes, route);
@@ -154,7 +166,10 @@ export class Router {
 			return { route: exactRoute, params: {} };
 		}
 
-		for (const route of this.dynamicRoutes.get(method) ?? []) {
+		const routes =
+			this.dynamicRoutes.get(method)?.get(segmentCount(path)) ?? [];
+
+		for (const route of routes) {
 			const match = path.match(route.pattern);
 			if (match) {
 				const params: Record<string, string> = {};
@@ -205,10 +220,17 @@ export class Router {
 			return;
 		}
 
-		const routes = this.dynamicRoutes.get(route.method) ?? [];
+		const routesBySegmentCount =
+			this.dynamicRoutes.get(route.method) ?? new Map();
 		if (!this.dynamicRoutes.has(route.method)) {
-			this.dynamicRoutes.set(route.method, routes);
+			this.dynamicRoutes.set(route.method, routesBySegmentCount);
 		}
+		const routeSegmentCount = segmentCount(route.path);
+		const routes = routesBySegmentCount.get(routeSegmentCount) ?? [];
+		if (!routesBySegmentCount.has(routeSegmentCount)) {
+			routesBySegmentCount.set(routeSegmentCount, routes);
+		}
+
 		routes.push(route);
 	}
 }
@@ -227,11 +249,13 @@ class RouteBuilder {
 
 	openapi(options: RouteOpenApiOptions): this {
 		this.route.openapi = options;
+		this.route.validation = compileRouteValidationPlan(this.route);
 		return this;
 	}
 
 	schema(options: RouteSchemaOptions): this {
 		this.route.schema = mergeRouteSchemas(this.route.schema, options);
+		this.route.validation = compileRouteValidationPlan(this.route);
 		return this;
 	}
 }
@@ -431,4 +455,8 @@ function mergeRouteSchemas(
 			...(next.responses ?? {}),
 		},
 	};
+}
+
+function segmentCount(path: string): number {
+	return path.split("/").filter(Boolean).length;
 }
