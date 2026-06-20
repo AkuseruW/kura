@@ -1,5 +1,5 @@
 import { Schema } from "../validation/Schema";
-import { formDataToObject, parseRequestFormData } from "./Body";
+import { parseRequestBody } from "./Body";
 import { HttpException } from "./ErrorHandler";
 import type {
 	OpenApiSchemaInput,
@@ -36,13 +36,15 @@ export class RouteValidationException extends HttpException {
 	}
 }
 
+export type RouteValidationPlan = Omit<RouteSchemaOptions, "responses">;
+
 export async function validateRouteRequest(
 	route: Route,
 	ctx: Context,
 	params: Record<string, string>,
 	url: URL,
 ): Promise<void> {
-	const schemas = requestSchemasForRoute(route);
+	const schemas = route.validation ?? compileRouteValidationPlan(route);
 	const validated: ValidatedRouteData = { ...(ctx.validated ?? {}) };
 
 	if (schemas.params) {
@@ -81,7 +83,7 @@ export async function validateRouteRequest(
 		validated.body = await validateRequestPart(
 			"body",
 			schemas.body,
-			await requestBody(ctx),
+			await parseRequestBody(ctx),
 		);
 	}
 
@@ -90,9 +92,10 @@ export async function validateRouteRequest(
 	}
 }
 
-function requestSchemasForRoute(
-	route: Route,
-): Omit<RouteSchemaOptions, "responses"> {
+export function compileRouteValidationPlan(route: {
+	readonly schema?: RouteSchemaOptions;
+	readonly openapi?: RouteOpenApiOptions;
+}): RouteValidationPlan {
 	return {
 		params: route.schema?.params,
 		query: route.schema?.query,
@@ -112,36 +115,6 @@ async function validateRequestPart(
 	} catch (error) {
 		throw new RouteValidationException(source, error);
 	}
-}
-
-async function requestBody(ctx: Context): Promise<unknown> {
-	if (ctx.body !== undefined) {
-		return ctx.body;
-	}
-
-	const contentType = ctx.request.headers.get("content-type") ?? "";
-
-	if (contentType.includes("application/json")) {
-		ctx.body = await ctx.request.json();
-		return ctx.body;
-	}
-
-	if (
-		contentType.includes("multipart/form-data") ||
-		contentType.includes("application/x-www-form-urlencoded")
-	) {
-		const formData = await parseRequestFormData(ctx.request, contentType);
-		ctx.formData = formData;
-		ctx.body = formDataToObject(formData);
-		return ctx.body;
-	}
-
-	if (contentType.startsWith("text/")) {
-		ctx.body = await ctx.request.text();
-		return ctx.body;
-	}
-
-	return undefined;
 }
 
 function schemaFromOpenApiBody(

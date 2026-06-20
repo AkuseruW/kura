@@ -83,6 +83,37 @@ describe("Context helpers", () => {
 		expect(ctx.hasState("userId")).toBe(false);
 	});
 
+	test("parses request bodies lazily and caches the parsed value", async () => {
+		const ctx = createContext(
+			new Request("http://localhost/users", {
+				body: JSON.stringify({ name: "Ada" }),
+				headers: { "content-type": "application/json" },
+				method: "POST",
+			}),
+		);
+
+		expect(ctx.bodyValue()).toBeUndefined();
+
+		const parsed = await ctx.parseBody<{ name: string }>();
+
+		expect(parsed).toEqual({ name: "Ada" });
+		expect(ctx.bodyValue<{ name: string }>()).toEqual(parsed);
+		expect(await ctx.parseBody<{ name: string }>()).toEqual(parsed);
+	});
+
+	test("parses form bodies lazily and exposes form data", async () => {
+		const ctx = createContext(
+			new Request("http://localhost/users", {
+				body: "name=Ada",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				method: "POST",
+			}),
+		);
+
+		await expect(ctx.parseBody()).resolves.toEqual({ name: "Ada" });
+		expect(ctx.formData?.get("name")).toBe("Ada");
+	});
+
 	test("enriches existing context objects without replacing them", () => {
 		const raw = {
 			request: new Request("http://localhost/users/1"),

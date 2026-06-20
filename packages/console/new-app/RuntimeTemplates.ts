@@ -148,7 +148,6 @@ export function makeServerEntrypoint(choices: NewAppChoices): string {
 \ttype BunDevelopmentOptions,
 \ttype BunStaticRouteMap,
 \ttype Context,
-\tKuraResponse,
 \tMiddlewarePipeline,
 \tServer,
 } from "kura/http";
@@ -156,7 +155,7 @@ import home from "../resources/pages/home.html";
 import env from "#start/env";
 import { routerMiddleware, serverMiddleware } from "#start/kernel";
 import { router } from "#start/routes";`
-			: `import { type Context, KuraResponse, MiddlewarePipeline, Server } from "kura/http";
+			: `import { type Context, MiddlewarePipeline, Server } from "kura/http";
 import env from "#start/env";
 import { routerMiddleware, serverMiddleware } from "#start/kernel";
 import { router } from "#start/routes";`;
@@ -220,15 +219,7 @@ export function createServer(): Server {
 }
 
 function dispatchRouter(ctx: Context): Response | Promise<Response> {
-\tconst url = new URL(ctx.request.url);
-\tconst match = router.match(ctx.request.method, url.pathname);
-
-\tif (!match) {
-\t\treturn KuraResponse.notFound();
-\t}
-
-\tctx.params = match.params;
-\treturn match.handler(ctx);
+\treturn router.dispatch(ctx);
 }
 
 if (import.meta.main) {

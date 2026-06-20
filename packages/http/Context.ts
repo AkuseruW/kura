@@ -1,3 +1,5 @@
+import { parseRequestBody } from "./Body";
+
 export type RequestFormData = Awaited<
 	ReturnType<typeof Bun.readableStreamToFormData>
 >;
@@ -55,6 +57,7 @@ export type Context = Omit<ContextCore, "state"> & {
 	cookie(): Record<string, string>;
 	cookie(name: string): string | null;
 	cookie(name: string, defaultValue: string): string;
+	parseBody<T = unknown>(): Promise<T | undefined>;
 	bodyValue<T = unknown>(): T | undefined;
 	bodyValue<T>(defaultValue: T): T;
 	validatedData(): ValidatedRouteData | undefined;
@@ -133,6 +136,8 @@ export function ensureContext(ctx: Context | ContextCore): Context {
 
 		return cookies[name] ?? defaultValue ?? null;
 	}) as Context["cookie"];
+	mutable.parseBody = async <T>() =>
+		(await parseRequestBody(mutable as Context)) as T | undefined;
 	mutable.bodyValue = <T>(defaultValue?: T) =>
 		mutable.body === undefined ? defaultValue : (mutable.body as T);
 	mutable.validatedData = <T>(source?: keyof ValidatedRouteData) =>

@@ -78,6 +78,19 @@ describe("MiddlewarePipeline", () => {
 			"after-a",
 		]);
 	});
+
+	test("rejects middleware that calls next more than once", async () => {
+		const handler = new MiddlewarePipeline()
+			.use(async (_ctx, next) => {
+				await next();
+				return next();
+			})
+			.toHandler(() => new Response("ok"));
+
+		await expect(
+			handler(createContext(new Request("http://localhost"))),
+		).rejects.toThrow("next() called multiple times");
+	});
 });
 
 describe("BodyParser", () => {
@@ -123,6 +136,23 @@ describe("BodyParser", () => {
 
 		expect(ctx.formData?.get("name")).toBe("Kura");
 		expect(ctx.body).toEqual({ name: "Kura" });
+	});
+
+	test("leaves text bodies available for handlers", async () => {
+		const ctx: Context = createContext(
+			new Request("http://localhost", {
+				body: "hello",
+				headers: { "content-type": "text/plain" },
+				method: "POST",
+			}),
+		);
+
+		const response = await BodyParser(ctx, async () => {
+			return new Response(await ctx.request.text());
+		});
+
+		expect(ctx.body).toBeUndefined();
+		expect(await response.text()).toBe("hello");
 	});
 });
 

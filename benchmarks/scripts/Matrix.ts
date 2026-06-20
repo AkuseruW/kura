@@ -18,7 +18,12 @@ export type KuraBenchmarkApp = {
 
 export type BaselineBenchmarkApp = {
 	readonly kind: "baseline";
-	readonly name: "bun-raw" | "kura-bare";
+	readonly name:
+		| "bun-raw"
+		| "kura-bare"
+		| "kura-dynamic"
+		| "kura-middleware-heavy"
+		| "kura-validation-heavy";
 	readonly endpoints: readonly BenchmarkEndpoint[];
 	readonly healthPath: string;
 };
@@ -84,6 +89,46 @@ export const baselineBenchmarkApps: readonly BaselineBenchmarkApp[] = [
 			{ label: "health", path: "/health", primary: true },
 			{ label: "home-json", path: "/" },
 			{ label: "api-health", path: "/api/health" },
+		],
+	},
+	{
+		kind: "baseline",
+		name: "kura-dynamic",
+		healthPath: "/health",
+		endpoints: [
+			{ label: "dynamic-early", path: "/tenants/acme/resource-0/items/42" },
+			{
+				label: "dynamic-late",
+				path: "/tenants/acme/resource-999/items/42",
+				primary: true,
+			},
+			{
+				label: "dynamic-miss",
+				path: "/tenants/acme/resource-missing/items/42",
+			},
+			{ label: "health", path: "/health" },
+		],
+	},
+	{
+		kind: "baseline",
+		name: "kura-middleware-heavy",
+		healthPath: "/health",
+		endpoints: [
+			{ label: "middleware-heavy", path: "/middleware", primary: true },
+			{ label: "health", path: "/health" },
+		],
+	},
+	{
+		kind: "baseline",
+		name: "kura-validation-heavy",
+		healthPath: "/health",
+		endpoints: [
+			{
+				label: "validation-query",
+				path: "/users/42?tab=profile",
+				primary: true,
+			},
+			{ label: "health", path: "/health" },
 		],
 	},
 ];

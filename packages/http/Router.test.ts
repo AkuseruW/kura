@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { v } from "../validation/Schema";
 import { createContext } from "./Context";
 import { BaseController, registerController } from "./Controller";
+import { BodyParser } from "./Middleware";
 import { Router, RouteValidationException } from "./Router";
 import type { Context } from "./Server";
 
@@ -41,6 +42,36 @@ describe("Router", () => {
 		);
 
 		expect(await response?.text()).toBe("new");
+	});
+
+	test("preserves dynamic route registration order within matching segments", async () => {
+		const router = new Router();
+		router.get("/:scope/settings", (ctx) => new Response(ctx.param("scope")));
+		router.get("/users/:id", (ctx) => new Response(ctx.param("id")));
+
+		const match = router.match("GET", "/users/settings");
+		const response = await match?.handler(
+			createContext(request, { params: match.params }),
+		);
+
+		expect(match?.params).toEqual({ scope: "users" });
+		expect(await response?.text()).toBe("users");
+	});
+
+	test("keeps exact routes ahead of dynamic routes regardless of order", () => {
+		const router = new Router();
+		router.get("/:scope/settings", () => new Response("dynamic"));
+		router.get("/users/settings", () => new Response("exact"));
+
+		expect(router.match("GET", "/users/settings")?.params).toEqual({});
+	});
+
+	test("does not match dynamic routes with different segment counts", () => {
+		const router = new Router();
+		router.get("/users/:id/settings", () => new Response("ok"));
+
+		expect(router.match("GET", "/users/1")).toBeNull();
+		expect(router.match("GET", "/users/1/settings")).not.toBeNull();
 	});
 
 	test("builds named routes and fails when params are missing", () => {
@@ -229,5 +260,59 @@ describe("Router", () => {
 			}),
 		).rejects.toThrow(RouteValidationException);
 		expect(called).toBe(false);
+	});
+
+	test("does not parse body-less routes before handlers run", async () => {
+		const router = new Router();
+		router.post("/events", () => new Response("accepted"));
+
+		const response = await router.dispatch({
+			request: new Request("http://localhost/events", {
+				body: "{",
+				headers: { "content-type": "application/json" },
+				method: "POST",
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("accepted");
+	});
+
+	test("does not parse bodies for unmatched routes", async () => {
+		const router = new Router();
+
+		const response = await router.dispatch({
+			request: new Request("http://localhost/missing", {
+				body: "{",
+				headers: { "content-type": "application/json" },
+				method: "POST",
+			}),
+		});
+
+		expect(response.status).toBe(404);
+	});
+
+	test("reuses bodies parsed by explicit BodyParser middleware", async () => {
+		const router = new Router();
+		router
+			.group()
+			.middleware(BodyParser)
+			.routes((routes) => {
+				routes
+					.post("/users", (ctx) => Response.json(ctx.validatedBody()))
+					.schema({
+						body: v.object({ name: v.string() }),
+					});
+			});
+
+		const response = await router.dispatch({
+			request: new Request("http://localhost/users", {
+				body: JSON.stringify({ name: "Ada" }),
+				headers: { "content-type": "application/json" },
+				method: "POST",
+			}),
+		});
+
+		expect(await response.json()).toEqual({ name: "Ada" });
 	});
 });
