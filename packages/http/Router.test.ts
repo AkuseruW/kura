@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { v } from "../validation/Schema";
 import { createContext } from "./Context";
 import { BaseController, registerController } from "./Controller";
+import { BadRequestException } from "./ErrorHandler";
 import { BodyParser } from "./Middleware";
 import { Router, RouteValidationException } from "./Router";
 import type { Context } from "./Server";
@@ -259,6 +260,30 @@ describe("Router", () => {
 				}),
 			}),
 		).rejects.toThrow(RouteValidationException);
+		expect(called).toBe(false);
+	});
+
+	test("rejects malformed JSON bodies before schema validation", async () => {
+		const router = new Router();
+		let called = false;
+		router
+			.post("/users", () => {
+				called = true;
+				return Response.json({ ok: true });
+			})
+			.schema({
+				body: v.object({ name: v.string() }),
+			});
+
+		await expect(
+			router.dispatch({
+				request: new Request("http://localhost/users", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: "{",
+				}),
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
 		expect(called).toBe(false);
 	});
 

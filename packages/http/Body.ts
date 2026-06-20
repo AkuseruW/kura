@@ -1,4 +1,6 @@
+import { BaseException } from "../core/BaseException";
 import type { Context, RequestFormData, RequestFormDataEntry } from "./Context";
+import { BadRequestException } from "./ErrorHandler";
 
 export type RequestBodyKind = "json" | "form" | "text" | "unknown";
 export type ParseRequestBodyOptions = {
@@ -21,14 +23,36 @@ export async function parseRequestBody(
 	const bodyKind = requestBodyKindFromContentType(contentType);
 
 	if (bodyKind === "json") {
-		ctx.body = await ctx.request.json();
+		try {
+			ctx.body = await ctx.request.json();
+		} catch (error) {
+			if (error instanceof BaseException) {
+				throw error;
+			}
+
+			throw new BadRequestException("Invalid JSON request body", {
+				code: "E_INVALID_REQUEST_BODY",
+				details: { reason: errorMessage(error) },
+			});
+		}
 		return ctx.body;
 	}
 
 	if (bodyKind === "form") {
-		const formData = await parseRequestFormData(ctx.request, contentType);
-		ctx.formData = formData;
-		ctx.body = formDataToObject(formData);
+		try {
+			const formData = await parseRequestFormData(ctx.request, contentType);
+			ctx.formData = formData;
+			ctx.body = formDataToObject(formData);
+		} catch (error) {
+			if (error instanceof BaseException) {
+				throw error;
+			}
+
+			throw new BadRequestException("Invalid form request body", {
+				code: "E_INVALID_REQUEST_BODY",
+				details: { reason: errorMessage(error) },
+			});
+		}
 		return ctx.body;
 	}
 
@@ -105,4 +129,10 @@ function extractMultipartBoundary(
 	}
 
 	return boundary;
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error
+		? error.message
+		: "Unable to parse request body";
 }
