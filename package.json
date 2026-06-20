@@ -34,6 +34,96 @@
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
 		},
+		"./auth": {
+			"types": "./dist/auth.d.ts",
+			"import": "./dist/auth.js",
+			"default": "./dist/auth.js"
+		},
+		"./cache": {
+			"types": "./dist/cache.d.ts",
+			"import": "./dist/cache.js",
+			"default": "./dist/cache.js"
+		},
+		"./config": {
+			"types": "./dist/config.d.ts",
+			"import": "./dist/config.js",
+			"default": "./dist/config.js"
+		},
+		"./container": {
+			"types": "./dist/container.d.ts",
+			"import": "./dist/container.js",
+			"default": "./dist/container.js"
+		},
+		"./console": {
+			"types": "./dist/console.d.ts",
+			"import": "./dist/console.js",
+			"default": "./dist/console.js"
+		},
+		"./core": {
+			"types": "./dist/core.d.ts",
+			"import": "./dist/core.js",
+			"default": "./dist/core.js"
+		},
+		"./database": {
+			"types": "./dist/database.d.ts",
+			"import": "./dist/database.js",
+			"default": "./dist/database.js"
+		},
+		"./env": {
+			"types": "./dist/env.d.ts",
+			"import": "./dist/env.js",
+			"default": "./dist/env.js"
+		},
+		"./events": {
+			"types": "./dist/events.d.ts",
+			"import": "./dist/events.js",
+			"default": "./dist/events.js"
+		},
+		"./hash": {
+			"types": "./dist/hash.d.ts",
+			"import": "./dist/hash.js",
+			"default": "./dist/hash.js"
+		},
+		"./http": {
+			"types": "./dist/http.d.ts",
+			"import": "./dist/http.js",
+			"default": "./dist/http.js"
+		},
+		"./openapi": {
+			"types": "./dist/openapi.d.ts",
+			"import": "./dist/openapi.js",
+			"default": "./dist/openapi.js"
+		},
+		"./queue": {
+			"types": "./dist/queue.d.ts",
+			"import": "./dist/queue.js",
+			"default": "./dist/queue.js"
+		},
+		"./queue/redis": {
+			"types": "./dist/queue/redis.d.ts",
+			"import": "./dist/queue/redis.js",
+			"default": "./dist/queue/redis.js"
+		},
+		"./queue/sqlite": {
+			"types": "./dist/queue/sqlite.d.ts",
+			"import": "./dist/queue/sqlite.js",
+			"default": "./dist/queue/sqlite.js"
+		},
+		"./testing": {
+			"types": "./dist/testing.d.ts",
+			"import": "./dist/testing.js",
+			"default": "./dist/testing.js"
+		},
+		"./validation": {
+			"types": "./dist/validation.d.ts",
+			"import": "./dist/validation.js",
+			"default": "./dist/validation.js"
+		},
+		"./view": {
+			"types": "./dist/view.d.ts",
+			"import": "./dist/view.js",
+			"default": "./dist/view.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"publishConfig": {

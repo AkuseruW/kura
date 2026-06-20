@@ -48,11 +48,11 @@ Available starter choices include:
 ## Application Code
 
 Generated applications install the framework runtime under the local `kura`
-alias, so app code imports from `"kura"` while the published package remains
-published as `@akuseru_w/kura` on npm.
+alias, while the published package remains `@akuseru_w/kura` on npm.
 
 ```ts
-import { type Context, view } from "kura";
+import type { Context } from "kura/http";
+import { view } from "kura/view";
 
 export class HomeController {
 	async index(_ctx: Context): Promise<Response> {
@@ -66,7 +66,7 @@ export class HomeController {
 Routes are usually declared in `start/routes.ts` and point to controllers.
 
 ```ts
-import { Router } from "kura";
+import { Router } from "kura/http";
 import { HomeController } from "#controllers/home_controller";
 
 export const router = new Router();
@@ -75,6 +75,16 @@ const homeController = new HomeController();
 
 router.get("/", (ctx) => homeController.index(ctx)).as("home");
 router.get("/health", () => Response.json({ status: "up" })).as("health");
+```
+
+Kura keeps the root import stable for compatibility and recommends domain
+entrypoints for smaller, clearer imports.
+
+```ts
+import { Router } from "kura/http";
+import { BaseModel, column } from "kura/database";
+import { v } from "kura/validation";
+import { SQLiteQueueDriver } from "kura/queue/sqlite";
 ```
 
 ## Request Context
@@ -113,7 +123,9 @@ router.get("/users/:id", (ctx) => {
 API and full-stack starters expose OpenAPI docs from the route table.
 
 ```ts
-import { registerOpenApiRoutes, Router, v } from "kura";
+import { Router } from "kura/http";
+import { registerOpenApiRoutes } from "kura/openapi";
+import { v } from "kura/validation";
 
 export const router = new Router();
 
@@ -148,7 +160,7 @@ Route handlers can always return a native `Response`. For common JSON responses,
 Kura also exposes `KuraResponse`.
 
 ```ts
-import { KuraResponse } from "kura";
+import { KuraResponse } from "kura/http";
 
 router.post("/users", async () => {
 	return KuraResponse.created({ id: 1 });
@@ -178,7 +190,7 @@ Expected HTTP failures can be raised with first-party exceptions and rendered by
 the same pipeline used by `Server`, `kura serve`, and the test client.
 
 ```ts
-import { NotFoundException } from "kura";
+import { NotFoundException } from "kura/http";
 
 router.get("/users/:id", () => {
 	throw new NotFoundException("User not found", {
@@ -204,7 +216,7 @@ Kura continues to handle the API, middleware, controllers, and validation.
 
 ```ts
 import home from "../resources/pages/home.html";
-import { type BunStaticRouteMap } from "kura";
+import { type BunStaticRouteMap } from "kura/http";
 
 export const staticRoutes = {
 	"/": home,
@@ -327,7 +339,8 @@ Kura currently includes:
 - Schema validation with type inference
 - Console kernel and generator commands
 - Cache manager with memory, file, and Redis drivers
-- Queue manager with memory, SQLite, and Redis drivers
+- Queue manager with memory driver and explicit SQLite or Redis driver
+  entrypoints
 - Auth guards, access token guard, session guard, JWT guard, and policy helpers
 - Database manager, query builder, migrations, models, factories, and seeders
 - Test client and framework fakes
@@ -335,7 +348,7 @@ Kura currently includes:
 ## Example Validation
 
 ```ts
-import { Schema, v } from "kura";
+import { Schema, v } from "kura/validation";
 
 const createUser = Schema.object({
 	email: v.string().email(),
@@ -354,7 +367,7 @@ const payload = createUser.parse({
 
 ```ts
 import { describe, expect, test } from "bun:test";
-import { createTestClient } from "kura";
+import { createTestClient } from "kura/testing";
 import { router } from "#start/routes";
 
 describe("home", () => {

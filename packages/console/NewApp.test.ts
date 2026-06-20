@@ -300,6 +300,9 @@ describe("new app command", () => {
 			"registerDevToolCommands",
 		);
 		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
+			'from "kura/console"',
+		);
+		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
 			'await import("#start/routes")',
 		);
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
@@ -317,11 +320,19 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/start/env.ts")).toContain(
 			"new Env()",
 		);
+		expect(await readGenerated(root, "demo-api/start/env.ts")).toContain(
+			'from "kura/env"',
+		);
 		const kernel = await readGenerated(root, "demo-api/start/kernel.ts");
 		expect(kernel).toContain("serverMiddleware");
+		expect(kernel).toContain('from "kura/http"');
 		expect(kernel).toContain("BodyLimit({ maxBytes: 1_048_576 })");
 		expect(kernel).toContain("RequestTimeout({ ms: 30_000 })");
 		const apiRoutes = await readGenerated(root, "demo-api/start/routes.ts");
+		expect(apiRoutes).toContain('import { Router } from "kura/http"');
+		expect(apiRoutes).toContain(
+			'import { registerOpenApiRoutes } from "kura/openapi"',
+		);
 		expect(apiRoutes).toContain(
 			'import { ApiController } from "#controllers/api_controller"',
 		);
@@ -361,16 +372,28 @@ describe("new app command", () => {
 		).toContain('framework: "kura"');
 		expect(
 			await readGenerated(root, "demo-api/app/controllers/auth_controller.ts"),
-		).toContain('import { KuraResponse, type Context } from "kura"');
+		).toContain('import { KuraResponse, type Context } from "kura/http"');
 		expect(
 			await readGenerated(root, "demo-api/app/controllers/auth_controller.ts"),
 		).toContain("return KuraResponse.validation");
+		expect(
+			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
+		).toContain('from "kura/auth"');
+		expect(
+			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
+		).toContain('from "kura/hash"');
+		expect(
+			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
+		).toContain('from "kura/http"');
 		expect(
 			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
 		).toContain("AccessTokenManager");
 		expect(
 			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
 		).toContain("async register(");
+		expect(await readGenerated(root, "demo-api/app/models/user.ts")).toContain(
+			'from "kura/database"',
+		);
 		expect(await readGenerated(root, "demo-api/app/models/user.ts")).toContain(
 			"export class User extends BaseModel<UserAttributes>",
 		);
@@ -929,8 +952,14 @@ describe("new app command", () => {
 			await readGenerated(root, "demo-web/app/controllers/home_controller.ts"),
 		).toContain('view("home"');
 		expect(
+			await readGenerated(root, "demo-web/app/controllers/home_controller.ts"),
+		).toContain('from "kura/view"');
+		expect(
 			await readGenerated(root, "demo-web/resources/views/home.kura.html"),
 		).toContain("<p>{{ preset }} app</p>");
+		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
+			'import { Router } from "kura/http"',
+		);
 		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
 			'import { HomeController } from "#controllers/home_controller"',
 		);
@@ -943,6 +972,9 @@ describe("new app command", () => {
 		expect(
 			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
 		).toContain('guard: "session"');
+		expect(
+			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
+		).toContain('from "kura/hash"');
 		expect(
 			await readGenerated(
 				root,

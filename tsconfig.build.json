@@ -7,7 +7,7 @@
 		"noEmit": false,
 		"outDir": "dist"
 	},
-	"include": ["index.ts", "bin/kura.ts", "packages/**/*.ts"],
+	"include": ["*.ts", "bin/kura.ts", "packages/**/*.ts", "queue/**/*.ts"],
 	"exclude": [
 		"dist",
 		"node_modules",

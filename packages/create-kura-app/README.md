@@ -26,7 +26,7 @@ The generated app aliases the runtime dependency to `kura`, while the published
 framework package is `@akuseru_w/kura`.
 
 ```ts
-import { Router } from "kura";
+import { Router } from "kura/http";
 ```
 
 ## Interactive Setup

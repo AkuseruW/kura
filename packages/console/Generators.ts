@@ -435,7 +435,7 @@ export class ${input.className} {
 
 			const tableName = tableNameFromModel(input.baseName);
 
-			return `import { BaseModel, column } from "kura";
+			return `import { BaseModel, column } from "kura/database";
 
 export type ${input.className}Attributes = Record<string, unknown> & {
 \tid?: number;
@@ -458,7 +458,7 @@ export class ${input.className} extends BaseModel<${input.className}Attributes> 
 		modular: true,
 		makeContent: (
 			input,
-		) => `import { BaseController, type Context } from "kura";
+		) => `import { BaseController, type Context } from "kura/http";
 
 export class ${input.className} extends BaseController {
 \tasync index(_ctx: Context): Promise<Response> {
@@ -472,7 +472,7 @@ export class ${input.className} extends BaseController {
 		description: "Create HTTP middleware",
 		suffix: "Middleware",
 		directory: "app/middleware",
-		makeContent: (input) => `import type { Middleware } from "kura";
+		makeContent: (input) => `import type { Middleware } from "kura/http";
 
 export const ${input.className}: Middleware = async (_ctx, next) => {
 \treturn next();
@@ -485,7 +485,7 @@ export const ${input.className}: Middleware = async (_ctx, next) => {
 		suffix: "Validator",
 		directory: "app/validators",
 		modular: true,
-		makeContent: (input) => `import { v } from "kura";
+		makeContent: (input) => `import { v } from "kura/validation";
 
 export const ${camelCase(input.className)} = v.object({});
 `,
@@ -498,7 +498,7 @@ export const ${camelCase(input.className)} = v.object({});
 		makeContent: (input) => {
 			const tableName = migrationTableName(input);
 
-			return `import { Migration, type SchemaBuilder } from "kura";
+			return `import { Migration, type SchemaBuilder } from "kura/database";
 
 export default class ${input.className} extends Migration {
 \toverride up(schema: SchemaBuilder): void {
@@ -520,7 +520,9 @@ export default class ${input.className} extends Migration {
 		description: "Create a database seeder",
 		suffix: "Seeder",
 		directory: "database/seeders",
-		makeContent: (input) => `import { Seeder, type SeederContext } from "kura";
+		makeContent: (
+			input,
+		) => `import { Seeder, type SeederContext } from "kura/database";
 
 export default class ${input.className} extends Seeder {
 \toverride async run(_ctx: SeederContext): Promise<void> {}
@@ -537,7 +539,7 @@ export default class ${input.className} extends Seeder {
 			const factoryModelName =
 				input.architecture === "domain" ? `${modelName}Record` : modelName;
 
-			return `import { defineFactory } from "kura";
+			return `import { defineFactory } from "kura/database";
 import { ${factoryModelName} } from "${modelImportPath(input, modelName)}";
 
 export const ${camelCase(input.className)} = defineFactory(${factoryModelName}, ({ sequence }) => ({
@@ -551,7 +553,7 @@ export const ${camelCase(input.className)} = defineFactory(${factoryModelName}, 
 		description: "Create an event class",
 		suffix: "Event",
 		directory: "app/events",
-		makeContent: (input) => `import { Event } from "kura";
+		makeContent: (input) => `import { Event } from "kura/events";
 
 export type ${input.className}Payload = Record<string, unknown>;
 
@@ -567,7 +569,7 @@ export class ${input.className} extends Event<${input.className}Payload> {
 		description: "Create an event listener",
 		suffix: "Listener",
 		directory: "app/listeners",
-		makeContent: (input) => `import type { Event } from "kura";
+		makeContent: (input) => `import type { Event } from "kura/events";
 
 export class ${input.className} {
 \tasync handle(_event: Event<Record<string, unknown>>): Promise<void> {}
@@ -579,7 +581,7 @@ export class ${input.className} {
 		description: "Create a queue job",
 		suffix: "Job",
 		directory: "app/jobs",
-		makeContent: (input) => `import { Job, type JobContext } from "kura";
+		makeContent: (input) => `import { Job, type JobContext } from "kura/queue";
 
 export type ${input.className}Payload = Record<string, unknown>;
 
@@ -615,7 +617,8 @@ export class ${input.className} {
 		description: "Create an authorization policy",
 		suffix: "Policy",
 		directory: "app/policies",
-		makeContent: (input) => `import { BasePolicy, type Context } from "kura";
+		makeContent: (input) => `import { BasePolicy } from "kura/auth";
+import type { Context } from "kura/http";
 
 export class ${input.className} extends BasePolicy {
 \toverride view(_user: unknown, _resource?: unknown, _ctx?: Context): boolean {
