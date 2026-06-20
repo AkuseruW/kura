@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createContext } from "./Context";
+import { BadRequestException } from "./ErrorHandler";
 import {
 	BodyLimit,
 	BodyParser,
@@ -106,6 +107,20 @@ describe("BodyParser", () => {
 		await BodyParser(ctx, async () => new Response("ok"));
 
 		expect(ctx.body).toEqual({ name: "Kura" });
+	});
+
+	test("rejects invalid JSON bodies as bad requests", async () => {
+		const ctx: Context = createContext(
+			new Request("http://localhost", {
+				body: "{",
+				headers: { "content-type": "application/json" },
+				method: "POST",
+			}),
+		);
+
+		await expect(
+			BodyParser(ctx, async () => new Response("ok")),
+		).rejects.toBeInstanceOf(BadRequestException);
 	});
 
 	test("parses urlencoded bodies", async () => {
