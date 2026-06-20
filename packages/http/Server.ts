@@ -1,6 +1,10 @@
 import type { Serve } from "bun";
-import { BaseException } from "../core/BaseException";
 import { type Context, createContext } from "./Context";
+import {
+	type HttpErrorHandler,
+	type HttpErrorHandlerInput,
+	resolveHttpErrorHandler,
+} from "./ErrorHandler";
 import { KuraResponse } from "./Response";
 import type { Router } from "./Router";
 
@@ -27,15 +31,21 @@ export type ServerOptions = {
 	readonly hostname?: string;
 	readonly staticRoutes?: BunStaticRouteMap;
 	readonly development?: BunDevelopmentOptions;
+	readonly environment?: string;
+	readonly errorHandler?: HttpErrorHandlerInput;
 };
 
 export class Server {
 	private server: ReturnType<typeof Bun.serve> | null = null;
 	private handler: Handler = () => KuraResponse.notFound();
+	private readonly errorHandler: HttpErrorHandler;
 	private staticRoutes: BunStaticRouteMap | undefined;
 
 	constructor(private options: ServerOptions) {
 		this.staticRoutes = options.staticRoutes;
+		this.errorHandler = resolveHttpErrorHandler(options.errorHandler, {
+			debug: options.environment === "development",
+		});
 	}
 
 	setHandler(handler: Handler): void {
@@ -57,14 +67,16 @@ export class Server {
 			routes: this.staticRoutes,
 			development: this.options.development,
 			fetch: async (request) => {
+				let ctx: Context | undefined;
 				try {
-					const ctx = createContext(request);
+					ctx = createContext(request);
 					return await this.handler(ctx);
 				} catch (error) {
-					if (error instanceof BaseException) {
-						return KuraResponse.exception(error);
-					}
-					return KuraResponse.internalServerError();
+					return this.errorHandler(error, {
+						context: ctx,
+						environment: this.options.environment,
+						request,
+					});
 				}
 			},
 		} satisfies Serve.Options<undefined, string>;

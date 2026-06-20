@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BaseException } from "../core/BaseException";
 import { createContext } from "./Context";
+import { InternalServerErrorException } from "./ErrorHandler";
 import { BodyLimit, MiddlewarePipeline, RequestTimeout } from "./Middleware";
 import { Router } from "./Router";
 import type { Context } from "./Server";
@@ -103,6 +104,46 @@ describe("Server", () => {
 					message: "Policy denied",
 					status: 403,
 				},
+			});
+		} finally {
+			server.stop();
+		}
+	});
+
+	test("uses a configured error handler from the fetch pipeline", async () => {
+		const server = new Server({
+			port: 0,
+			errorHandler: {
+				render: (_error, normalized) =>
+					Response.json(
+						{
+							code: normalized.code,
+							message: normalized.message,
+						},
+						{ status: normalized.status },
+					),
+			},
+		});
+		server.setHandler(() => {
+			throw new InternalServerErrorException("Database failed", {
+				code: "E_DATABASE_FAILED",
+				expose: true,
+			});
+		});
+		server.start();
+		const instance = (
+			server as unknown as {
+				server: ReturnType<typeof Bun.serve>;
+			}
+		).server;
+
+		try {
+			const response = await fetch(instance.url);
+
+			expect(response.status).toBe(500);
+			expect(await response.json()).toEqual({
+				code: "E_DATABASE_FAILED",
+				message: "Database failed",
 			});
 		} finally {
 			server.stop();

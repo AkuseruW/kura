@@ -167,6 +167,47 @@ describe("serve console command", () => {
 		expect(output.text()).toContain("GET /docs?ui=scalar 200 3ms");
 	});
 
+	test("renders handler errors through the configured error handler", async () => {
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		const fake = fakeServerFactory();
+		registerServeCommand(console, {
+			handler: () => {
+				throw new Error("boom");
+			},
+			errorHandler: {
+				render: (_error, normalized) =>
+					Response.json(
+						{ code: normalized.code, handled: true },
+						{ status: normalized.status },
+					),
+			},
+			serverFactory: fake.factory,
+			keepAlive: false,
+			clock: fakeClock(0, 7, 20, 23),
+			environment: "testing",
+		});
+
+		expect(await console.run(["serve"])).toBe(0);
+
+		const response = await fake.starts[0]?.handler(
+			testContext("http://localhost/fail", {
+				method: "GET",
+			}),
+		);
+
+		if (!response) {
+			throw new Error("Expected fake server response");
+		}
+
+		expect(response.status).toBe(500);
+		await expect(response.json()).resolves.toEqual({
+			code: "E_INTERNAL_SERVER_ERROR",
+			handled: true,
+		});
+		expect(output.text()).toContain("GET /fail 500 3ms");
+	});
+
 	test("can disable HTTP request logs", async () => {
 		const output = new MemoryConsoleOutput();
 		const console = new ConsoleKernel(output);

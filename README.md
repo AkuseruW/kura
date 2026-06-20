@@ -174,6 +174,22 @@ Framework-generated JSON errors use a stable shape.
 Helpers also cover `noContent()`, `redirect()`, `download()`, `validation()`,
 and `problem()` for `application/problem+json` responses.
 
+Expected HTTP failures can be raised with first-party exceptions and rendered by
+the same pipeline used by `Server`, `kura serve`, and the test client.
+
+```ts
+import { NotFoundException } from "kura";
+
+router.get("/users/:id", () => {
+	throw new NotFoundException("User not found", {
+		details: { resource: "users" },
+	});
+});
+```
+
+Use `createHttpErrorHandler()` when an app needs a custom renderer while keeping
+Kura's normalization for status codes and framework exceptions.
+
 For web apps, views live in `resources/views` and use the `.kura.html`
 extension.
 

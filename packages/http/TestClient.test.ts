@@ -249,6 +249,31 @@ describe("TestClient", () => {
 		});
 	});
 
+	test("uses configured error handlers like the server pipeline", async () => {
+		const client = createTestClient(
+			() => {
+				throw new Error("not exposed");
+			},
+			{
+				errorHandler: {
+					render: (_error, normalized) =>
+						Response.json(
+							{ handled: true, status: normalized.status },
+							{ status: normalized.status },
+						),
+				},
+			},
+		);
+
+		const response = await client.get("/fail");
+
+		expect(response.status).toBe(500);
+		await expect(response.json()).resolves.toEqual({
+			handled: true,
+			status: 500,
+		});
+	});
+
 	test("returns 404 when no route matches", async () => {
 		const client = createTestClient(new Router());
 
