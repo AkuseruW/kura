@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { v } from "../validator/Schema";
+import { v } from "../validation/Schema";
 import { createContext } from "./Context";
 import { BaseController, registerController } from "./Controller";
 import { Router, RouteValidationException } from "./Router";

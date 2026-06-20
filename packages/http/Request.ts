@@ -1,4 +1,4 @@
-import type { Schema } from "../validator/Schema";
+import type { Schema } from "../validation/Schema";
 import { formDataToObject, parseRequestFormData } from "./Body";
 import type { RequestFormData } from "./Server";
 

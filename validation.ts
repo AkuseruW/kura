@@ -5,4 +5,4 @@ export {
 	Schema,
 	type SchemaDescription,
 	v,
-} from "./packages/validator/Schema";
+} from "./packages/validation/Schema";

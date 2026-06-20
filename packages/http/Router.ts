@@ -1,20 +1,23 @@
-import { Schema } from "../validator/Schema";
-import { formDataToObject, parseRequestFormData } from "./Body";
+import type { Schema } from "../validation/Schema";
 import { ensureContext } from "./Context";
 import {
 	type ControllerConstructor,
 	getControllerMiddleware,
 	resolveController,
 } from "./Controller";
-import { HttpException } from "./ErrorHandler";
 import type { Middleware } from "./Middleware";
-import type {
-	OpenApiSchemaInput,
-	RouteOpenApiBodyObject,
-	RouteOpenApiOptions,
-} from "./OpenApi";
+import { applyMiddlewares } from "./MiddlewareStack";
+import type { RouteOpenApiOptions } from "./OpenApi";
 import { KuraResponse } from "./Response";
-import type { Context, ContextCore, ValidatedRouteData } from "./Server";
+import { escapeRegex, joinPaths, normalizePath } from "./RoutePath";
+
+export {
+	type RouteValidationErrorDetails,
+	RouteValidationException,
+} from "./RouteValidation";
+
+import { validateRouteRequest } from "./RouteValidation";
+import type { Context, ContextCore } from "./Server";
 
 export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
 export type RouteSchemaOptions = {
@@ -45,7 +48,7 @@ export type ResourceController = {
 export type ResourceAction = "index" | "show" | "store" | "update" | "destroy";
 type ResourceControllerInput = ResourceController | string;
 
-type Route = {
+export type Route = {
 	method: string;
 	path: string;
 	name?: string;
@@ -55,33 +58,6 @@ type Route = {
 	schema?: RouteSchemaOptions;
 	openapi?: RouteOpenApiOptions;
 };
-
-export type RouteValidationErrorDetails = {
-	readonly source: keyof ValidatedRouteData;
-	readonly message: string;
-	readonly errors: readonly {
-		readonly source: keyof ValidatedRouteData;
-		readonly message: string;
-	}[];
-};
-
-export class RouteValidationException extends HttpException {
-	constructor(
-		public readonly source: keyof ValidatedRouteData,
-		error: unknown,
-	) {
-		const message = errorMessage(error);
-		super(`Validation failed for request ${source}: ${message}`, {
-			code: "E_ROUTE_VALIDATION",
-			details: {
-				source,
-				message,
-				errors: [{ source, message }],
-			} satisfies RouteValidationErrorDetails,
-			status: 422,
-		});
-	}
-}
 
 export class Router {
 	private routes: Route[] = [];
@@ -443,175 +419,6 @@ class GroupRouteBuilder {
 	}
 }
 
-async function validateRouteRequest(
-	route: Route,
-	ctx: Context,
-	params: Record<string, string>,
-	url: URL,
-): Promise<void> {
-	const schemas = requestSchemasForRoute(route);
-	const validated: ValidatedRouteData = { ...(ctx.validated ?? {}) };
-
-	if (schemas.params) {
-		validated.params = await validateRequestPart(
-			"params",
-			schemas.params,
-			params,
-		);
-	}
-
-	if (schemas.query) {
-		validated.query = await validateRequestPart(
-			"query",
-			schemas.query,
-			searchParamsToObject(url.searchParams),
-		);
-	}
-
-	if (schemas.headers) {
-		validated.headers = await validateRequestPart(
-			"headers",
-			schemas.headers,
-			headersToObject(ctx.request.headers),
-		);
-	}
-
-	if (schemas.cookies) {
-		validated.cookies = await validateRequestPart(
-			"cookies",
-			schemas.cookies,
-			cookiesToObject(ctx.request.headers.get("cookie")),
-		);
-	}
-
-	if (schemas.body) {
-		validated.body = await validateRequestPart(
-			"body",
-			schemas.body,
-			await requestBody(ctx),
-		);
-	}
-
-	if (Object.keys(validated).length > 0) {
-		ctx.validated = validated;
-	}
-}
-
-function requestSchemasForRoute(
-	route: Route,
-): Omit<RouteSchemaOptions, "responses"> {
-	return {
-		params: route.schema?.params,
-		query: route.schema?.query,
-		headers: route.schema?.headers,
-		cookies: route.schema?.cookies,
-		body: route.schema?.body ?? schemaFromOpenApiBody(route.openapi?.body),
-	};
-}
-
-async function validateRequestPart(
-	source: keyof ValidatedRouteData,
-	schema: Schema<unknown>,
-	value: unknown,
-): Promise<unknown> {
-	try {
-		return await schema.parseAsync(value);
-	} catch (error) {
-		throw new RouteValidationException(source, error);
-	}
-}
-
-async function requestBody(ctx: Context): Promise<unknown> {
-	if (ctx.body !== undefined) {
-		return ctx.body;
-	}
-
-	const contentType = ctx.request.headers.get("content-type") ?? "";
-
-	if (contentType.includes("application/json")) {
-		ctx.body = await ctx.request.json();
-		return ctx.body;
-	}
-
-	if (
-		contentType.includes("multipart/form-data") ||
-		contentType.includes("application/x-www-form-urlencoded")
-	) {
-		const formData = await parseRequestFormData(ctx.request, contentType);
-		ctx.formData = formData;
-		ctx.body = formDataToObject(formData);
-		return ctx.body;
-	}
-
-	if (contentType.startsWith("text/")) {
-		ctx.body = await ctx.request.text();
-		return ctx.body;
-	}
-
-	return undefined;
-}
-
-function schemaFromOpenApiBody(
-	body: RouteOpenApiOptions["body"] | undefined,
-): Schema<unknown> | undefined {
-	if (body instanceof Schema) {
-		return body;
-	}
-
-	if (isRouteOpenApiBodyObject(body) && body.schema instanceof Schema) {
-		return body.schema;
-	}
-
-	return undefined;
-}
-
-function searchParamsToObject(
-	searchParams: URLSearchParams,
-): Record<string, string | readonly string[]> {
-	const output: Record<string, string | readonly string[]> = {};
-
-	for (const [key, value] of searchParams) {
-		const current = output[key];
-
-		if (current === undefined) {
-			output[key] = value;
-		} else if (typeof current === "string") {
-			output[key] = [current, value];
-		} else {
-			output[key] = [...current, value];
-		}
-	}
-
-	return output;
-}
-
-function headersToObject(headers: Headers): Record<string, string> {
-	const output: Record<string, string> = {};
-
-	for (const [key, value] of headers) {
-		output[key.toLowerCase()] = value;
-	}
-
-	return output;
-}
-
-function cookiesToObject(cookieHeader: string | null): Record<string, string> {
-	const output: Record<string, string> = {};
-
-	for (const cookie of cookieHeader?.split(";") ?? []) {
-		const [rawName, ...valueParts] = cookie.split("=");
-		const name = rawName?.trim();
-
-		if (!name) {
-			continue;
-		}
-
-		output[name] = decodeURIComponent(valueParts.join("=").trim());
-	}
-
-	return output;
-}
-
 function mergeRouteSchemas(
 	current: RouteSchemaOptions | undefined,
 	next: RouteSchemaOptions,
@@ -623,72 +430,5 @@ function mergeRouteSchemas(
 			...(current?.responses ?? {}),
 			...(next.responses ?? {}),
 		},
-	};
-}
-
-function isRouteOpenApiBodyObject(
-	value: RouteOpenApiOptions["body"] | undefined,
-): value is RouteOpenApiBodyObject {
-	return (
-		!(value instanceof Schema) &&
-		isRecord(value) &&
-		"schema" in value &&
-		isOpenApiSchemaInput(value.schema)
-	);
-}
-
-function isOpenApiSchemaInput(value: unknown): value is OpenApiSchemaInput {
-	return value instanceof Schema || isRecord(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : "validation failed";
-}
-
-function escapeRegex(value: string): string {
-	return value.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function normalizePath(path: string): string {
-	const trimmed = path.replace(/^\/+|\/+$/g, "");
-	return trimmed ? `/${trimmed}` : "";
-}
-
-function joinPaths(prefix: string, path: string): string {
-	const normalizedPrefix = normalizePath(prefix);
-	const normalizedPath = normalizePath(path);
-	if (!normalizedPrefix && !normalizedPath) {
-		return "/";
-	}
-	return `${normalizedPrefix}${normalizedPath}`;
-}
-
-function applyMiddlewares(
-	handler: RouteHandler,
-	middlewares: Middleware[],
-): RouteHandler {
-	if (middlewares.length === 0) {
-		return handler;
-	}
-
-	return async (ctx) => {
-		let index = -1;
-		const dispatch = async (position: number): Promise<Response> => {
-			if (position <= index) {
-				throw new Error("next() called multiple times");
-			}
-			index = position;
-			const middleware = middlewares[position];
-			if (middleware) {
-				return middleware(ctx, () => dispatch(position + 1));
-			}
-			return handler(ctx);
-		};
-
-		return dispatch(0);
 	};
 }
