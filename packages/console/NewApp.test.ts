@@ -317,9 +317,10 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/start/env.ts")).toContain(
 			"new Env()",
 		);
-		expect(await readGenerated(root, "demo-api/start/kernel.ts")).toContain(
-			"serverMiddleware",
-		);
+		const kernel = await readGenerated(root, "demo-api/start/kernel.ts");
+		expect(kernel).toContain("serverMiddleware");
+		expect(kernel).toContain("BodyLimit({ maxBytes: 1_048_576 })");
+		expect(kernel).toContain("RequestTimeout({ ms: 30_000 })");
 		const apiRoutes = await readGenerated(root, "demo-api/start/routes.ts");
 		expect(apiRoutes).toContain(
 			'import { ApiController } from "#controllers/api_controller"',
