@@ -114,7 +114,7 @@ describe("TestClient", () => {
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual({
 			name: "Ada",
-			roles: "editor",
+			roles: ["admin", "editor"],
 		});
 	});
 

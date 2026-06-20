@@ -202,8 +202,11 @@ describe("Router", () => {
 					body: ctx.validatedBody(),
 					cookies: ctx.validatedCookies(),
 					headers: ctx.validatedHeaders(),
+					input: ctx.input("name"),
+					raw: ctx.raw(),
 					params: ctx.validatedParams(),
 					query: ctx.validatedQuery(),
+					type: ctx.bodyType,
 				}),
 			)
 			.schema({
@@ -234,8 +237,11 @@ describe("Router", () => {
 				cookie: "session=abc123",
 				"x-tenant": "acme",
 			},
+			input: "Ada",
+			raw: JSON.stringify({ name: "Ada" }),
 			cookies: { session: "abc123" },
 			body: { name: "Ada" },
+			type: "json",
 		});
 	});
 

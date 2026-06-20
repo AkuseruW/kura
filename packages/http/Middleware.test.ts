@@ -107,6 +107,8 @@ describe("BodyParser", () => {
 		await BodyParser(ctx, async () => new Response("ok"));
 
 		expect(ctx.body).toEqual({ name: "Kura" });
+		expect(ctx.bodyType).toBe("json");
+		expect(ctx.raw()).toBe(JSON.stringify({ name: "Kura" }));
 	});
 
 	test("rejects invalid JSON bodies as bad requests", async () => {
@@ -123,10 +125,25 @@ describe("BodyParser", () => {
 		).rejects.toBeInstanceOf(BadRequestException);
 	});
 
+	test("parses JSON vendor content types", async () => {
+		const ctx: Context = createContext(
+			new Request("http://localhost", {
+				body: JSON.stringify({ name: "Kura" }),
+				headers: { "content-type": "application/vnd.api+json" },
+				method: "POST",
+			}),
+		);
+
+		await BodyParser(ctx, async () => new Response("ok"));
+
+		expect(ctx.body).toEqual({ name: "Kura" });
+		expect(ctx.bodyType).toBe("json");
+	});
+
 	test("parses urlencoded bodies", async () => {
 		const ctx: Context = createContext(
 			new Request("http://localhost", {
-				body: "name=Kura&debug=true",
+				body: "name=Kura&debug=true&tag=http&tag=dx",
 				headers: { "content-type": "application/x-www-form-urlencoded" },
 				method: "POST",
 			}),
@@ -134,7 +151,14 @@ describe("BodyParser", () => {
 
 		await BodyParser(ctx, async () => new Response("ok"));
 
-		expect(ctx.body).toEqual({ debug: "true", name: "Kura" });
+		expect(ctx.body).toEqual({
+			debug: "true",
+			name: "Kura",
+			tag: ["http", "dx"],
+		});
+		expect(ctx.bodyType).toBe("urlencoded");
+		expect(ctx.raw()).toBe("name=Kura&debug=true&tag=http&tag=dx");
+		expect(ctx.formData?.get("name")).toBe("Kura");
 	});
 
 	test("parses multipart bodies and exposes formData", async () => {
@@ -149,6 +173,7 @@ describe("BodyParser", () => {
 
 		await BodyParser(ctx, async () => new Response("ok"));
 
+		expect(ctx.bodyType).toBe("multipart");
 		expect(ctx.formData?.get("name")).toBe("Kura");
 		expect(ctx.body).toEqual({ name: "Kura" });
 	});
@@ -167,6 +192,8 @@ describe("BodyParser", () => {
 		});
 
 		expect(ctx.body).toBeUndefined();
+		expect(ctx.bodyType).toBe("text");
+		expect(ctx.raw()).toBeNull();
 		expect(await response.text()).toBe("hello");
 	});
 });

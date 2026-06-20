@@ -37,6 +37,28 @@ describe("Context helpers", () => {
 			theme: "dark mode",
 		});
 		expect(ctx.bodyValue<{ name: string }>()?.name).toBe("Ada");
+		expect(ctx.input<string>("name")).toBe("Ada");
+		expect(ctx.input<string>("tab")).toBe("profile");
+		expect(ctx.input("missing", "fallback")).toBe("fallback");
+		expect(ctx.all()).toEqual({
+			name: "Ada",
+			tab: "profile",
+			tag: ["a", "b"],
+		});
+		expect(ctx.raw()).toBeNull();
+	});
+
+	test("reads input values through nested object paths", () => {
+		const ctx = createContext(new Request("http://localhost"), {
+			body: {
+				user: {
+					email: "ada@example.com",
+				},
+			},
+		});
+
+		expect(ctx.input<string>("user.email")).toBe("ada@example.com");
+		expect(ctx.input("user.missing", "fallback")).toBe("fallback");
 	});
 
 	test("reads validated data and request-local state", () => {
@@ -97,6 +119,8 @@ describe("Context helpers", () => {
 		const parsed = await ctx.parseBody<{ name: string }>();
 
 		expect(parsed).toEqual({ name: "Ada" });
+		expect(ctx.bodyType).toBe("json");
+		expect(ctx.raw()).toBe(JSON.stringify({ name: "Ada" }));
 		expect(ctx.bodyValue<{ name: string }>()).toEqual(parsed);
 		expect(await ctx.parseBody<{ name: string }>()).toEqual(parsed);
 	});
@@ -111,7 +135,23 @@ describe("Context helpers", () => {
 		);
 
 		await expect(ctx.parseBody()).resolves.toEqual({ name: "Ada" });
+		expect(ctx.bodyType).toBe("urlencoded");
+		expect(ctx.raw()).toBe("name=Ada");
 		expect(ctx.formData?.get("name")).toBe("Ada");
+	});
+
+	test("parses text bodies lazily when requested by handlers", async () => {
+		const ctx = createContext(
+			new Request("http://localhost/messages", {
+				body: "hello",
+				headers: { "content-type": "text/plain" },
+				method: "POST",
+			}),
+		);
+
+		await expect(ctx.parseBody()).resolves.toBe("hello");
+		expect(ctx.bodyType).toBe("text");
+		expect(ctx.raw()).toBe("hello");
 	});
 
 	test("enriches existing context objects without replacing them", () => {
