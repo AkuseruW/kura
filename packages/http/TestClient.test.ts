@@ -133,6 +133,16 @@ describe("TestClient", () => {
 		await expect(response.json()).resolves.toEqual({
 			error: {
 				code: "E_ROUTE_VALIDATION",
+				details: {
+					errors: [
+						{
+							message: "Validation failed for object",
+							source: "body",
+						},
+					],
+					message: "Validation failed for object",
+					source: "body",
+				},
 				message:
 					"Validation failed for request body: Validation failed for object",
 				status: 422,

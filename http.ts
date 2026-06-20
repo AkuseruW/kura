@@ -71,6 +71,7 @@ export {
 	type RouteHandler,
 	Router,
 	type RouteSchemaOptions,
+	type RouteValidationErrorDetails,
 	RouteValidationException,
 } from "./packages/http/Router";
 export {

@@ -168,10 +168,10 @@ describe("Router", () => {
 			.post("/users/:id", (ctx) =>
 				Response.json({
 					body: ctx.validatedBody(),
-					cookies: ctx.validatedData("cookies"),
-					headers: ctx.validatedData("headers"),
-					params: ctx.validatedData("params"),
-					query: ctx.validatedData("query"),
+					cookies: ctx.validatedCookies(),
+					headers: ctx.validatedHeaders(),
+					params: ctx.validatedParams(),
+					query: ctx.validatedQuery(),
 				}),
 			)
 			.schema({

@@ -59,6 +59,10 @@ export type Context = Omit<ContextCore, "state"> & {
 	bodyValue<T>(defaultValue: T): T;
 	validatedData(): ValidatedRouteData | undefined;
 	validatedData<T = unknown>(source: keyof ValidatedRouteData): T | undefined;
+	validatedParams<T = unknown>(): T | undefined;
+	validatedQuery<T = unknown>(): T | undefined;
+	validatedHeaders<T = unknown>(): T | undefined;
+	validatedCookies<T = unknown>(): T | undefined;
 	validatedBody<T = unknown>(): T | undefined;
 	getState<T = unknown>(key: string): T | undefined;
 	getState<T>(key: string, defaultValue: T): T;
@@ -135,6 +139,12 @@ export function ensureContext(ctx: Context | ContextCore): Context {
 		source === undefined
 			? mutable.validated
 			: (mutable.validated?.[source] as T | undefined);
+	mutable.validatedParams = <T>() => mutable.validated?.params as T | undefined;
+	mutable.validatedQuery = <T>() => mutable.validated?.query as T | undefined;
+	mutable.validatedHeaders = <T>() =>
+		mutable.validated?.headers as T | undefined;
+	mutable.validatedCookies = <T>() =>
+		mutable.validated?.cookies as T | undefined;
 	mutable.validatedBody = <T>() => mutable.validated?.body as T | undefined;
 	mutable.getState = <T>(key: string, defaultValue?: T) =>
 		mutable.state?.has(key)

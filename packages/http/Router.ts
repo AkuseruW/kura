@@ -1,4 +1,3 @@
-import { BaseException } from "../core/BaseException";
 import { Schema } from "../validator/Schema";
 import { formDataToObject, parseRequestFormData } from "./Body";
 import { ensureContext } from "./Context";
@@ -7,6 +6,7 @@ import {
 	getControllerMiddleware,
 	resolveController,
 } from "./Controller";
+import { HttpException } from "./ErrorHandler";
 import type { Middleware } from "./Middleware";
 import type {
 	OpenApiSchemaInput,
@@ -56,16 +56,30 @@ type Route = {
 	openapi?: RouteOpenApiOptions;
 };
 
-export class RouteValidationException extends BaseException {
+export type RouteValidationErrorDetails = {
+	readonly source: keyof ValidatedRouteData;
+	readonly message: string;
+	readonly errors: readonly {
+		readonly source: keyof ValidatedRouteData;
+		readonly message: string;
+	}[];
+};
+
+export class RouteValidationException extends HttpException {
 	constructor(
 		public readonly source: keyof ValidatedRouteData,
 		error: unknown,
 	) {
-		super(
-			`Validation failed for request ${source}: ${errorMessage(error)}`,
-			"E_ROUTE_VALIDATION",
-			422,
-		);
+		const message = errorMessage(error);
+		super(`Validation failed for request ${source}: ${message}`, {
+			code: "E_ROUTE_VALIDATION",
+			details: {
+				source,
+				message,
+				errors: [{ source, message }],
+			} satisfies RouteValidationErrorDetails,
+			status: 422,
+		});
 	}
 }
 
