@@ -1,3 +1,4 @@
+import type { RequestBodyType } from "./Body";
 import { parseRequestBody } from "./Body";
 
 export type RequestFormData = Awaited<
@@ -29,7 +30,9 @@ export type ContextCore = {
 	request: Request;
 	params?: Record<string, string>;
 	body?: unknown;
+	bodyType?: RequestBodyType;
 	formData?: RequestFormData;
+	rawBody?: string;
 	validated?: ValidatedRouteData;
 	requestId?: string;
 	timeoutSignal?: AbortSignal;
@@ -60,6 +63,10 @@ export type Context = Omit<ContextCore, "state"> & {
 	parseBody<T = unknown>(): Promise<T | undefined>;
 	bodyValue<T = unknown>(): T | undefined;
 	bodyValue<T>(defaultValue: T): T;
+	raw(): string | null;
+	input<T = unknown>(key: string): T | undefined;
+	input<T>(key: string, defaultValue: T): T;
+	all(): Record<string, unknown>;
 	validatedData(): ValidatedRouteData | undefined;
 	validatedData<T = unknown>(source: keyof ValidatedRouteData): T | undefined;
 	validatedParams<T = unknown>(): T | undefined;
@@ -140,6 +147,23 @@ export function ensureContext(ctx: Context | ContextCore): Context {
 		(await parseRequestBody(mutable as Context)) as T | undefined;
 	mutable.bodyValue = <T>(defaultValue?: T) =>
 		mutable.body === undefined ? defaultValue : (mutable.body as T);
+	mutable.raw = () => mutable.rawBody ?? null;
+	mutable.input = <T>(key: string, defaultValue?: T) => {
+		const bodyValue = valueAtPath(bodyAsRecord(mutable.body), key);
+		if (bodyValue !== undefined) {
+			return bodyValue as T;
+		}
+
+		const queryValue = valueAtPath(
+			searchParamsToObject(new URL(mutable.request.url).searchParams),
+			key,
+		);
+		return queryValue === undefined ? defaultValue : (queryValue as T);
+	};
+	mutable.all = () => ({
+		...searchParamsToObject(new URL(mutable.request.url).searchParams),
+		...bodyAsRecord(mutable.body),
+	});
 	mutable.validatedData = <T>(source?: keyof ValidatedRouteData) =>
 		source === undefined
 			? mutable.validated
@@ -234,4 +258,28 @@ function decodeCookieValue(value: string): string {
 	} catch {
 		return value;
 	}
+}
+
+function bodyAsRecord(body: unknown): Record<string, unknown> {
+	return isRecord(body) ? body : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function valueAtPath(values: Record<string, unknown>, path: string): unknown {
+	if (path in values) {
+		return values[path];
+	}
+
+	let current: unknown = values;
+	for (const segment of path.split(".")) {
+		if (!isRecord(current) || !(segment in current)) {
+			return undefined;
+		}
+		current = current[segment];
+	}
+
+	return current;
 }

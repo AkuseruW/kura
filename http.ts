@@ -4,7 +4,10 @@ export {
 	parseRequestBody,
 	parseRequestFormData,
 	type RequestBodyKind,
+	type RequestBodyType,
+	type RequestFormBodyValue,
 	requestBodyKindFromContentType,
+	requestBodyTypeFromContentType,
 	requestMayHaveBody,
 } from "./packages/http/Body";
 export {

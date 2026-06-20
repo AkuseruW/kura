@@ -1,11 +1,13 @@
 import type { Schema } from "../validation/Schema";
-import { formDataToObject, parseRequestFormData } from "./Body";
-import type { RequestFormData } from "./Server";
+import { parseRequestBody, type RequestBodyType } from "./Body";
+import { createContext, type RequestFormData } from "./Server";
 
 export class KuraRequest {
 	private body: Record<string, unknown> = {};
+	private bodyType: RequestBodyType | undefined;
 	private query: Record<string, string> = {};
 	private formData: RequestFormData | null = null;
+	private rawBody: string | null = null;
 
 	constructor(private request: Request) {
 		const url = new URL(request.url);
@@ -15,16 +17,12 @@ export class KuraRequest {
 	}
 
 	async parse(): Promise<void> {
-		const contentType = this.request.headers.get("content-type");
-		if (contentType?.includes("application/json")) {
-			this.body = (await this.request.json()) as Record<string, unknown>;
-		} else if (contentType?.includes("multipart/form-data")) {
-			this.formData = await parseRequestFormData(this.request, contentType);
-			this.body = formDataToObject(this.formData);
-		} else if (contentType?.includes("application/x-www-form-urlencoded")) {
-			this.formData = await parseRequestFormData(this.request, contentType);
-			this.body = formDataToObject(this.formData);
-		}
+		const ctx = createContext(this.request);
+		await parseRequestBody(ctx);
+		this.body = isRecord(ctx.body) ? ctx.body : {};
+		this.bodyType = ctx.bodyType;
+		this.formData = ctx.formData ?? null;
+		this.rawBody = ctx.rawBody ?? null;
 	}
 
 	file(name: string): File | null {
@@ -41,8 +39,19 @@ export class KuraRequest {
 		return this.request.headers.get(name);
 	}
 
-	input<T>(key: string, defaultValue?: T): T {
-		return (this.body[key] ?? this.query[key] ?? defaultValue) as T;
+	raw(): string | null {
+		return this.rawBody;
+	}
+
+	type(): RequestBodyType | undefined {
+		return this.bodyType;
+	}
+
+	input<T = unknown>(key: string): T | undefined;
+	input<T>(key: string, defaultValue: T): T;
+	input<T>(key: string, defaultValue?: T): T | undefined {
+		const value = this.body[key] ?? this.query[key];
+		return value === undefined ? defaultValue : (value as T);
 	}
 
 	all(): Record<string, unknown> {
@@ -71,4 +80,8 @@ export class KuraRequest {
 	validate<T>(schema: Schema<T>): T {
 		return schema.parse(this.all());
 	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

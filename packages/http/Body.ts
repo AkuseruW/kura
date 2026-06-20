@@ -3,6 +3,15 @@ import type { Context, RequestFormData, RequestFormDataEntry } from "./Context";
 import { BadRequestException } from "./ErrorHandler";
 
 export type RequestBodyKind = "json" | "form" | "text" | "unknown";
+export type RequestFormBodyValue =
+	| RequestFormDataEntry
+	| readonly RequestFormDataEntry[];
+export type RequestBodyType =
+	| "json"
+	| "multipart"
+	| "text"
+	| "unknown"
+	| "urlencoded";
 export type ParseRequestBodyOptions = {
 	readonly parseText?: boolean;
 };
@@ -20,11 +29,13 @@ export async function parseRequestBody(
 	}
 
 	const contentType = ctx.request.headers.get("content-type") ?? "";
-	const bodyKind = requestBodyKindFromContentType(contentType);
+	const bodyType = requestBodyTypeFromContentType(contentType);
+	ctx.bodyType = bodyType;
 
-	if (bodyKind === "json") {
+	if (bodyType === "json") {
 		try {
-			ctx.body = await ctx.request.json();
+			ctx.rawBody = await ctx.request.text();
+			ctx.body = parseJsonBody(ctx.rawBody);
 		} catch (error) {
 			if (error instanceof BaseException) {
 				throw error;
@@ -38,7 +49,25 @@ export async function parseRequestBody(
 		return ctx.body;
 	}
 
-	if (bodyKind === "form") {
+	if (bodyType === "urlencoded") {
+		try {
+			ctx.rawBody = await ctx.request.text();
+			ctx.formData = urlEncodedBodyToFormData(ctx.rawBody);
+			ctx.body = formDataToObject(ctx.formData);
+		} catch (error) {
+			if (error instanceof BaseException) {
+				throw error;
+			}
+
+			throw new BadRequestException("Invalid form request body", {
+				code: "E_INVALID_REQUEST_BODY",
+				details: { reason: errorMessage(error) },
+			});
+		}
+		return ctx.body;
+	}
+
+	if (bodyType === "multipart") {
 		try {
 			const formData = await parseRequestFormData(ctx.request, contentType);
 			ctx.formData = formData;
@@ -56,8 +85,9 @@ export async function parseRequestBody(
 		return ctx.body;
 	}
 
-	if (bodyKind === "text" && options.parseText !== false) {
-		ctx.body = await ctx.request.text();
+	if (bodyType === "text" && options.parseText !== false) {
+		ctx.rawBody = await ctx.request.text();
+		ctx.body = ctx.rawBody;
 		return ctx.body;
 	}
 
@@ -73,22 +103,39 @@ export function requestMayHaveBody(request: Request): boolean {
 export function requestBodyKindFromContentType(
 	contentType: string | null,
 ): RequestBodyKind {
-	if (contentType?.includes("application/json")) {
-		return "json";
-	}
+	const bodyType = requestBodyTypeFromContentType(contentType);
 
-	if (
-		contentType?.includes("multipart/form-data") ||
-		contentType?.includes("application/x-www-form-urlencoded")
-	) {
+	if (bodyType === "multipart" || bodyType === "urlencoded") {
 		return "form";
 	}
 
-	if (contentType?.startsWith("text/")) {
-		return "text";
+	return bodyType;
+}
+
+export function requestBodyTypeFromContentType(
+	contentType: string | null,
+): RequestBodyType {
+	const normalized = contentType?.toLowerCase() ?? "";
+
+	const mime = normalized.split(";")[0]?.trim() ?? "";
+
+	if (
+		mime === "application/json" ||
+		mime.endsWith("+json") ||
+		mime === "application/csp-report"
+	) {
+		return "json";
 	}
 
-	return "unknown";
+	if (normalized.includes("multipart/form-data")) {
+		return "multipart";
+	}
+
+	if (normalized.includes("application/x-www-form-urlencoded")) {
+		return "urlencoded";
+	}
+
+	return normalized.startsWith("text/") ? "text" : "unknown";
 }
 
 export async function parseRequestFormData(
@@ -107,11 +154,19 @@ export async function parseRequestFormData(
 
 export function formDataToObject(
 	formData: RequestFormData,
-): Record<string, RequestFormDataEntry> {
-	const body: Record<string, RequestFormDataEntry> = {};
-	for (const [key, value] of formData.entries()) {
-		body[key] = value;
+): Record<string, RequestFormBodyValue> {
+	const body: Record<string, RequestFormBodyValue> = {};
+
+	for (const key of new Set(formData.keys())) {
+		const values = formData.getAll(key) as RequestFormDataEntry[];
+		const [firstValue] = values;
+		if (firstValue === undefined) {
+			continue;
+		}
+
+		body[key] = values.length === 1 ? firstValue : values;
 	}
+
 	return body;
 }
 
@@ -129,6 +184,25 @@ function extractMultipartBoundary(
 	}
 
 	return boundary;
+}
+
+function parseJsonBody(rawBody: string): unknown {
+	if (rawBody === "") {
+		return {};
+	}
+
+	return JSON.parse(rawBody) as unknown;
+}
+
+function urlEncodedBodyToFormData(rawBody: string): FormData {
+	const formData = new FormData();
+	const searchParams = new URLSearchParams(rawBody);
+
+	for (const [key, value] of searchParams) {
+		formData.append(key, value);
+	}
+
+	return formData;
 }
 
 function errorMessage(error: unknown): string {
