@@ -43,7 +43,7 @@ describe("production build", () => {
 				"dist/index.js",
 			);
 			expect(createPackageManifest.dependencies["@akuseru_w/kura"]).toBe(
-				"^0.1.8",
+				"^0.1.9",
 			);
 
 			const build = Bun.spawnSync({
