@@ -58,10 +58,57 @@ describe("production build", () => {
 			await expectFile("dist/index.js.map");
 			await expectFile("dist/index.d.ts");
 			await expectFile("dist/index.d.ts.map");
+			await expectFile("dist/auth.js");
+			await expectFile("dist/auth.d.ts");
+			await expectFile("dist/cache.js");
+			await expectFile("dist/cache.d.ts");
+			await expectFile("dist/config.js");
+			await expectFile("dist/config.d.ts");
+			await expectFile("dist/container.js");
+			await expectFile("dist/container.d.ts");
+			await expectFile("dist/console.js");
+			await expectFile("dist/console.d.ts");
+			await expectFile("dist/core.js");
+			await expectFile("dist/core.d.ts");
+			await expectFile("dist/database.js");
+			await expectFile("dist/database.d.ts");
+			await expectFile("dist/env.js");
+			await expectFile("dist/env.d.ts");
+			await expectFile("dist/events.js");
+			await expectFile("dist/events.d.ts");
+			await expectFile("dist/hash.js");
+			await expectFile("dist/hash.d.ts");
+			await expectFile("dist/http.js");
+			await expectFile("dist/http.d.ts");
+			await expectFile("dist/openapi.js");
+			await expectFile("dist/openapi.d.ts");
+			await expectFile("dist/queue.js");
+			await expectFile("dist/queue.d.ts");
+			await expectFile("dist/queue/redis.js");
+			await expectFile("dist/queue/redis.d.ts");
+			await expectFile("dist/queue/sqlite.js");
+			await expectFile("dist/queue/sqlite.d.ts");
+			await expectFile("dist/testing.js");
+			await expectFile("dist/testing.d.ts");
+			await expectFile("dist/validation.js");
+			await expectFile("dist/validation.d.ts");
+			await expectFile("dist/view.js");
+			await expectFile("dist/view.d.ts");
 			await expectFile("dist/bin/kura.js");
 			await expectFile("dist/bin/kura.js.map");
 			await expectFile("packages/create-kura-app/dist/index.js");
 			await expectFile("packages/create-kura-app/dist/index.js.map");
+
+			const distPackage = JSON.parse(
+				await readFile(join(root, "dist/package.json"), "utf8"),
+			) as {
+				readonly exports: Record<string, unknown>;
+			};
+			expect(Object.keys(distPackage.exports)).toContain("./http");
+			expect(Object.keys(distPackage.exports)).toContain("./database");
+			expect(Object.keys(distPackage.exports)).toContain("./openapi");
+			expect(Object.keys(distPackage.exports)).toContain("./queue/sqlite");
+			expect(Object.keys(distPackage.exports)).toContain("./view");
 
 			const moduleExports = (await import(
 				`${pathToFileURL(join(root, "dist/index.js")).href}?t=${Date.now()}`
@@ -69,6 +116,7 @@ describe("production build", () => {
 			expect(typeof moduleExports.createConsole).toBe("function");
 			expect(typeof moduleExports.runKuraCli).toBe("function");
 			expect(typeof moduleExports.createTestClient).toBe("function");
+			expect(moduleExports.SQLiteQueueDriver).toBeUndefined();
 
 			const cli = Bun.spawnSync({
 				cmd: [process.execPath, "dist/bin/kura.js", "help", "serve"],
@@ -129,6 +177,39 @@ describe("production build", () => {
 
 			expect(importRuntime.exitCode).toBe(0);
 			expect(importRuntime.stdout.toString()).toContain("function function");
+
+			const importSubpaths = Bun.spawnSync({
+				cmd: [
+					process.execPath,
+					"-e",
+					[
+						"import { AccessTokenManager } from 'kura/auth';",
+						"import { defineConfig } from 'kura/config';",
+						"import { Application } from 'kura/core';",
+						"import { BaseModel } from 'kura/database';",
+						"import { Env } from 'kura/env';",
+						"import { Event } from 'kura/events';",
+						"import { Hash } from 'kura/hash';",
+						"import { Router } from 'kura/http';",
+						"import { registerOpenApiRoutes } from 'kura/openapi';",
+						"import { QueueManager } from 'kura/queue';",
+						"import { RedisQueueDriver } from 'kura/queue/redis';",
+						"import { SQLiteQueueDriver } from 'kura/queue/sqlite';",
+						"import { FakeQueueDriver } from 'kura/testing';",
+						"import { v } from 'kura/validation';",
+						"import { view } from 'kura/view';",
+						"console.log(typeof AccessTokenManager, typeof defineConfig, typeof Application, typeof BaseModel, typeof Env, typeof Event, typeof Hash, typeof Router, typeof registerOpenApiRoutes, typeof QueueManager, typeof RedisQueueDriver, typeof SQLiteQueueDriver, typeof FakeQueueDriver, typeof v.object, typeof view);",
+					].join(" "),
+				],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(importSubpaths.exitCode).toBe(0);
+			expect(importSubpaths.stdout.toString()).toContain(
+				"function function function function function function function function function function function function function function function",
+			);
 
 			const appTypecheck = Bun.spawnSync({
 				cmd: [process.execPath, "run", "typecheck"],

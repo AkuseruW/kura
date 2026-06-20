@@ -110,7 +110,7 @@ export { router };
 			path: "start/env.ts",
 			content: `import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Env } from "kura";
+import { Env } from "kura/env";
 
 const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const appRoot =
@@ -128,7 +128,7 @@ export default env;
 		},
 		{
 			path: "start/kernel.ts",
-			content: `import { BodyLimit, BodyParser, Cors, type Middleware, RequestId, RequestTimeout } from "kura";
+			content: `import { BodyLimit, BodyParser, Cors, type Middleware, RequestId, RequestTimeout } from "kura/http";
 
 export const serverMiddleware: readonly Middleware[] = [
 \tRequestId,
@@ -727,7 +727,7 @@ function makeConsoleEntrypoint(choices: NewAppChoices): string {
 \tregisterDevToolCommands,
 \tregisterGeneratorCommands,
 \tregisterServeCommand,
-} from "kura";
+} from "kura/console";
 
 await import("#start/env");
 
@@ -762,12 +762,12 @@ function makeServerEntrypoint(choices: NewAppChoices): string {
 \tKuraResponse,
 \tMiddlewarePipeline,
 \tServer,
-} from "kura";
+} from "kura/http";
 import home from "../resources/pages/home.html";
 import env from "#start/env";
 import { routerMiddleware, serverMiddleware } from "#start/kernel";
 import { router } from "#start/routes";`
-			: `import { type Context, KuraResponse, MiddlewarePipeline, Server } from "kura";
+			: `import { type Context, KuraResponse, MiddlewarePipeline, Server } from "kura/http";
 import env from "#start/env";
 import { routerMiddleware, serverMiddleware } from "#start/kernel";
 import { router } from "#start/routes";`;
@@ -906,7 +906,7 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 }
 
 function makeKuraConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 
 export default defineConfig({
 \tcommands: ["./commands"],
@@ -951,7 +951,7 @@ export default defineConfig({
 }
 
 function makeAppConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -1006,7 +1006,7 @@ function makeAuthConfig(choices: NewAppChoices): string {
 			? "#domains/auth/infrastructure/persistence/user_record"
 			: moduleImport(choices, "auth", "user", "#models/user");
 
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -1044,7 +1044,7 @@ export default authConfig;
 }
 
 function makeBodyParserConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 
 /**
  * Body parser configuration.
@@ -1084,7 +1084,7 @@ export default bodyParserConfig;
 }
 
 function makeCacheConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -1123,7 +1123,7 @@ function makeDatabaseConfig(choices: NewAppChoices): string {
 	const defaultConnection =
 		choices.database === "none" ? "memory" : choices.database;
 
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -1179,7 +1179,7 @@ export default databaseConfig;
 }
 
 function makeEncryptionConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -1202,7 +1202,7 @@ export default encryptionConfig;
 }
 
 function makeHashConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -1241,7 +1241,7 @@ export default hashConfig;
 }
 
 function makeLoggerConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -1272,7 +1272,7 @@ export default loggerConfig;
 }
 
 function makeQueueConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -1314,7 +1314,7 @@ export default queueConfig;
 }
 
 function makeSessionConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -1357,7 +1357,7 @@ export default sessionConfig;
 }
 
 function makeShieldConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 
 /**
  * Security header and CSRF configuration.
@@ -1398,7 +1398,7 @@ export default shieldConfig;
 }
 
 function makeStaticConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 
 /**
  * Static file server configuration.
@@ -1416,7 +1416,7 @@ export default staticServerConfig;
 }
 
 function makeApiController(choices: NewAppChoices): string {
-	return `import type { Context } from "kura";
+	return `import type { Context } from "kura/http";
 
 export class ApiController {
 \tindex(_ctx: Context): Response {
@@ -1435,7 +1435,8 @@ export class ApiController {
 }
 
 function makeHomeController(choices: NewAppChoices): string {
-	return `import { type Context, view } from "kura";
+	return `import type { Context } from "kura/http";
+import { view } from "kura/view";
 
 export class HomeController {
 \tasync index(_ctx: Context): Promise<Response> {
@@ -1548,7 +1549,7 @@ function makeAuthController(choices: NewAppChoices): string {
 		"application",
 	);
 
-	return `import { KuraResponse, type Context } from "kura";
+	return `import { KuraResponse, type Context } from "kura/http";
 import { authService } from "${authServiceImport}";
 
 export class AuthController {
@@ -1671,10 +1672,10 @@ function makeAuthService(choices: NewAppChoices): string {
 function makeAccessTokenAuthService(): string {
 	return `import {
 	AccessTokenManager,
-	Hash,
 	MemoryAccessTokenStore,
-	type Context,
-} from "kura";
+} from "kura/auth";
+import { Hash } from "kura/hash";
+import type { Context } from "kura/http";
 
 type DemoUser = {
 	readonly id: number;
@@ -1845,7 +1846,8 @@ function publicUser(user: DemoUser): PublicUser {
 }
 
 function makeSessionAuthService(): string {
-	return `import { Hash, type Context } from "kura";
+	return `import { Hash } from "kura/hash";
+import type { Context } from "kura/http";
 
 type DemoUser = {
 	readonly id: number;
@@ -2062,7 +2064,7 @@ function publicUser(user: DemoUser): PublicUser {
 `;
 }
 function makeUserModel(): string {
-	return `import { BaseModel, column, type QueryRow } from "kura";
+	return `import { BaseModel, column, type QueryRow } from "kura/database";
 
 export type UserAttributes = QueryRow & {
 \tid?: number;
@@ -2187,7 +2189,7 @@ export class RegisterUser {
 }
 
 function makeUserRecord(): string {
-	return `import { BaseModel, column, type QueryRow } from "kura";
+	return `import { BaseModel, column, type QueryRow } from "kura/database";
 
 export type UserRecordAttributes = QueryRow & {
 \tid?: number;
@@ -2266,7 +2268,7 @@ function toDomain(record: UserRecord): User {
 }
 
 function makeUsersMigration(): string {
-	return `import { Migration, type SchemaBuilder } from "kura";
+	return `import { Migration, type SchemaBuilder } from "kura/database";
 
 export default class CreateUsers extends Migration {
 \toverride up(schema: SchemaBuilder): void {
@@ -2286,7 +2288,7 @@ export default class CreateUsers extends Migration {
 }
 
 function makeAccessTokensMigration(): string {
-	return `import { Migration, type SchemaBuilder } from "kura";
+	return `import { Migration, type SchemaBuilder } from "kura/database";
 
 export default class CreateAccessTokens extends Migration {
 \toverride up(schema: SchemaBuilder): void {
@@ -2311,7 +2313,7 @@ export default class CreateAccessTokens extends Migration {
 }
 
 function makeSessionsMigration(): string {
-	return `import { Migration, type SchemaBuilder } from "kura";
+	return `import { Migration, type SchemaBuilder } from "kura/database";
 
 export default class CreateSessions extends Migration {
 \toverride up(schema: SchemaBuilder): void {
@@ -2332,7 +2334,7 @@ export default class CreateSessions extends Migration {
 }
 
 function makeMailConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 import env from "#start/env";
 
 /**
@@ -2374,7 +2376,7 @@ export class WelcomeMail {
 }
 
 function makeStorageConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 
 /**
  * Storage configuration.
@@ -2414,7 +2416,7 @@ export class StorageService {
 }
 
 function makeI18nConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 
 /**
  * i18n configuration.
@@ -2441,7 +2443,7 @@ function makeEnglishMessages(): string {
 }
 
 function makeWebSocketsConfig(): string {
-	return `import { defineConfig } from "kura";
+	return `import { defineConfig } from "kura/config";
 
 /**
  * WebSocket configuration.
@@ -2482,12 +2484,13 @@ function makeWebSocketService(): string {
 function makeRoutes(choices: NewAppChoices): string {
 	const imports = [
 		choices.preset === "api" || choices.preset === "full"
-			? 'import { registerOpenApiRoutes, Router } from "kura";'
-			: 'import { Router } from "kura";',
+			? 'import { Router } from "kura/http";'
+			: 'import { Router } from "kura/http";',
 	];
 	const lines = ["export const router = new Router();"];
 
 	if (choices.preset === "api" || choices.preset === "full") {
+		imports.push('import { registerOpenApiRoutes } from "kura/openapi";');
 		imports.push(
 			`import { ApiController } from "${moduleImport(
 				choices,

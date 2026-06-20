@@ -25,10 +25,11 @@
 		"noPropertyAccessFromIndexSignature": false
 	},
 	"include": [
-		"index.ts",
+		"*.ts",
 		"bin/**/*.ts",
 		"benchmarks/**/*.ts",
 		"packages/**/*.ts",
+		"queue/**/*.ts",
 		"scripts/**/*.ts"
 	],
 	"exclude": ["benchmarks/apps", "benchmarks/results", "dist", "node_modules"]
