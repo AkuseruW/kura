@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { guard } from "../auth/Guard";
 import { SessionGuard } from "../auth/SessionGuard";
 import { BaseException } from "../core/BaseException";
-import { v } from "../validator/Schema";
+import { v } from "../validation/Schema";
 import { BodyParser } from "./Middleware";
 import { Router } from "./Router";
 import {

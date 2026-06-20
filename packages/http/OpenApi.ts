@@ -1,4 +1,4 @@
-import { Schema, type SchemaDescription } from "../validator/Schema";
+import { Schema, type SchemaDescription } from "../validation/Schema";
 import type { RegisteredRoute, Router, RouteSchemaOptions } from "./Router";
 
 export type OpenApiJsonPrimitive = string | number | boolean | null;
