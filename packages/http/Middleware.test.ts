@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { createContext } from "./Context";
-import { BodyParser, Cors, MiddlewarePipeline, RequestId } from "./Middleware";
+import {
+	BodyLimit,
+	BodyParser,
+	Cors,
+	MiddlewarePipeline,
+	RequestBodyLimitException,
+	RequestId,
+	RequestTimeout,
+	RequestTimeoutException,
+} from "./Middleware";
 import { Router } from "./Router";
 import type { Context } from "./Server";
 
@@ -118,6 +127,128 @@ describe("BodyParser", () => {
 });
 
 describe("built-in middlewares", () => {
+	test("rejects oversized content length before handlers run", async () => {
+		let handlerCalled = false;
+		const handler = new MiddlewarePipeline()
+			.use(BodyLimit({ maxBytes: 2 }))
+			.toHandler(() => {
+				handlerCalled = true;
+				return new Response("ok");
+			});
+
+		await expect(
+			handler(
+				createContext(
+					new Request("http://localhost", {
+						body: "abc",
+						headers: { "content-length": "3" },
+						method: "POST",
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(RequestBodyLimitException);
+		expect(handlerCalled).toBe(false);
+	});
+
+	test("limits JSON bodies lazily while parsing", async () => {
+		const handler = new MiddlewarePipeline()
+			.use(BodyLimit({ maxBytes: 8 }))
+			.use(BodyParser)
+			.toHandler((ctx) => Response.json(ctx.body));
+
+		await expect(
+			handler(
+				createContext(
+					new Request("http://localhost", {
+						body: JSON.stringify({ name: "Kura" }),
+						headers: { "content-type": "application/json" },
+						method: "POST",
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(RequestBodyLimitException);
+	});
+
+	test("limits urlencoded bodies lazily while parsing", async () => {
+		const handler = new MiddlewarePipeline()
+			.use(BodyLimit({ maxBytes: 6 }))
+			.use(BodyParser)
+			.toHandler((ctx) => Response.json(ctx.body));
+
+		await expect(
+			handler(
+				createContext(
+					new Request("http://localhost", {
+						body: "name=Kura",
+						headers: { "content-type": "application/x-www-form-urlencoded" },
+						method: "POST",
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(RequestBodyLimitException);
+	});
+
+	test("limits multipart bodies lazily while parsing", async () => {
+		const formData = new FormData();
+		formData.set("name", "Kura");
+		const handler = new MiddlewarePipeline()
+			.use(BodyLimit({ maxBytes: 4 }))
+			.use(BodyParser)
+			.toHandler((ctx) => Response.json(ctx.body));
+
+		await expect(
+			handler(
+				createContext(
+					new Request("http://localhost", {
+						body: formData,
+						method: "POST",
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(RequestBodyLimitException);
+	});
+
+	test("allows body-less requests through body limits", async () => {
+		const handler = new MiddlewarePipeline()
+			.use(BodyLimit({ maxBytes: 1 }))
+			.toHandler(() => new Response("ok"));
+
+		const response = await handler(
+			createContext(new Request("http://localhost", { method: "GET" })),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("ok");
+	});
+
+	test("times out slow middleware chains", async () => {
+		let timeoutSignal: AbortSignal | undefined;
+		const handler = new MiddlewarePipeline()
+			.use(RequestTimeout({ ms: 5 }))
+			.toHandler(async (ctx) => {
+				timeoutSignal = ctx.timeoutSignal;
+				await sleep(30);
+				return new Response("late");
+			});
+
+		await expect(
+			handler(createContext(new Request("http://localhost"))),
+		).rejects.toBeInstanceOf(RequestTimeoutException);
+		expect(timeoutSignal?.aborted).toBe(true);
+	});
+
+	test("allows fast middleware chains through request timeouts", async () => {
+		const handler = new MiddlewarePipeline()
+			.use(RequestTimeout({ ms: 50 }))
+			.toHandler(() => new Response("ok"));
+
+		const response = await handler(
+			createContext(new Request("http://localhost")),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("ok");
+	});
 	test("adds CORS headers", async () => {
 		const response = await Cors({ origin: "https://example.com" })(
 			createContext(new Request("http://localhost")),
@@ -255,3 +386,9 @@ describe("built-in middlewares", () => {
 		expect(response.headers.get("X-Request-Id")).toBe(ctx.requestId ?? null);
 	});
 });
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}

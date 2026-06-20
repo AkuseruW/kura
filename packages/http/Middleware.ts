@@ -1,3 +1,4 @@
+import { BaseException } from "../core/BaseException";
 import { formDataToObject, parseRequestFormData } from "./Body";
 import type { Context } from "./Server";
 
@@ -47,6 +48,80 @@ export class MiddlewarePipeline {
 		};
 	}
 }
+
+export type BodyLimitOptions = {
+	readonly maxBytes: number;
+};
+
+export type RequestTimeoutOptions = {
+	readonly ms: number;
+};
+
+export class RequestBodyLimitException extends BaseException {
+	constructor(readonly maxBytes: number) {
+		super(
+			`Request body exceeds the configured limit of ${maxBytes} bytes`,
+			"E_REQUEST_BODY_TOO_LARGE",
+			413,
+		);
+	}
+}
+
+export class RequestTimeoutException extends BaseException {
+	constructor(readonly ms: number) {
+		super(
+			`Request exceeded the configured timeout of ${ms}ms`,
+			"E_REQUEST_TIMEOUT",
+			408,
+		);
+	}
+}
+
+export const BodyLimit = (options: BodyLimitOptions): Middleware => {
+	const maxBytes = positiveInteger("maxBytes", options.maxBytes);
+
+	return async (ctx, next) => {
+		const contentLength = parseContentLength(
+			ctx.request.headers.get("content-length"),
+		);
+
+		if (contentLength !== undefined && contentLength > maxBytes) {
+			throw new RequestBodyLimitException(maxBytes);
+		}
+
+		if (ctx.request.body) {
+			ctx.request = withLimitedBody(ctx.request, maxBytes);
+		}
+
+		return next();
+	};
+};
+
+export const RequestTimeout = (options: RequestTimeoutOptions): Middleware => {
+	const ms = positiveInteger("ms", options.ms);
+
+	return async (ctx, next) => {
+		const controller = new AbortController();
+		ctx.timeoutSignal = controller.signal;
+
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		const response = Promise.resolve().then(next);
+		const timeoutResponse = new Promise<Response>((_resolve, reject) => {
+			timeout = setTimeout(() => {
+				controller.abort(new RequestTimeoutException(ms));
+				reject(new RequestTimeoutException(ms));
+			}, ms);
+		});
+
+		try {
+			return await Promise.race([response, timeoutResponse]);
+		} finally {
+			if (timeout) {
+				clearTimeout(timeout);
+			}
+		}
+	};
+};
 
 export const BodyParser: Middleware = async (ctx, next) => {
 	if (ctx.request.method === "GET" || ctx.request.method === "HEAD") {
@@ -200,3 +275,52 @@ export const RequestId: Middleware = async (ctx, next) => {
 	response.headers.set("X-Request-Id", id);
 	return response;
 };
+
+function withLimitedBody(request: Request, maxBytes: number): Request {
+	if (!request.body) {
+		return request;
+	}
+
+	return new Request(request, {
+		body: limitBodyStream(request.body, maxBytes),
+	});
+}
+
+function limitBodyStream(
+	body: ReadableStream<Uint8Array>,
+	maxBytes: number,
+): ReadableStream<Uint8Array> {
+	let bytesRead = 0;
+
+	return body.pipeThrough(
+		new TransformStream<Uint8Array, Uint8Array>({
+			transform(chunk, controller) {
+				bytesRead += chunk.byteLength;
+
+				if (bytesRead > maxBytes) {
+					controller.error(new RequestBodyLimitException(maxBytes));
+					return;
+				}
+
+				controller.enqueue(chunk);
+			},
+		}),
+	);
+}
+
+function parseContentLength(value: string | null): number | undefined {
+	if (value === null) {
+		return undefined;
+	}
+
+	const parsed = Number(value);
+	return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function positiveInteger(name: string, value: number): number {
+	if (!Number.isSafeInteger(value) || value <= 0) {
+		throw new TypeError(`${name} must be a positive integer`);
+	}
+
+	return value;
+}

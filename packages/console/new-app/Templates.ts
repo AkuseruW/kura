@@ -128,9 +128,14 @@ export default env;
 		},
 		{
 			path: "start/kernel.ts",
-			content: `import { BodyParser, Cors, type Middleware, RequestId } from "kura";
+			content: `import { BodyLimit, BodyParser, Cors, type Middleware, RequestId, RequestTimeout } from "kura";
 
-export const serverMiddleware: readonly Middleware[] = [RequestId, Cors()];
+export const serverMiddleware: readonly Middleware[] = [
+\tRequestId,
+\tCors(),
+\tRequestTimeout({ ms: 30_000 }),
+\tBodyLimit({ maxBytes: 1_048_576 }),
+];
 
 export const routerMiddleware: readonly Middleware[] = [BodyParser];
 

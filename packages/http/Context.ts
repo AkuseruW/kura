@@ -30,6 +30,7 @@ export type ContextCore = {
 	formData?: RequestFormData;
 	validated?: ValidatedRouteData;
 	requestId?: string;
+	timeoutSignal?: AbortSignal;
 	auth?: AuthContext;
 	state?: ContextState;
 };

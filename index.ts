@@ -283,13 +283,19 @@ export {
 	registerHealthRoutes,
 } from "./packages/http/Health";
 export {
+	BodyLimit,
+	type BodyLimitOptions,
 	BodyParser,
 	Cors,
 	type CorsOptions,
 	type CorsOrigin,
 	type Middleware,
 	MiddlewarePipeline,
+	RequestBodyLimitException,
 	RequestId,
+	RequestTimeout,
+	RequestTimeoutException,
+	type RequestTimeoutOptions,
 } from "./packages/http/Middleware";
 export {
 	RequestLogger,
