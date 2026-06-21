@@ -333,26 +333,25 @@ describe("new app command", () => {
 		expect(apiRoutes).toContain(
 			'import { registerOpenApiRoutes } from "kura/openapi"',
 		);
-		expect(apiRoutes).toContain('import { v } from "kura/validation"');
+		expect(apiRoutes).toContain(
+			'import { authLoginRequestSchema, authRegisterRequestSchema } from "#validators/auth_validator"',
+		);
+		expect(apiRoutes).toContain('from "#contracts/openapi"');
+		expect(apiRoutes).toContain(
+			'import { namedMiddleware } from "#start/kernel"',
+		);
 		expect(apiRoutes).toContain(
 			'import { ApiController } from "#controllers/api_controller"',
 		);
 		expect(apiRoutes).toContain(
 			'router.get("/", (ctx) => apiController.index(ctx)).as("home")',
 		);
-		expect(apiRoutes).toContain("const appInfoResponseSchema =");
-		expect(apiRoutes).toContain("const healthResponseSchema =");
-		expect(apiRoutes).toContain("const authCurrentUserResponseSchema =");
-		expect(apiRoutes).toContain("const authLoginRequestSchema =");
-		expect(apiRoutes).toContain("const authRegisterRequestSchema =");
-		expect(apiRoutes).toContain("const authLoginResponseSchema =");
-		expect(apiRoutes).toContain("const authErrorResponseSchema =");
+		expect(apiRoutes).not.toContain("const appInfoResponseSchema =");
+		expect(apiRoutes).not.toContain("const authLoginRequestSchema =");
 		expect(apiRoutes).toContain("200: appInfoResponseSchema");
 		expect(apiRoutes).toContain("200: healthResponseSchema");
 		expect(apiRoutes).toContain("200: authCurrentUserResponseSchema");
 		expect(apiRoutes).toContain("security: [{ bearerAuth: [] }]");
-		expect(apiRoutes).toContain("const authLoginRequestSchema = v.object");
-		expect(apiRoutes).toContain("const authRegisterRequestSchema = v.object");
 		expect(apiRoutes).toContain(".schema({\n\t\tbody: authLoginRequestSchema");
 		expect(apiRoutes).toContain("body: authLoginRequestSchema");
 		expect(apiRoutes).toContain("200: authLoginResponseSchema");
@@ -374,6 +373,34 @@ describe("new app command", () => {
 		expect(apiRoutes).toContain(
 			'bearerAuth: { type: "http", scheme: "bearer" }',
 		);
+		expect(apiRoutes).toContain(
+			'router.group().prefix("/auth").as("auth.").middleware(namedMiddleware.auth)',
+		);
+		const openApiContracts = await readGenerated(
+			root,
+			"demo-api/app/contracts/openapi.ts",
+		);
+		expect(openApiContracts).toContain("export const appInfoResponseSchema =");
+		expect(openApiContracts).toContain(
+			"export const authCurrentUserResponseSchema =",
+		);
+		const authValidator = await readGenerated(
+			root,
+			"demo-api/app/validators/auth_validator.ts",
+		);
+		expect(authValidator).toContain('import { v } from "kura/validation"');
+		expect(authValidator).toContain("authLoginRequestSchema = v.object");
+		const authMiddleware = await readGenerated(
+			root,
+			"demo-api/app/middleware/auth_middleware.ts",
+		);
+		expect(authMiddleware).toContain(
+			'import { authService } from "#services/auth_service"',
+		);
+		expect(authMiddleware).toContain("authService.authenticate(ctx)");
+		expect(
+			await readGenerated(root, "demo-api/app/exceptions/handler.ts"),
+		).toContain("createHttpErrorHandler");
 		expect(
 			await readGenerated(root, "demo-api/app/controllers/api_controller.ts"),
 		).toContain('framework: "kura"');
@@ -523,13 +550,13 @@ describe("new app command", () => {
 			false,
 		);
 		expect(await generatedPathExists(root, "demo-api/app/middleware")).toBe(
-			false,
+			true,
 		);
 		expect(await generatedPathExists(root, "demo-api/app/policies")).toBe(
 			false,
 		);
 		expect(await generatedPathExists(root, "demo-api/app/validators")).toBe(
-			false,
+			true,
 		);
 		expect(await findEmptyDirectories(join(root, "demo-api"), "app")).toEqual(
 			[],
@@ -971,14 +998,23 @@ describe("new app command", () => {
 			'import { HomeController } from "#controllers/home_controller"',
 		);
 		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
-			'import { v } from "kura/validation"',
+			'import { authLoginRequestSchema, authRegisterRequestSchema } from "#validators/auth_validator"',
+		);
+		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
+			'from "#contracts/openapi"',
 		);
 		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
 			'router.group().prefix("/auth").as("auth.")',
 		);
 		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
+			"middleware(namedMiddleware.auth)",
+		);
+		expect(await readGenerated(root, "demo-web/start/routes.ts")).toContain(
 			".schema({\n\t\tbody: authLoginRequestSchema",
 		);
+		expect(
+			await readGenerated(root, "demo-web/app/validators/auth_validator.ts"),
+		).toContain('import { v } from "kura/validation"');
 		expect(
 			await readGenerated(root, "demo-web/app/controllers/auth_controller.ts"),
 		).toContain('import { authService } from "#services/auth_service"');

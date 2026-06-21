@@ -31,6 +31,7 @@ export function makePackageJson(
 			"#controllers/*": "./app/controllers/*.ts",
 			"#modules/*": "./app/modules/*.ts",
 			"#domains/*": "./app/domains/*.ts",
+			"#contracts/*": "./app/contracts/*.ts",
 			"#exceptions/*": "./app/exceptions/*.ts",
 			"#models/*": "./app/models/*.ts",
 			"#mails/*": "./app/mails/*.ts",
@@ -78,6 +79,7 @@ export function makeTsConfig(choices: NewAppChoices): string {
 \t\t\t"#controllers/*": ["app/controllers/*"],
 \t\t\t"#modules/*": ["app/modules/*"],
 \t\t\t"#domains/*": ["app/domains/*"],
+\t\t\t"#contracts/*": ["app/contracts/*"],
 \t\t\t"#exceptions/*": ["app/exceptions/*"],
 \t\t\t"#models/*": ["app/models/*"],
 \t\t\t"#mails/*": ["app/mails/*"],
@@ -152,10 +154,12 @@ export function makeServerEntrypoint(choices: NewAppChoices): string {
 \tServer,
 } from "kura/http";
 import home from "../resources/pages/home.html";
+import handleException from "#exceptions/handler";
 import env from "#start/env";
 import { routerMiddleware, serverMiddleware } from "#start/kernel";
 import { router } from "#start/routes";`
 			: `import { type Context, MiddlewarePipeline, Server } from "kura/http";
+import handleException from "#exceptions/handler";
 import env from "#start/env";
 import { routerMiddleware, serverMiddleware } from "#start/kernel";
 import { router } from "#start/routes";`;
@@ -181,12 +185,16 @@ export const development = (
 			? `{
 \t\tport: env.number("PORT", 3333) ?? 3333,
 \t\thostname: env.get("HOST", "localhost"),
+\t\tenvironment: env.get("NODE_ENV", "development"),
+\t\terrorHandler: handleException,
 \t\tstaticRoutes,
 \t\tdevelopment,
 \t}`
 			: `{
 \t\tport: env.number("PORT", 3333) ?? 3333,
 \t\thostname: env.get("HOST", "localhost"),
+\t\tenvironment: env.get("NODE_ENV", "development"),
+\t\terrorHandler: handleException,
 \t}`;
 
 	return `${imports}
@@ -310,6 +318,7 @@ export default defineConfig({
 \t\tcontrollers: "#controllers/*",
 \t\tmodules: "#modules/*",
 \t\tdomains: "#domains/*",
+\t\tcontracts: "#contracts/*",
 \t\texceptions: "#exceptions/*",
 \t\tmodels: "#models/*",
 \t\tmails: "#mails/*",

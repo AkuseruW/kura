@@ -46,7 +46,9 @@ import {
 import {
 	apiControllerPath,
 	authControllerPath,
+	authMiddlewarePath,
 	authServicePath,
+	authValidatorPath,
 	homeControllerPath,
 	makeDatabaseMetadataFiles,
 	makeScaffoldDirectories,
@@ -188,19 +190,11 @@ export default env;
 		},
 		{
 			path: "start/kernel.ts",
-			content: `import { BodyLimit, Cors, type Middleware, RequestId, RequestTimeout } from "kura/http";
-
-export const serverMiddleware: readonly Middleware[] = [
-\tRequestId,
-\tCors(),
-\tRequestTimeout({ ms: 30_000 }),
-\tBodyLimit({ maxBytes: 1_048_576 }),
-];
-
-export const routerMiddleware: readonly Middleware[] = [];
-
-export const namedMiddleware = {};
-`,
+			content: makeKernel(choices),
+		},
+		{
+			path: "app/exceptions/handler.ts",
+			content: makeExceptionHandler(),
 		},
 		{
 			path: "config/app.ts",
@@ -219,6 +213,7 @@ export const namedMiddleware = {};
 			path: "start/routes.ts",
 			content: makeRoutes(choices),
 		},
+		...makeRouteSupportFiles(choices),
 		...makePresetFiles(choices),
 		...makeAuthFiles(choices),
 		...makeOptionalModuleFiles(choices),
@@ -237,6 +232,38 @@ export const namedMiddleware = {};
 			content: makeReadme(appName, choices),
 		},
 	];
+}
+
+function makeKernel(choices: NewAppChoices): string {
+	const imports = [
+		'import { BodyLimit, Cors, type Middleware, RequestId, RequestTimeout } from "kura/http";',
+	];
+
+	if (choices.auth !== "none") {
+		imports.push(
+			`import { authMiddleware } from "${moduleImport(
+				choices,
+				"auth",
+				"auth_middleware",
+				"#middleware/auth_middleware",
+				"http",
+			)}";`,
+		);
+	}
+
+	return `${imports.join("\n")}
+
+export const serverMiddleware: readonly Middleware[] = [
+\tRequestId,
+\tCors(),
+\tRequestTimeout({ ms: 30_000 }),
+\tBodyLimit({ maxBytes: 1_048_576 }),
+];
+
+export const routerMiddleware: readonly Middleware[] = [];
+
+export const namedMiddleware = {${choices.auth !== "none" ? "\n\tauth: authMiddleware,\n" : ""}};
+`;
 }
 
 function makeFeatureConfigFiles(choices: NewAppChoices): readonly NewAppFile[] {
@@ -440,6 +467,36 @@ function makeAuthFiles(choices: NewAppChoices): readonly NewAppFile[] {
 	return files;
 }
 
+function makeRouteSupportFiles(choices: NewAppChoices): readonly NewAppFile[] {
+	const files: NewAppFile[] = [];
+
+	if (
+		choices.preset === "api" ||
+		choices.preset === "full" ||
+		choices.auth !== "none"
+	) {
+		files.push({
+			path: "app/contracts/openapi.ts",
+			content: makeOpenApiContracts(choices),
+		});
+	}
+
+	if (choices.auth !== "none") {
+		files.push(
+			{
+				path: authValidatorPath(choices),
+				content: makeAuthValidator(),
+			},
+			{
+				path: authMiddlewarePath(choices),
+				content: makeAuthMiddleware(choices),
+			},
+		);
+	}
+
+	return files;
+}
+
 function makeOptionalModuleFiles(
 	choices: NewAppChoices,
 ): readonly NewAppFile[] {
@@ -626,9 +683,64 @@ p {
 `;
 }
 
+function makeAuthValidator(): string {
+	return `import { v } from "kura/validation";
+
+export const authLoginRequestSchema = v.object({
+\temail: v.string().email(),
+\tpassword: v.string().min(1),
+});
+
+export const authRegisterRequestSchema = v.object({
+\temail: v.string().email(),
+\tpassword: v.string().min(1),
+});
+`;
+}
+
+function makeAuthMiddleware(choices: NewAppChoices): string {
+	const authServiceImport = moduleImport(
+		choices,
+		"auth",
+		"auth_service",
+		"#services/auth_service",
+		"application",
+	);
+
+	return `import { KuraResponse, type Middleware } from "kura/http";
+import { authService } from "${authServiceImport}";
+
+export const authMiddleware: Middleware = async (ctx, next) => {
+\tconst user = await authService.authenticate(ctx);
+
+\tif (!user) {
+\t\treturn KuraResponse.unauthenticated();
+\t}
+
+\treturn next();
+};
+`;
+}
+
+function makeExceptionHandler(): string {
+	return `import { createHttpErrorHandler } from "kura/http";
+import env from "#start/env";
+
+const isProduction = env.get<string>("NODE_ENV", "development") === "production";
+
+const handleException = createHttpErrorHandler({
+\tdebug: !isProduction,
+\tincludeStack: !isProduction,
+});
+
+export default handleException;
+`;
+}
+
 function makeRoutes(choices: NewAppChoices): string {
 	const imports = ['import { Router } from "kura/http";'];
 	const lines = ["export const router = new Router();"];
+	const contractImports = makeOpenApiContractExports(choices);
 
 	if (choices.preset === "api" || choices.preset === "full") {
 		imports.push('import { registerOpenApiRoutes } from "kura/openapi";');
@@ -658,7 +770,16 @@ function makeRoutes(choices: NewAppChoices): string {
 	}
 
 	if (choices.auth !== "none") {
-		imports.push('import { v } from "kura/validation";');
+		imports.push('import { namedMiddleware } from "#start/kernel";');
+		imports.push(
+			`import { authLoginRequestSchema, authRegisterRequestSchema } from "${moduleImport(
+				choices,
+				"auth",
+				"auth_validator",
+				"#validators/auth_validator",
+				"application",
+			)}";`,
+		);
 		imports.push(
 			`import { AuthController } from "${moduleImport(
 				choices,
@@ -671,9 +792,10 @@ function makeRoutes(choices: NewAppChoices): string {
 		lines.push("", "const authController = new AuthController();");
 	}
 
-	const openApiSchemaDefinitions = makeOpenApiSchemaDefinitions(choices);
-	if (openApiSchemaDefinitions.length > 0) {
-		lines.push("", ...openApiSchemaDefinitions);
+	if (contractImports.length > 0) {
+		imports.push(
+			`import {\n\t${contractImports.join(",\n\t")},\n} from "#contracts/openapi";`,
+		);
 	}
 
 	if (choices.preset === "api") {
@@ -737,17 +859,6 @@ function makeRoutes(choices: NewAppChoices): string {
 		lines.push(
 			"",
 			'router.group().prefix("/auth").as("auth.").routes((auth) => {',
-			'\tauth.get("/me", (ctx) => authController.me(ctx)).as("me").openapi({',
-			'\t\ttags: ["Auth"],',
-			'\t\tsummary: "Current authenticated user",',
-			...(choices.auth === "access-token"
-				? ["\t\tsecurity: [{ bearerAuth: [] }],"]
-				: []),
-			"\t\tresponses: {",
-			"\t\t\t200: authCurrentUserResponseSchema,",
-			'\t\t\t401: { description: "Unauthenticated", body: authErrorResponseSchema },',
-			"\t\t},",
-			"\t});",
 			'\tauth.post("/login", (ctx) => authController.login(ctx)).as("login").schema({',
 			"\t\tbody: authLoginRequestSchema,",
 			"\t}).openapi({",
@@ -770,6 +881,20 @@ function makeRoutes(choices: NewAppChoices): string {
 			"\t\t\t201: authLoginResponseSchema,",
 			'\t\t\t409: { description: "Email already registered", body: authErrorResponseSchema },',
 			'\t\t\t422: { description: "Validation error", body: authErrorResponseSchema },',
+			"\t\t},",
+			"\t});",
+			"});",
+			"",
+			'router.group().prefix("/auth").as("auth.").middleware(namedMiddleware.auth).routes((auth) => {',
+			'\tauth.get("/me", (ctx) => authController.me(ctx)).as("me").openapi({',
+			'\t\ttags: ["Auth"],',
+			'\t\tsummary: "Current authenticated user",',
+			...(choices.auth === "access-token"
+				? ["\t\tsecurity: [{ bearerAuth: [] }],"]
+				: []),
+			"\t\tresponses: {",
+			"\t\t\t200: authCurrentUserResponseSchema,",
+			'\t\t\t401: { description: "Unauthenticated", body: authErrorResponseSchema },',
 			"\t\t},",
 			"\t});",
 			'\tauth.post("/logout", (ctx) => authController.logout(ctx)).as("logout").openapi({',
@@ -811,12 +936,31 @@ function makeRoutes(choices: NewAppChoices): string {
 	return `${imports.join("\n")}\n\n${lines.join("\n")}\n`;
 }
 
-function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
+function makeOpenApiContractExports(choices: NewAppChoices): string[] {
+	const exports: string[] = [];
+
+	if (choices.preset === "api" || choices.preset === "full") {
+		exports.push("appInfoResponseSchema", "healthResponseSchema");
+	}
+
+	if (choices.auth !== "none") {
+		exports.push(
+			"authCurrentUserResponseSchema",
+			"authLoginResponseSchema",
+			"authErrorResponseSchema",
+			"okResponseSchema",
+		);
+	}
+
+	return exports;
+}
+
+function makeOpenApiContracts(choices: NewAppChoices): string {
 	const lines: string[] = [];
 
 	if (choices.preset === "api" || choices.preset === "full") {
 		lines.push(
-			"const appInfoResponseSchema = {",
+			"export const appInfoResponseSchema = {",
 			'\ttype: "object",',
 			"\tproperties: {",
 			'\t\tframework: { type: "string", enum: ["kura"] },',
@@ -826,7 +970,7 @@ function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
 			'\trequired: ["framework", "preset", "ok"],',
 			"} as const;",
 			"",
-			"const healthResponseSchema = {",
+			"export const healthResponseSchema = {",
 			'\ttype: "object",',
 			"\tproperties: {",
 			'\t\tstatus: { type: "string", enum: ["up"] },',
@@ -842,7 +986,7 @@ function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
 		}
 
 		lines.push(
-			"const authCurrentUserResponseSchema = {",
+			"export const authCurrentUserResponseSchema = {",
 			'\ttype: "object",',
 			"\tproperties: {",
 			`\t\tguard: { type: "string", enum: ["${choices.auth === "session" ? "session" : "api"}"] },`,
@@ -851,17 +995,7 @@ function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
 			'\trequired: ["guard", "user"],',
 			"} as const;",
 			"",
-			"const authLoginRequestSchema = v.object({",
-			"\temail: v.string().email(),",
-			"\tpassword: v.string().min(1),",
-			"});",
-			"",
-			"const authRegisterRequestSchema = v.object({",
-			"\temail: v.string().email(),",
-			"\tpassword: v.string().min(1),",
-			"});",
-			"",
-			"const authLoginResponseSchema = {",
+			"export const authLoginResponseSchema = {",
 			'\ttype: "object",',
 			"\tproperties: {",
 			`\t\ttoken: { type: ${choices.auth === "session" ? '["string", "null"]' : '"string"'} },`,
@@ -872,7 +1006,7 @@ function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
 			'\trequired: ["token", "tokenType", "expiresIn", "user"],',
 			"} as const;",
 			"",
-			"const authErrorResponseSchema = {",
+			"export const authErrorResponseSchema = {",
 			'\ttype: "object",',
 			"\tproperties: {",
 			"\t\terror: {",
@@ -889,7 +1023,7 @@ function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
 			'\trequired: ["error"],',
 			"} as const;",
 			"",
-			"const okResponseSchema = {",
+			"export const okResponseSchema = {",
 			'\ttype: "object",',
 			"\tproperties: {",
 			'\t\tok: { type: "boolean" },',
@@ -899,7 +1033,7 @@ function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
 		);
 	}
 
-	return lines;
+	return `${lines.join("\n")}\n`;
 }
 
 function makeReadme(appName: string, choices: NewAppChoices): string {

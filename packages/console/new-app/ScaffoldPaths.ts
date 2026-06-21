@@ -91,6 +91,26 @@ export function authServicePath(choices: NewAppChoices): string {
 	);
 }
 
+export function authValidatorPath(choices: NewAppChoices): string {
+	return sourcePath(
+		choices,
+		"auth",
+		"auth_validator.ts",
+		"app/validators",
+		"application",
+	);
+}
+
+export function authMiddlewarePath(choices: NewAppChoices): string {
+	return sourcePath(
+		choices,
+		"auth",
+		"auth_middleware.ts",
+		"app/middleware",
+		"http",
+	);
+}
+
 export function userModelPath(choices: NewAppChoices): string {
 	if (choices.architecture === "domain") {
 		return "app/domains/auth/infrastructure/persistence/user_record.ts";
