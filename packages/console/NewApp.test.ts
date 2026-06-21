@@ -618,8 +618,12 @@ describe("new app command", () => {
 			await readGenerated(root, "demo-modular/package.json"),
 		) as { imports: Record<string, string> };
 		expect(packageJson.imports["#modules/*"]).toBe("./app/modules/*.ts");
+		expect(packageJson.imports["#routes/*"]).toBe("./app/modules/*/routes.ts");
 		expect(await readGenerated(root, "demo-modular/tsconfig.json")).toContain(
 			'"lib": ["ESNext", "DOM"]',
+		);
+		expect(await readGenerated(root, "demo-modular/tsconfig.json")).toContain(
+			'"#routes/*": ["app/modules/*/routes"]',
 		);
 		expect(
 			await generatedFileExists(
@@ -666,21 +670,34 @@ describe("new app command", () => {
 				"demo-modular/app/controllers/api_controller.ts",
 			),
 		).toBe(false);
-		expect(await readGenerated(root, "demo-modular/routes/api.ts")).toContain(
-			'from "#modules/api/api_controller"',
+		const modularApiRoutes = await readGenerated(
+			root,
+			"demo-modular/app/modules/api/routes.ts",
 		);
-		expect(await readGenerated(root, "demo-modular/routes/auth.ts")).toContain(
-			'from "#modules/auth/auth_controller"',
+		expect(modularApiRoutes).toContain('from "#modules/api/api_controller"');
+		expect(modularApiRoutes).toContain(
+			'import { registerOpenApiRoutes } from "kura/openapi"',
 		);
+		expect(modularApiRoutes).toContain(
+			"export function registerDocumentationRoutes",
+		);
+		const modularAuthRoutes = await readGenerated(
+			root,
+			"demo-modular/app/modules/auth/routes.ts",
+		);
+		expect(modularAuthRoutes).toContain('from "#modules/auth/auth_controller"');
 		expect(await readGenerated(root, "demo-modular/start/routes.ts")).toContain(
-			'import { registerApiRoutes } from "#routes/api"',
+			'import { registerApiRoutes, registerDocumentationRoutes } from "#routes/api"',
 		);
 		expect(await readGenerated(root, "demo-modular/start/routes.ts")).toContain(
 			'import { registerAuthRoutes } from "#routes/auth"',
 		);
+		expect(modularApiRoutes).not.toContain(
+			'from "#modules/web/home_controller"',
+		);
 		expect(
-			await readGenerated(root, "demo-modular/routes/api.ts"),
-		).not.toContain('from "#modules/web/home_controller"');
+			await generatedFileExists(root, "demo-modular/routes/openapi.ts"),
+		).toBe(false);
 		expect(await readGenerated(root, "demo-modular/bin/server.ts")).toContain(
 			'import home from "../resources/pages/home.html"',
 		);
@@ -781,6 +798,12 @@ describe("new app command", () => {
 			await readGenerated(root, "demo-domain/package.json"),
 		) as { imports: Record<string, string> };
 		expect(packageJson.imports["#domains/*"]).toBe("./app/domains/*.ts");
+		expect(packageJson.imports["#routes/*"]).toBe(
+			"./app/domains/*/http/routes.ts",
+		);
+		expect(await readGenerated(root, "demo-domain/tsconfig.json")).toContain(
+			'"#routes/*": ["app/domains/*/http/routes"]',
+		);
 		expect(
 			await generatedFileExists(
 				root,
@@ -865,21 +888,38 @@ describe("new app command", () => {
 				"demo-domain/app/domains/auth/application/register_user.ts",
 			),
 		).toContain("constructor(private readonly users: UserRepository)");
-		expect(await readGenerated(root, "demo-domain/routes/api.ts")).toContain(
+		const domainApiRoutes = await readGenerated(
+			root,
+			"demo-domain/app/domains/api/http/routes.ts",
+		);
+		expect(domainApiRoutes).toContain(
 			'from "#domains/api/http/api_controller"',
 		);
-		expect(await readGenerated(root, "demo-domain/routes/auth.ts")).toContain(
+		expect(domainApiRoutes).toContain(
+			'import { registerOpenApiRoutes } from "kura/openapi"',
+		);
+		expect(domainApiRoutes).toContain(
+			"export function registerDocumentationRoutes",
+		);
+		const domainAuthRoutes = await readGenerated(
+			root,
+			"demo-domain/app/domains/auth/http/routes.ts",
+		);
+		expect(domainAuthRoutes).toContain(
 			'from "#domains/auth/http/auth_controller"',
 		);
 		expect(await readGenerated(root, "demo-domain/start/routes.ts")).toContain(
-			'import { registerApiRoutes } from "#routes/api"',
+			'import { registerApiRoutes, registerDocumentationRoutes } from "#routes/api"',
 		);
 		expect(await readGenerated(root, "demo-domain/start/routes.ts")).toContain(
 			'import { registerAuthRoutes } from "#routes/auth"',
 		);
+		expect(domainApiRoutes).not.toContain(
+			'from "#domains/web/http/home_controller"',
+		);
 		expect(
-			await readGenerated(root, "demo-domain/routes/api.ts"),
-		).not.toContain('from "#domains/web/http/home_controller"');
+			await generatedFileExists(root, "demo-domain/routes/openapi.ts"),
+		).toBe(false);
 		expect(await readGenerated(root, "demo-domain/config/auth.ts")).toContain(
 			'model: "#domains/auth/infrastructure/persistence/user_record"',
 		);

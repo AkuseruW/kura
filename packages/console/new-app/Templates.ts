@@ -774,7 +774,13 @@ function makeStartRoutes(choices: NewAppChoices): string {
 	const registrars: string[] = [];
 
 	if (choices.preset === "api" || choices.preset === "full") {
-		imports.push('import { registerApiRoutes } from "#routes/api";');
+		if (choices.architecture === "standard") {
+			imports.push('import { registerApiRoutes } from "#routes/api";');
+		} else {
+			imports.push(
+				'import { registerApiRoutes, registerDocumentationRoutes } from "#routes/api";',
+			);
+		}
 		registrars.push("registerApiRoutes(router);");
 	}
 
@@ -788,10 +794,16 @@ function makeStartRoutes(choices: NewAppChoices): string {
 		registrars.push("registerAuthRoutes(router);");
 	}
 
-	if (choices.preset === "api" || choices.preset === "full") {
+	if (
+		choices.architecture === "standard" &&
+		(choices.preset === "api" || choices.preset === "full")
+	) {
 		imports.push(
 			'import { registerDocumentationRoutes } from "#routes/openapi";',
 		);
+	}
+
+	if (choices.preset === "api" || choices.preset === "full") {
 		registrars.push("registerDocumentationRoutes(router);");
 	}
 
@@ -808,26 +820,31 @@ function makeRouteFiles(choices: NewAppChoices): readonly NewAppFile[] {
 
 	if (choices.preset === "api" || choices.preset === "full") {
 		files.push({
-			path: "routes/api.ts",
-			content: makeApiRoutes(choices),
+			path: routeFilePath(choices, "api"),
+			content: makeApiRoutes(choices, {
+				includeDocumentation: choices.architecture !== "standard",
+			}),
 		});
 	}
 
 	if (choices.preset === "web") {
 		files.push({
-			path: "routes/web.ts",
+			path: routeFilePath(choices, "web"),
 			content: makeWebRoutes(choices),
 		});
 	}
 
 	if (choices.auth !== "none") {
 		files.push({
-			path: "routes/auth.ts",
+			path: routeFilePath(choices, "auth"),
 			content: makeAuthRoutes(choices),
 		});
 	}
 
-	if (choices.preset === "api" || choices.preset === "full") {
+	if (
+		choices.architecture === "standard" &&
+		(choices.preset === "api" || choices.preset === "full")
+	) {
 		files.push({
 			path: "routes/openapi.ts",
 			content: makeOpenApiRoutes(choices),
@@ -837,7 +854,25 @@ function makeRouteFiles(choices: NewAppChoices): readonly NewAppFile[] {
 	return files;
 }
 
-function makeApiRoutes(choices: NewAppChoices): string {
+function routeFilePath(
+	choices: NewAppChoices,
+	moduleName: "api" | "auth" | "web",
+): string {
+	if (choices.architecture === "domain") {
+		return `app/domains/${moduleName}/http/routes.ts`;
+	}
+
+	if (choices.architecture === "modular") {
+		return `app/modules/${moduleName}/routes.ts`;
+	}
+
+	return `routes/${moduleName}.ts`;
+}
+
+function makeApiRoutes(
+	choices: NewAppChoices,
+	options: { readonly includeDocumentation: boolean },
+): string {
 	const imports = [
 		'import type { Router } from "kura/http";',
 		`import { ApiController } from "${moduleImport(
@@ -849,6 +884,11 @@ function makeApiRoutes(choices: NewAppChoices): string {
 		)}";`,
 		'import { appInfoResponseSchema, healthResponseSchema } from "#contracts/openapi";',
 	];
+
+	if (options.includeDocumentation) {
+		imports.push('import { registerOpenApiRoutes } from "kura/openapi";');
+	}
+
 	const lines = ["const apiController = new ApiController();", ""];
 
 	if (choices.preset === "api") {
@@ -915,6 +955,10 @@ function makeApiRoutes(choices: NewAppChoices): string {
 			"\t});",
 			"}",
 		);
+	}
+
+	if (options.includeDocumentation) {
+		lines.push("", makeOpenApiRouteRegistrar(choices));
 	}
 
 	return `${imports.join("\n")}\n\n${lines.join("\n")}\n`;
@@ -1056,6 +1100,14 @@ ${accessTokenSecurity}\t\t\t\t\tresponses: {
 }
 
 function makeOpenApiRoutes(choices: NewAppChoices): string {
+	return `import type { Router } from "kura/http";
+import { registerOpenApiRoutes } from "kura/openapi";
+
+${makeOpenApiRouteRegistrar(choices)}
+`;
+}
+
+function makeOpenApiRouteRegistrar(choices: NewAppChoices): string {
 	const body =
 		choices.auth === "access-token"
 			? `registerOpenApiRoutes(router, {
@@ -1069,13 +1121,9 @@ function makeOpenApiRoutes(choices: NewAppChoices): string {
 \t});`
 			: 'registerOpenApiRoutes(router, { title: "Kura API", version: "0.1.0" });';
 
-	return `import type { Router } from "kura/http";
-import { registerOpenApiRoutes } from "kura/openapi";
-
-export function registerDocumentationRoutes(router: Router): void {
+	return `export function registerDocumentationRoutes(router: Router): void {
 \t${body}
-}
-`;
+}`;
 }
 
 function makeAuthOpenApiContractExports(): string[] {

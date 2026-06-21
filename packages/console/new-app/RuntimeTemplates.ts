@@ -44,7 +44,7 @@ export function makePackageJson(
 			"#providers/*": "./providers/*.ts",
 			"#policies/*": "./app/policies/*.ts",
 			"#database/*": "./database/*.ts",
-			"#routes/*": "./routes/*.ts",
+			"#routes/*": makeRouteImportTarget(choices),
 			"#tests/*": "./tests/*.ts",
 			"#start/*": "./start/*.ts",
 			"#config/*": "./config/*.ts",
@@ -63,6 +63,30 @@ function makeBuildScript(choices: NewAppChoices): string {
 	const rootOption = choices.preset === "full" ? " --root ." : "";
 
 	return `bun build bin/server.ts --target=bun --production --outdir=build --packages=external${rootOption}`;
+}
+
+function makeRouteImportTarget(choices: NewAppChoices): string {
+	if (choices.architecture === "domain") {
+		return "./app/domains/*/http/routes.ts";
+	}
+
+	if (choices.architecture === "modular") {
+		return "./app/modules/*/routes.ts";
+	}
+
+	return "./routes/*.ts";
+}
+
+function makeRouteTsConfigTarget(choices: NewAppChoices): string {
+	if (choices.architecture === "domain") {
+		return "app/domains/*/http/routes";
+	}
+
+	if (choices.architecture === "modular") {
+		return "app/modules/*/routes";
+	}
+
+	return "routes/*";
 }
 
 export function makeTsConfig(choices: NewAppChoices): string {
@@ -93,7 +117,7 @@ export function makeTsConfig(choices: NewAppChoices): string {
 \t\t\t"#providers/*": ["providers/*"],
 \t\t\t"#policies/*": ["app/policies/*"],
 \t\t\t"#database/*": ["database/*"],
-\t\t\t"#routes/*": ["routes/*"],
+\t\t\t"#routes/*": ["${makeRouteTsConfigTarget(choices)}"],
 \t\t\t"#tests/*": ["tests/*"],
 \t\t\t"#start/*": ["start/*"],
 \t\t\t"#config/*": ["config/*"]
