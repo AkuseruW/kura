@@ -45,6 +45,12 @@ export {
 	registerHealthRoutes,
 } from "./packages/http/Health";
 export {
+	defineHttpKernel,
+	type HttpKernel,
+	type HttpKernelOptions,
+	type NamedMiddlewareMap,
+} from "./packages/http/Kernel";
+export {
 	BodyLimit,
 	type BodyLimitOptions,
 	BodyParser,

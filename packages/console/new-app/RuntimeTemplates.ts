@@ -44,6 +44,7 @@ export function makePackageJson(
 			"#providers/*": "./providers/*.ts",
 			"#policies/*": "./app/policies/*.ts",
 			"#database/*": "./database/*.ts",
+			"#routes/*": "./routes/*.ts",
 			"#tests/*": "./tests/*.ts",
 			"#start/*": "./start/*.ts",
 			"#config/*": "./config/*.ts",
@@ -92,6 +93,7 @@ export function makeTsConfig(choices: NewAppChoices): string {
 \t\t\t"#providers/*": ["providers/*"],
 \t\t\t"#policies/*": ["app/policies/*"],
 \t\t\t"#database/*": ["database/*"],
+\t\t\t"#routes/*": ["routes/*"],
 \t\t\t"#tests/*": ["tests/*"],
 \t\t\t"#start/*": ["start/*"],
 \t\t\t"#config/*": ["config/*"]
@@ -154,14 +156,12 @@ export function makeServerEntrypoint(choices: NewAppChoices): string {
 \tServer,
 } from "kura/http";
 import home from "../resources/pages/home.html";
-import handleException from "#exceptions/handler";
 import env from "#start/env";
-import { routerMiddleware, serverMiddleware } from "#start/kernel";
+import { kernel } from "#start/kernel";
 import { router } from "#start/routes";`
 			: `import { type Context, MiddlewarePipeline, Server } from "kura/http";
-import handleException from "#exceptions/handler";
 import env from "#start/env";
-import { routerMiddleware, serverMiddleware } from "#start/kernel";
+import { kernel } from "#start/kernel";
 import { router } from "#start/routes";`;
 	const staticRouteExports =
 		choices.preset === "full"
@@ -186,7 +186,7 @@ export const development = (
 \t\tport: env.number("PORT", 3333) ?? 3333,
 \t\thostname: env.get("HOST", "localhost"),
 \t\tenvironment: env.get("NODE_ENV", "development"),
-\t\terrorHandler: handleException,
+\t\terrorHandler: kernel.errorHandler,
 \t\tstaticRoutes,
 \t\tdevelopment,
 \t}`
@@ -194,7 +194,7 @@ export const development = (
 \t\tport: env.number("PORT", 3333) ?? 3333,
 \t\thostname: env.get("HOST", "localhost"),
 \t\tenvironment: env.get("NODE_ENV", "development"),
-\t\terrorHandler: handleException,
+\t\terrorHandler: kernel.errorHandler,
 \t}`;
 
 	return `${imports}
@@ -207,11 +207,11 @@ export const handler = createHandler();
 function createHandler() {
 \tconst pipeline = new MiddlewarePipeline();
 
-\tfor (const middleware of serverMiddleware) {
+\tfor (const middleware of kernel.server) {
 \t\tpipeline.use(middleware);
 \t}
 
-\tfor (const middleware of routerMiddleware) {
+\tfor (const middleware of kernel.router) {
 \t\tpipeline.use(middleware);
 \t}
 
