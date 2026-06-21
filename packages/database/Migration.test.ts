@@ -98,8 +98,8 @@ describe("SchemaBuilder", () => {
 
 		expect(schema.toSQL()).toEqual([
 			{
-				sql: 'create table "users" ("id" integer primary key autoincrement, "email" varchar(255) not null unique, "name" varchar(120), "active" boolean not null default ?, "created_at" timestamp not null, "updated_at" timestamp not null)',
-				bindings: [true],
+				sql: 'create table "users" ("id" integer primary key autoincrement, "email" varchar(255) not null unique, "name" varchar(120), "active" boolean not null default true, "created_at" timestamp not null, "updated_at" timestamp not null)',
+				bindings: [],
 			},
 		]);
 	});
@@ -120,8 +120,8 @@ describe("SchemaBuilder", () => {
 				bindings: [],
 			},
 			{
-				sql: 'alter table "users" add column "status" varchar(255) not null default ?',
-				bindings: ["draft"],
+				sql: 'alter table "users" add column "status" varchar(255) not null default \'draft\'',
+				bindings: [],
 			},
 			{
 				sql: 'alter table "users" drop column "legacy_status"',
@@ -202,8 +202,8 @@ describe("MigrationRunner", () => {
 			bindings: [],
 		});
 		expect(connection.queries[2]).toEqual({
-			sql: 'create table "users" ("id" integer primary key autoincrement, "email" varchar(255) not null unique, "name" varchar(120), "active" boolean not null default ?, "created_at" timestamp not null, "updated_at" timestamp not null)',
-			bindings: [true],
+			sql: 'create table "users" ("id" integer primary key autoincrement, "email" varchar(255) not null unique, "name" varchar(120), "active" boolean not null default true, "created_at" timestamp not null, "updated_at" timestamp not null)',
+			bindings: [],
 		});
 		expectMigrationInsert(
 			connection.queries[3] as ExecutedQuery,
@@ -215,8 +215,8 @@ describe("MigrationRunner", () => {
 			bindings: [],
 		});
 		expect(connection.queries[5]).toEqual({
-			sql: 'alter table "users" add column "status" varchar(255) not null default ?',
-			bindings: ["draft"],
+			sql: 'alter table "users" add column "status" varchar(255) not null default \'draft\'',
+			bindings: [],
 		});
 		expectMigrationInsert(
 			connection.queries[6] as ExecutedQuery,

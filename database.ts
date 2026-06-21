@@ -91,3 +91,8 @@ export {
 	type QueryValue,
 	type SortDirection,
 } from "./packages/database/QueryBuilder";
+export {
+	SQLiteDatabaseConnection,
+	type SQLiteDatabaseConnectionConfig,
+	SQLiteDatabaseDriver,
+} from "./packages/database/SQLiteDatabase";
