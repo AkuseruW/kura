@@ -1,24 +1,5 @@
 import type { DatabaseManager, QueryPrimitive } from "../database/Database";
 
-export type Infer<TSchema> =
-	TSchema extends Schema<infer TValue> ? TValue : never;
-
-type ObjectShape = Record<string, Schema<unknown>>;
-type Simplify<T> = { [K in keyof T]: T[K] } & {};
-type OptionalShapeKeys<TShape extends ObjectShape> = {
-	[K in keyof TShape]: undefined extends Infer<TShape[K]> ? K : never;
-}[keyof TShape];
-type RequiredShapeKeys<TShape extends ObjectShape> = Exclude<
-	keyof TShape,
-	OptionalShapeKeys<TShape>
->;
-type InferObject<TShape extends ObjectShape> = Simplify<
-	{
-		[K in RequiredShapeKeys<TShape>]: Infer<TShape[K]>;
-	} & {
-		[K in OptionalShapeKeys<TShape>]?: Exclude<Infer<TShape[K]>, undefined>;
-	}
->;
 type AsyncValidationRule = (
 	value: unknown,
 	context: AsyncValidationContext,
@@ -50,6 +31,32 @@ export type DatabaseValidationOptions = {
 	readonly database?: DatabaseManager;
 	readonly connection?: string;
 };
+
+export type SchemaLike<T = unknown> = {
+	parse(value: unknown): T;
+	parseAsync(value: unknown, context?: AsyncValidationContext): Promise<T>;
+	describe(): SchemaDescription;
+};
+
+export type Infer<TSchema> =
+	TSchema extends SchemaLike<infer TValue> ? TValue : never;
+
+type ObjectShape = Record<string, Schema<unknown>>;
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
+type OptionalShapeKeys<TShape extends ObjectShape> = {
+	[K in keyof TShape]: undefined extends Infer<TShape[K]> ? K : never;
+}[keyof TShape];
+type RequiredShapeKeys<TShape extends ObjectShape> = Exclude<
+	keyof TShape,
+	OptionalShapeKeys<TShape>
+>;
+type InferObject<TShape extends ObjectShape> = Simplify<
+	{
+		[K in RequiredShapeKeys<TShape>]: Infer<TShape[K]>;
+	} & {
+		[K in OptionalShapeKeys<TShape>]?: Exclude<Infer<TShape[K]>, undefined>;
+	}
+>;
 
 export class Schema<T = unknown> {
 	private rules: ((value: unknown) => boolean)[] = [];
@@ -652,6 +659,15 @@ export class Schema<T = unknown> {
 }
 
 export const k = new Schema();
+
+export function isSchema(value: unknown): value is SchemaLike<unknown> {
+	return (
+		isRecord(value) &&
+		typeof value.parse === "function" &&
+		typeof value.parseAsync === "function" &&
+		typeof value.describe === "function"
+	);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);

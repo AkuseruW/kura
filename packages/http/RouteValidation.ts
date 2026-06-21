@@ -1,4 +1,4 @@
-import { Schema } from "../validation/Schema";
+import { isSchema, type SchemaLike } from "../validation/Schema";
 import { parseRequestBody } from "./Body";
 import { HttpException } from "./ErrorHandler";
 import type {
@@ -107,7 +107,7 @@ export function compileRouteValidationPlan(route: {
 
 async function validateRequestPart(
 	source: keyof ValidatedRouteData,
-	schema: Schema<unknown>,
+	schema: SchemaLike<unknown>,
 	value: unknown,
 ): Promise<unknown> {
 	try {
@@ -119,12 +119,12 @@ async function validateRequestPart(
 
 function schemaFromOpenApiBody(
 	body: RouteOpenApiOptions["body"] | undefined,
-): Schema<unknown> | undefined {
-	if (body instanceof Schema) {
+): SchemaLike<unknown> | undefined {
+	if (isSchema(body)) {
 		return body;
 	}
 
-	if (isRouteOpenApiBodyObject(body) && body.schema instanceof Schema) {
+	if (isRouteOpenApiBodyObject(body) && isSchema(body.schema)) {
 		return body.schema;
 	}
 
@@ -182,7 +182,7 @@ function isRouteOpenApiBodyObject(
 	value: RouteOpenApiOptions["body"] | undefined,
 ): value is RouteOpenApiBodyObject {
 	return (
-		!(value instanceof Schema) &&
+		!isSchema(value) &&
 		isRecord(value) &&
 		"schema" in value &&
 		isOpenApiSchemaInput(value.schema)
@@ -190,7 +190,7 @@ function isRouteOpenApiBodyObject(
 }
 
 function isOpenApiSchemaInput(value: unknown): value is OpenApiSchemaInput {
-	return value instanceof Schema || isRecord(value);
+	return isSchema(value) || isRecord(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

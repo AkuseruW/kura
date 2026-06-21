@@ -1,4 +1,4 @@
-import type { Schema } from "../validation/Schema";
+import type { SchemaLike } from "../validation/Schema";
 import { parseRequestBody, type RequestBodyType } from "./Body";
 import { createContext, type RequestFormData } from "./Server";
 
@@ -77,7 +77,7 @@ export class KuraRequest {
 		return result;
 	}
 
-	validate<T>(schema: Schema<T>): T {
+	validate<T>(schema: SchemaLike<T>): T {
 		return schema.parse(this.all());
 	}
 }

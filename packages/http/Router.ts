@@ -1,4 +1,4 @@
-import type { Schema } from "../validation/Schema";
+import type { SchemaLike } from "../validation/Schema";
 import { ensureContext } from "./Context";
 import {
 	type ControllerConstructor,
@@ -25,12 +25,12 @@ import type { Context, ContextCore } from "./Server";
 
 export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
 export type RouteSchemaOptions = {
-	readonly params?: Schema<unknown>;
-	readonly query?: Schema<unknown>;
-	readonly headers?: Schema<unknown>;
-	readonly cookies?: Schema<unknown>;
-	readonly body?: Schema<unknown>;
-	readonly responses?: Record<string | number, Schema<unknown>>;
+	readonly params?: SchemaLike<unknown>;
+	readonly query?: SchemaLike<unknown>;
+	readonly headers?: SchemaLike<unknown>;
+	readonly cookies?: SchemaLike<unknown>;
+	readonly body?: SchemaLike<unknown>;
+	readonly responses?: Record<string | number, SchemaLike<unknown>>;
 };
 export type RegisteredRoute = {
 	readonly method: string;
