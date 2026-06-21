@@ -767,6 +767,33 @@ describe("BaseModel", () => {
 		]);
 	});
 
+	test("inherits decorated column metadata through model subclasses", async () => {
+		class Contact extends BaseModel<ContactAttributes> {
+			static override table = "contacts";
+			static override timestamps = false;
+
+			@column({ name: "email_address" })
+			declare email: string;
+
+			declare id: number;
+		}
+
+		class ArchivedContact extends Contact {}
+
+		const database = createDatabase();
+		ArchivedContact.useDatabase(database);
+		const contact = ArchivedContact.hydrate({
+			id: 1,
+			email_address: "archived@kura.dev",
+		} as unknown as ContactAttributes);
+
+		expect(contact.email).toBe("archived@kura.dev");
+		expect(contact.toObject()).toEqual({
+			email: "archived@kura.dev",
+			id: 1,
+		});
+	});
+
 	test("loads belongsTo relations through decorators and caches the result", async () => {
 		class User extends BaseModel<UserAttributes> {
 			static override table = "users";

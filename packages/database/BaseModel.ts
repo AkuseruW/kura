@@ -1,392 +1,90 @@
 // biome-ignore-all lint/complexity/noThisInStatic: Active Record static APIs resolve subclass constructors through this.
 import { BaseException } from "../core/BaseException";
-import type { DatabaseManager, QueryPrimitive, QueryRow } from "./Database";
+import type { DatabaseManager, QueryPrimitive } from "./Database";
+import { hydrateModel } from "./ModelHydration";
+import {
+	getModelHookDefinitions as getStoredModelHookDefinitions,
+	resolveRelationDefinition as resolveStoredRelationDefinition,
+} from "./ModelMetadata";
+import {
+	collectModelMutationValues as collectModelMutationValuesForModel,
+	createPivotQueryBuilder,
+	createQueryBuilder,
+	resolveCreatedAtColumn,
+	resolveColumnName as resolveModelColumnName,
+	resolvePrimaryKey,
+	resolveRelationValue,
+	resolveUpdatedAtColumn,
+	usesTimestamps,
+} from "./ModelOperations";
+import { ModelQueryBuilder } from "./ModelQueryBuilder";
+import {
+	collectPivotValues,
+	indexModelsByRelationKey,
+	isCollectionRelation,
+	resolveManyToManyOptions,
+} from "./ModelRelationHelpers";
+import {
+	markPersisted,
+	relationMetadata,
+	renameRelation,
+	setLoadedRelation,
+} from "./ModelSymbols";
+import type {
+	AnyModelClass,
+	BelongsToRelationOptions,
+	HasManyRelationOptions,
+	HasOneRelationOptions,
+	ManyToManyRelationOptions,
+	ModelAttributes,
+	ModelClass,
+	ModelHookInvoker,
+	ModelHookName,
+	ModelRelationMetadata,
+	ModelRelationType,
+	StoredRelationDefinition,
+} from "./ModelTypes";
 import {
 	areAttributeValuesEqual,
 	isQueryPrimitive,
 	lowerFirst,
 	relationValueKey,
 	resolvePivotValue,
-	toQueryPrimitive,
 } from "./ModelValues";
-import type {
-	CompiledQuery,
-	PaginatedResult,
-	QueryBuilder,
-	QueryColumn,
-	QueryMutationValues,
-	QueryOperator,
-	QueryValue,
-	SortDirection,
-} from "./QueryBuilder";
+import type { QueryColumn } from "./QueryBuilder";
 
-export type ModelAttributes = QueryRow;
-
-export type ModelClass<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
-> = {
-	new (attributes?: Partial<TAttributes>): TModel;
-	readonly name: string;
-	table?: string;
-	primaryKey?: string;
-	database?: DatabaseManager;
-	connection?: string;
-	timestamps?: boolean;
-	createdAtColumn?: string;
-	updatedAtColumn?: string;
-};
-
-export type ModelColumnOptions = {
-	readonly name?: string;
-};
-
-export type ModelColumnDefinition = {
-	readonly propertyKey: string;
-	readonly columnName: string;
-};
-
-export type ColumnDecorator = {
-	(target: object, propertyKey: string | symbol): void;
-	(value: undefined, context: ClassFieldDecoratorContext): void;
-};
-
-export type ModelRelationType =
-	| "belongsTo"
-	| "hasOne"
-	| "hasMany"
-	| "manyToMany";
-
-export type RelationModelFactory<
-	TRelated extends BaseModel<TRelatedAttributes>,
-	TRelatedAttributes extends ModelAttributes,
-> = () => ModelClass<TRelated, TRelatedAttributes>;
-
-export type BelongsToRelationOptions = {
-	readonly foreignKey?: string;
-	readonly ownerKey?: string;
-};
-
-export type HasOneRelationOptions = {
-	readonly foreignKey?: string;
-	readonly localKey?: string;
-};
-
-export type HasManyRelationOptions = {
-	readonly foreignKey?: string;
-	readonly localKey?: string;
-};
-
-export type ManyToManyRelationOptions = {
-	readonly pivotTable: string;
-	readonly foreignPivotKey: string;
-	readonly relatedPivotKey: string;
-	readonly localKey?: string;
-	readonly relatedKey?: string;
-};
-
-export type RelationDecorator = {
-	(target: object, propertyKey: string | symbol): void;
-	(value: undefined, context: ClassFieldDecoratorContext): void;
-};
-
-export type ModelHookName =
-	| "beforeSave"
-	| "afterSave"
-	| "beforeCreate"
-	| "afterCreate"
-	| "beforeDelete";
-
-export type ModelHookResult = boolean | undefined;
-
-export type ModelHookCallback<TModel extends BaseModel = BaseModel> = (
-	model: TModel,
-) => ModelHookResult | Promise<ModelHookResult>;
-
-export type ModelHookDecorator = {
-	(
-		target: object,
-		propertyKey: string | symbol,
-		descriptor: PropertyDescriptor,
-	): void;
-	(value: ModelHookCallback, context: ClassMethodDecoratorContext): void;
-};
-
-type StoredRelationDefinition = {
-	readonly name: string;
-	readonly type: ModelRelationType;
-	readonly relatedModel: () => unknown;
-	readonly foreignKey?: string;
-	readonly localKey?: string;
-	readonly ownerKey?: string;
-	readonly pivotTable?: string;
-	readonly foreignPivotKey?: string;
-	readonly relatedPivotKey?: string;
-	readonly relatedKey?: string;
-};
-
-type RelationOptions = BelongsToRelationOptions &
-	HasOneRelationOptions &
-	HasManyRelationOptions &
-	Partial<ManyToManyRelationOptions>;
-
-type StoredModelHookDefinition = {
-	readonly name: string;
-	readonly hook: ModelHookName;
-	readonly isStatic: boolean;
-};
-
-type ModelHookInvoker = (
-	this: unknown,
-	model?: unknown,
-) => ModelHookResult | Promise<ModelHookResult>;
-
-export type ModelPaginatedResult<TModel> = Omit<
-	PaginatedResult<ModelAttributes>,
-	"data"
-> & {
-	readonly data: readonly TModel[];
-};
-
-type ConstructorObject = {
-	readonly prototype: object;
-};
-
-const modelColumns = new WeakMap<
-	ConstructorObject,
-	Map<string, ModelColumnDefinition>
->();
-const modelRelations = new WeakMap<
-	ConstructorObject,
-	Map<string, StoredRelationDefinition>
->();
-const modelHooks = new WeakMap<
-	ConstructorObject,
-	Map<ModelHookName, Map<string, StoredModelHookDefinition>>
->();
-const initializedModelMetadata = new WeakSet<ConstructorObject>();
-const markPersisted = Symbol("markPersisted");
-const setLoadedRelation = Symbol("setLoadedRelation");
-const relationMetadata = Symbol("relationMetadata");
-const renameRelation = Symbol("renameRelation");
-
-export function column(options: ModelColumnOptions = {}): ColumnDecorator {
-	const decorator = (
-		targetOrValue: object | undefined,
-		propertyOrContext: string | symbol | ClassFieldDecoratorContext,
-	): void => {
-		if (isFieldDecoratorContext(propertyOrContext)) {
-			if (propertyOrContext.private) {
-				throw new Error("@column() cannot be used on private fields");
-			}
-
-			const propertyKey = normalizePropertyKey(propertyOrContext.name);
-			propertyOrContext.addInitializer(function initializeColumn(
-				this: unknown,
-			) {
-				if (typeof this !== "object" || this === null) {
-					throw new Error("@column() initializer target is invalid");
-				}
-
-				registerColumn(
-					this.constructor as ConstructorObject,
-					propertyKey,
-					options,
-				);
-			});
-			return;
-		}
-
-		if (!targetOrValue) {
-			throw new Error("@column() decorator target is invalid");
-		}
-
-		registerColumn(
-			targetOrValue.constructor as ConstructorObject,
-			normalizePropertyKey(propertyOrContext),
-			options,
-		);
-	};
-
-	return decorator as ColumnDecorator;
-}
-
-export function belongsTo<
-	TRelatedAttributes extends ModelAttributes,
-	TRelated extends BaseModel<TRelatedAttributes>,
->(
-	relatedModel: RelationModelFactory<TRelated, TRelatedAttributes>,
-	options: BelongsToRelationOptions = {},
-): RelationDecorator {
-	return relationDecorator("belongsTo", relatedModel, options);
-}
-
-export function hasOne<
-	TRelatedAttributes extends ModelAttributes,
-	TRelated extends BaseModel<TRelatedAttributes>,
->(
-	relatedModel: RelationModelFactory<TRelated, TRelatedAttributes>,
-	options: HasOneRelationOptions = {},
-): RelationDecorator {
-	return relationDecorator("hasOne", relatedModel, options);
-}
-
-export function hasMany<
-	TRelatedAttributes extends ModelAttributes,
-	TRelated extends BaseModel<TRelatedAttributes>,
->(
-	relatedModel: RelationModelFactory<TRelated, TRelatedAttributes>,
-	options: HasManyRelationOptions = {},
-): RelationDecorator {
-	return relationDecorator("hasMany", relatedModel, options);
-}
-
-export function manyToMany<
-	TRelatedAttributes extends ModelAttributes,
-	TRelated extends BaseModel<TRelatedAttributes>,
->(
-	relatedModel: RelationModelFactory<TRelated, TRelatedAttributes>,
-	options: ManyToManyRelationOptions,
-): RelationDecorator {
-	return relationDecorator("manyToMany", relatedModel, options);
-}
-
-export function beforeSave(): ModelHookDecorator {
-	return modelHookDecorator("beforeSave");
-}
-
-export function afterSave(): ModelHookDecorator {
-	return modelHookDecorator("afterSave");
-}
-
-export function beforeCreate(): ModelHookDecorator {
-	return modelHookDecorator("beforeCreate");
-}
-
-export function afterCreate(): ModelHookDecorator {
-	return modelHookDecorator("afterCreate");
-}
-
-export function beforeDelete(): ModelHookDecorator {
-	return modelHookDecorator("beforeDelete");
-}
-
-function relationDecorator(
-	type: ModelRelationType,
-	relatedModel: () => unknown,
-	options: RelationOptions,
-): RelationDecorator {
-	const decorator = (
-		targetOrValue: object | undefined,
-		propertyOrContext: string | symbol | ClassFieldDecoratorContext,
-	): void => {
-		if (isFieldDecoratorContext(propertyOrContext)) {
-			if (propertyOrContext.private) {
-				throw new Error(`@${type}() cannot be used on private fields`);
-			}
-
-			const propertyKey = normalizePropertyKey(propertyOrContext.name);
-			propertyOrContext.addInitializer(function initializeRelation(
-				this: unknown,
-			) {
-				if (typeof this !== "object" || this === null) {
-					throw new Error(`@${type}() initializer target is invalid`);
-				}
-
-				registerRelation(
-					this.constructor as ConstructorObject,
-					propertyKey,
-					type,
-					relatedModel,
-					options,
-				);
-			});
-			return;
-		}
-
-		if (!targetOrValue) {
-			throw new Error(`@${type}() decorator target is invalid`);
-		}
-
-		registerRelation(
-			targetOrValue.constructor as ConstructorObject,
-			normalizePropertyKey(propertyOrContext),
-			type,
-			relatedModel,
-			options,
-		);
-	};
-
-	return decorator as RelationDecorator;
-}
-
-function modelHookDecorator(hook: ModelHookName): ModelHookDecorator {
-	const decorator = (
-		targetOrValue: object | ModelHookCallback | undefined,
-		propertyOrContext: string | symbol | ClassMethodDecoratorContext,
-		descriptor?: PropertyDescriptor,
-	): void => {
-		if (isMethodDecoratorContext(propertyOrContext)) {
-			if (propertyOrContext.private) {
-				throw new Error(`@${hook}() cannot be used on private methods`);
-			}
-
-			if (propertyOrContext.kind !== "method") {
-				throw new Error(`@${hook}() can only be used on methods`);
-			}
-
-			const methodName = normalizeDecoratorKey(
-				propertyOrContext.name,
-				`@${hook}()`,
-			);
-			propertyOrContext.addInitializer(function initializeModelHook(
-				this: unknown,
-			) {
-				const model = propertyOrContext.static
-					? this
-					: typeof this === "object" && this !== null
-						? this.constructor
-						: undefined;
-
-				if (!isConstructorObject(model)) {
-					throw new Error(`@${hook}() initializer target is invalid`);
-				}
-
-				registerModelHook(model, hook, methodName, propertyOrContext.static);
-			});
-			return;
-		}
-
-		if (!descriptor || typeof descriptor.value !== "function") {
-			throw new Error(`@${hook}() can only be used on methods`);
-		}
-
-		const methodName = normalizeDecoratorKey(propertyOrContext, `@${hook}()`);
-
-		if (typeof targetOrValue === "function") {
-			registerModelHook(
-				targetOrValue as unknown as ConstructorObject,
-				hook,
-				methodName,
-				true,
-			);
-			return;
-		}
-
-		if (!targetOrValue) {
-			throw new Error(`@${hook}() decorator target is invalid`);
-		}
-
-		registerModelHook(
-			targetOrValue.constructor as ConstructorObject,
-			hook,
-			methodName,
-			false,
-		);
-	};
-
-	return decorator as ModelHookDecorator;
-}
+export {
+	afterCreate,
+	afterSave,
+	beforeCreate,
+	beforeDelete,
+	beforeSave,
+	belongsTo,
+	column,
+	hasMany,
+	hasOne,
+	manyToMany,
+} from "./ModelMetadata";
+export { ModelQueryBuilder } from "./ModelQueryBuilder";
+export type {
+	BelongsToRelationOptions,
+	ColumnDecorator,
+	HasManyRelationOptions,
+	HasOneRelationOptions,
+	ManyToManyRelationOptions,
+	ModelAttributes,
+	ModelClass,
+	ModelColumnDefinition,
+	ModelColumnOptions,
+	ModelHookCallback,
+	ModelHookDecorator,
+	ModelHookName,
+	ModelHookResult,
+	ModelPaginatedResult,
+	ModelRelationType,
+	RelationDecorator,
+	RelationModelFactory,
+} from "./ModelTypes";
 
 export class ModelNotFoundException extends BaseException {
 	constructor(modelName: string, primaryKey: string, key: QueryPrimitive) {
@@ -395,137 +93,6 @@ export class ModelNotFoundException extends BaseException {
 			"E_MODEL_NOT_FOUND",
 			404,
 		);
-	}
-}
-
-export class ModelQueryBuilder<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
-> {
-	private readonly preloadedRelations: string[] = [];
-
-	constructor(
-		private readonly model: ModelClass<TModel, TAttributes>,
-		private readonly builder: QueryBuilder<TAttributes>,
-	) {}
-
-	select(...columns: QueryColumn<TAttributes>[]): this {
-		this.builder.select(...columns);
-		return this;
-	}
-
-	where(column: QueryColumn<TAttributes>, value: QueryValue): this;
-	where(
-		column: QueryColumn<TAttributes>,
-		operator: QueryOperator,
-		value: QueryValue,
-	): this;
-	where(
-		column: QueryColumn<TAttributes>,
-		operatorOrValue: QueryOperator | QueryValue,
-		value?: QueryValue,
-	): this {
-		if (value === undefined) {
-			this.builder.where(column, operatorOrValue as QueryValue);
-			return this;
-		}
-
-		this.builder.where(column, operatorOrValue as QueryOperator, value);
-		return this;
-	}
-
-	orWhere(column: QueryColumn<TAttributes>, value: QueryValue): this;
-	orWhere(
-		column: QueryColumn<TAttributes>,
-		operator: QueryOperator,
-		value: QueryValue,
-	): this;
-	orWhere(
-		column: QueryColumn<TAttributes>,
-		operatorOrValue: QueryOperator | QueryValue,
-		value?: QueryValue,
-	): this {
-		if (value === undefined) {
-			this.builder.orWhere(column, operatorOrValue as QueryValue);
-			return this;
-		}
-
-		this.builder.orWhere(column, operatorOrValue as QueryOperator, value);
-		return this;
-	}
-
-	orderBy(
-		column: QueryColumn<TAttributes>,
-		direction: SortDirection = "asc",
-	): this {
-		this.builder.orderBy(column, direction);
-		return this;
-	}
-
-	limit(value: number): this {
-		this.builder.limit(value);
-		return this;
-	}
-
-	preload(name: string): this {
-		const relationName = name.trim();
-		if (relationName.length === 0) {
-			throw new Error("preload() relation name cannot be empty");
-		}
-
-		if (!this.preloadedRelations.includes(relationName)) {
-			this.preloadedRelations.push(relationName);
-		}
-
-		return this;
-	}
-
-	toSQL(): CompiledQuery {
-		return this.builder.toSQL();
-	}
-
-	async all(): Promise<readonly TModel[]> {
-		const rows = await this.builder.all();
-		const models = rows.map((row) => hydrateModel(this.model, row));
-		await preloadModelRelations(models, this.preloadedRelations);
-		return models;
-	}
-
-	async first(): Promise<TModel | null> {
-		const row = await this.builder.first();
-		if (!row) {
-			return null;
-		}
-
-		const model = hydrateModel(this.model, row);
-		await preloadModelRelations([model], this.preloadedRelations);
-		return model;
-	}
-
-	async paginate(
-		page = 1,
-		perPage = 15,
-	): Promise<ModelPaginatedResult<TModel>> {
-		const result = await this.builder.paginate(page, perPage);
-		const data = result.data.map((row) => hydrateModel(this.model, row));
-		await preloadModelRelations(data, this.preloadedRelations);
-
-		return {
-			...result,
-			data,
-		};
-	}
-
-	count(column: QueryColumn<TAttributes> = "*"): Promise<number> {
-		return this.builder.count(column);
-	}
-
-	sum(column: QueryColumn<TAttributes>): Promise<number | null> {
-		return this.builder.sum(column);
-	}
-
-	avg(column: QueryColumn<TAttributes>): Promise<number | null> {
-		return this.builder.avg(column);
 	}
 }
 
@@ -545,43 +112,6 @@ type RelationQueryKey = {
 	readonly column: string;
 	readonly value: QueryPrimitive;
 	readonly sourceKey: string;
-};
-
-type AnyModelClass = ModelClass<BaseModel, ModelAttributes>;
-
-type ModelRelationMetadata = {
-	readonly name: string;
-	readonly type: ModelRelationType;
-	readonly parentModel: AnyModelClass;
-	readonly relatedModel: AnyModelClass;
-	readonly foreignKey?: string;
-	readonly localKey?: string;
-	readonly ownerKey?: string;
-	readonly pivotTable?: string;
-	readonly foreignPivotKey?: string;
-	readonly relatedPivotKey?: string;
-	readonly relatedKey?: string;
-};
-
-type ResolvedManyToManyOptions = {
-	readonly pivotTable: string;
-	readonly foreignPivotKey: string;
-	readonly relatedPivotKey: string;
-	readonly localKey: string;
-	readonly relatedKey: string;
-};
-
-type RelationMetadataProvider = {
-	[relationMetadata](): ModelRelationMetadata;
-};
-
-type RelationValueSource = {
-	toObject(): object;
-};
-
-type PreloadableModel = RelationValueSource & {
-	relation(name: string): RelationMetadataProvider;
-	[setLoadedRelation](name: string, value: unknown): void;
 };
 
 export class ModelRelation<
@@ -1320,553 +850,14 @@ export abstract class BaseModel<
 	}
 }
 
-function createQueryBuilder<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): QueryBuilder<TAttributes> {
-	return resolveDatabase(model).table<TAttributes>(
-		resolveTable(model),
-		model.connection,
-	);
-}
-
-function createPivotQueryBuilder<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(
-	model: ModelClass<TModel, TAttributes>,
-	table: string,
-): QueryBuilder<QueryRow> {
-	return resolveDatabase(model).table<QueryRow>(table, model.connection);
-}
-
-function hydrateModel<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>, attributes: TAttributes): TModel {
-	const instance = new model();
-	instance.fill(normalizeHydratedAttributes(model, attributes));
-	instance[markPersisted]();
-	return instance;
-}
-
-async function preloadModelRelations(
-	models: readonly PreloadableModel[],
-	relationNames: readonly string[],
-): Promise<void> {
-	if (models.length === 0 || relationNames.length === 0) {
-		return;
-	}
-
-	for (const relationName of relationNames) {
-		await preloadModelRelation(models, relationName);
-	}
-}
-
-async function preloadModelRelation(
-	models: readonly PreloadableModel[],
-	relationName: string,
-): Promise<void> {
-	const firstModel = models[0];
-	if (!firstModel) {
-		return;
-	}
-
-	const relation = firstModel.relation(relationName);
-	const metadata = relation[relationMetadata]();
-
-	if (metadata.type === "belongsTo") {
-		await preloadBelongsToRelation(models, metadata);
-		return;
-	}
-
-	if (metadata.type === "manyToMany") {
-		await preloadManyToManyRelation(models, metadata);
-		return;
-	}
-
-	await preloadForeignKeyRelation(models, metadata);
-}
-
-async function preloadBelongsToRelation(
-	models: readonly PreloadableModel[],
-	metadata: ModelRelationMetadata,
-): Promise<void> {
-	const foreignKey =
-		metadata.foreignKey ?? `${lowerFirst(metadata.relatedModel.name)}Id`;
-	const ownerKey =
-		metadata.ownerKey ?? resolvePrimaryKey(metadata.relatedModel);
-	const ownerColumn = resolveColumnName(metadata.relatedModel, ownerKey);
-	const foreignKeyValues = collectRelationValues(models, foreignKey);
-	const relatedModels =
-		foreignKeyValues.length === 0
-			? []
-			: await new ModelQueryBuilder(
-					metadata.relatedModel,
-					createQueryBuilder(metadata.relatedModel),
-				)
-					.where(
-						ownerColumn as QueryColumn<ModelAttributes>,
-						"in",
-						foreignKeyValues,
-					)
-					.all();
-	const relatedByOwnerKey = indexModelsByRelationKey(relatedModels, ownerKey);
-
-	for (const model of models) {
-		const foreignKeyValue = resolveRelationValue(model, foreignKey);
-		const related =
-			foreignKeyValue === null
-				? null
-				: (relatedByOwnerKey.get(relationValueKey(foreignKeyValue)) ?? null);
-		model[setLoadedRelation](metadata.name, related);
-	}
-}
-
-async function preloadForeignKeyRelation(
-	models: readonly PreloadableModel[],
-	metadata: ModelRelationMetadata,
-): Promise<void> {
-	const localKey = metadata.localKey ?? resolvePrimaryKey(metadata.parentModel);
-	const foreignKey =
-		metadata.foreignKey ?? `${lowerFirst(metadata.parentModel.name)}Id`;
-	const foreignColumn = resolveColumnName(metadata.relatedModel, foreignKey);
-	const localKeyValues = collectRelationValues(models, localKey);
-	const relatedModels =
-		localKeyValues.length === 0
-			? []
-			: await new ModelQueryBuilder(
-					metadata.relatedModel,
-					createQueryBuilder(metadata.relatedModel),
-				)
-					.where(
-						foreignColumn as QueryColumn<ModelAttributes>,
-						"in",
-						localKeyValues,
-					)
-					.all();
-	const relatedByForeignKey = groupModelsByRelationKey(
-		relatedModels,
-		foreignKey,
-	);
-
-	for (const model of models) {
-		const localKeyValue = resolveRelationValue(model, localKey);
-		const related =
-			localKeyValue === null
-				? []
-				: (relatedByForeignKey.get(relationValueKey(localKeyValue)) ?? []);
-
-		if (metadata.type === "hasMany") {
-			model[setLoadedRelation](metadata.name, related);
-			continue;
-		}
-
-		model[setLoadedRelation](metadata.name, related[0] ?? null);
-	}
-}
-
-async function preloadManyToManyRelation(
-	models: readonly PreloadableModel[],
-	metadata: ModelRelationMetadata,
-): Promise<void> {
-	const options = resolveManyToManyOptions(metadata);
-	const localKeyValues = collectRelationValues(models, options.localKey);
-	const pivotRows =
-		localKeyValues.length === 0
-			? []
-			: await createPivotQueryBuilder(metadata.parentModel, options.pivotTable)
-					.where(options.foreignPivotKey, "in", localKeyValues)
-					.all();
-	const relatedValues = collectPivotValues(pivotRows, options.relatedPivotKey);
-	const relatedModels =
-		relatedValues.length === 0
-			? []
-			: await new ModelQueryBuilder(
-					metadata.relatedModel,
-					createQueryBuilder(metadata.relatedModel),
-				)
-					.where(
-						resolveColumnName(
-							metadata.relatedModel,
-							options.relatedKey,
-						) as QueryColumn<ModelAttributes>,
-						"in",
-						relatedValues,
-					)
-					.all();
-	const relatedByKey = indexModelsByRelationKey(
-		relatedModels,
-		options.relatedKey,
-	);
-	const pivotRowsByLocalKey = groupPivotRowsByKey(
-		pivotRows,
-		options.foreignPivotKey,
-	);
-
-	for (const model of models) {
-		const localKeyValue = resolveRelationValue(model, options.localKey);
-		const matchingPivotRows =
-			localKeyValue === null
-				? []
-				: (pivotRowsByLocalKey.get(relationValueKey(localKeyValue)) ?? []);
-		model[setLoadedRelation](
-			metadata.name,
-			collectRelatedModelsFromPivotRows(
-				matchingPivotRows,
-				options.relatedPivotKey,
-				relatedByKey,
-			),
-		);
-	}
-}
-
-function collectRelationValues(
-	models: readonly RelationValueSource[],
-	key: string,
-): readonly QueryPrimitive[] {
-	const values: QueryPrimitive[] = [];
-	const seen = new Set<string>();
-
-	for (const model of models) {
-		const value = resolveRelationValue(model, key);
-		if (value === null) {
-			continue;
-		}
-
-		const indexKey = relationValueKey(value);
-		if (seen.has(indexKey)) {
-			continue;
-		}
-
-		seen.add(indexKey);
-		values.push(value);
-	}
-
-	return values;
-}
-
-function collectPivotValues(
-	rows: readonly QueryRow[],
-	key: string,
-): readonly QueryPrimitive[] {
-	const values: QueryPrimitive[] = [];
-	const seen = new Set<string>();
-
-	for (const row of rows) {
-		const value = resolvePivotValue(row, key);
-		if (value === null) {
-			continue;
-		}
-
-		const indexKey = relationValueKey(value);
-		if (seen.has(indexKey)) {
-			continue;
-		}
-
-		seen.add(indexKey);
-		values.push(value);
-	}
-
-	return values;
-}
-
-function indexModelsByRelationKey<TModel extends RelationValueSource>(
-	models: readonly TModel[],
-	key: string,
-): ReadonlyMap<string, TModel> {
-	const indexed = new Map<string, TModel>();
-
-	for (const model of models) {
-		const value = resolveRelationValue(model, key);
-		if (value !== null && !indexed.has(relationValueKey(value))) {
-			indexed.set(relationValueKey(value), model);
-		}
-	}
-
-	return indexed;
-}
-
-function groupModelsByRelationKey<TModel extends RelationValueSource>(
-	models: readonly TModel[],
-	key: string,
-): ReadonlyMap<string, readonly TModel[]> {
-	const grouped = new Map<string, TModel[]>();
-
-	for (const model of models) {
-		const value = resolveRelationValue(model, key);
-		if (value === null) {
-			continue;
-		}
-
-		const indexKey = relationValueKey(value);
-		const group = grouped.get(indexKey);
-		if (group) {
-			group.push(model);
-			continue;
-		}
-
-		grouped.set(indexKey, [model]);
-	}
-
-	return grouped;
-}
-
-function groupPivotRowsByKey(
-	rows: readonly QueryRow[],
-	key: string,
-): ReadonlyMap<string, readonly QueryRow[]> {
-	const grouped = new Map<string, QueryRow[]>();
-
-	for (const row of rows) {
-		const value = resolvePivotValue(row, key);
-		if (value === null) {
-			continue;
-		}
-
-		const indexKey = relationValueKey(value);
-		const group = grouped.get(indexKey);
-		if (group) {
-			group.push(row);
-			continue;
-		}
-
-		grouped.set(indexKey, [row]);
-	}
-
-	return grouped;
-}
-
-function collectRelatedModelsFromPivotRows<TModel extends RelationValueSource>(
-	pivotRows: readonly QueryRow[],
-	relatedPivotKey: string,
-	relatedByKey: ReadonlyMap<string, TModel>,
-): readonly TModel[] {
-	const relatedModels: TModel[] = [];
-
-	for (const pivotRow of pivotRows) {
-		const relatedValue = resolvePivotValue(pivotRow, relatedPivotKey);
-		if (relatedValue === null) {
-			continue;
-		}
-
-		const related = relatedByKey.get(relationValueKey(relatedValue));
-		if (related) {
-			relatedModels.push(related);
-		}
-	}
-
-	return relatedModels;
-}
-
-function resolveManyToManyOptions(
-	metadata: ModelRelationMetadata,
-): ResolvedManyToManyOptions {
-	return {
-		pivotTable: requireRelationOption(metadata, "pivotTable"),
-		foreignPivotKey: requireRelationOption(metadata, "foreignPivotKey"),
-		relatedPivotKey: requireRelationOption(metadata, "relatedPivotKey"),
-		localKey: metadata.localKey ?? resolvePrimaryKey(metadata.parentModel),
-		relatedKey: metadata.relatedKey ?? resolvePrimaryKey(metadata.relatedModel),
-	};
-}
-
-function requireRelationOption(
-	metadata: ModelRelationMetadata,
-	key: "pivotTable" | "foreignPivotKey" | "relatedPivotKey",
-): string {
-	const value = metadata[key]?.trim();
-	if (!value) {
-		throw new Error(`Relation [${metadata.name}] is missing ${key}`);
-	}
-
-	return value;
-}
-
-function isCollectionRelation(type: ModelRelationType): boolean {
-	return type === "hasMany" || type === "manyToMany";
-}
-
-function resolveDatabase<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): DatabaseManager {
-	if (!model.database) {
-		throw new Error(
-			`Database manager is not configured for model [${model.name}]`,
-		);
-	}
-
-	return model.database;
-}
-
-function resolveTable<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): string {
-	if (!model.table) {
-		throw new Error(
-			`Database table is not configured for model [${model.name}]`,
-		);
-	}
-
-	return model.table;
-}
-
-function resolvePrimaryKey<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): string {
-	return model.primaryKey ?? "id";
-}
-
-function resolveCreatedAtColumn<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): string {
-	return model.createdAtColumn ?? "createdAt";
-}
-
-function resolveUpdatedAtColumn<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): string {
-	return model.updatedAtColumn ?? "updatedAt";
-}
-
-function usesTimestamps<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): boolean {
-	return model.timestamps ?? true;
-}
-
-function registerColumn(
-	model: ConstructorObject,
-	propertyKey: string,
-	options: ModelColumnOptions,
-): void {
-	let columns = modelColumns.get(model);
-	if (!columns) {
-		columns = new Map();
-		modelColumns.set(model, columns);
-	}
-
-	columns.set(propertyKey, {
-		propertyKey,
-		columnName: options.name ?? propertyKey,
-	});
-}
-
-function registerRelation(
-	model: ConstructorObject,
-	name: string,
-	type: ModelRelationType,
-	relatedModel: () => unknown,
-	options: RelationOptions,
-): void {
-	let relations = modelRelations.get(model);
-	if (!relations) {
-		relations = new Map();
-		modelRelations.set(model, relations);
-	}
-
-	relations.set(name, {
-		name,
-		type,
-		relatedModel,
-		foreignKey: options.foreignKey,
-		localKey: options.localKey,
-		ownerKey: options.ownerKey,
-		pivotTable: options.pivotTable,
-		foreignPivotKey: options.foreignPivotKey,
-		relatedPivotKey: options.relatedPivotKey,
-		relatedKey: options.relatedKey,
-	});
-}
-
-function registerModelHook(
-	model: ConstructorObject,
-	hook: ModelHookName,
-	name: string,
-	isStatic: boolean,
-): void {
-	let hooksByName = modelHooks.get(model);
-	if (!hooksByName) {
-		hooksByName = new Map();
-		modelHooks.set(model, hooksByName);
-	}
-
-	let hooks = hooksByName.get(hook);
-	if (!hooks) {
-		hooks = new Map();
-		hooksByName.set(hook, hooks);
-	}
-
-	hooks.set(modelHookKey(name, isStatic), {
-		name,
-		hook,
-		isStatic,
-	});
-}
-
 function getModelHookDefinitions<
 	TModel extends BaseModel<TAttributes>,
 	TAttributes extends ModelAttributes,
 >(
 	model: ModelClass<TModel, TAttributes>,
 	hook: ModelHookName,
-): readonly StoredModelHookDefinition[] {
-	ensureModelMetadata(model);
-	const definitions = new Map<string, StoredModelHookDefinition>();
-
-	for (const modelConstructor of getModelConstructors(model)) {
-		for (const definition of modelHooks
-			.get(modelConstructor)
-			?.get(hook)
-			?.values() ?? []) {
-			definitions.set(
-				modelHookKey(definition.name, definition.isStatic),
-				definition,
-			);
-		}
-	}
-
-	return [...definitions.values()];
-}
-
-function getColumnDefinitions<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): readonly ModelColumnDefinition[] {
-	ensureModelMetadata(model);
-	const definitions = new Map<string, ModelColumnDefinition>();
-
-	for (const modelConstructor of getModelConstructors(model)) {
-		for (const definition of modelColumns.get(modelConstructor)?.values() ??
-			[]) {
-			definitions.set(definition.propertyKey, definition);
-		}
-	}
-
-	return [...definitions.values()];
-}
-
-function getRelationDefinitions<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): readonly StoredRelationDefinition[] {
-	ensureModelMetadata(model);
-	const definitions = new Map<string, StoredRelationDefinition>();
-
-	for (const modelConstructor of getModelConstructors(model)) {
-		for (const definition of modelRelations.get(modelConstructor)?.values() ??
-			[]) {
-			definitions.set(definition.name, definition);
-		}
-	}
-
-	return [...definitions.values()];
+): ReturnType<typeof getStoredModelHookDefinitions<TModel, TAttributes>> {
+	return getStoredModelHookDefinitions(model, hook, BaseModel.prototype);
 }
 
 function resolveRelationDefinition<
@@ -1876,9 +867,7 @@ function resolveRelationDefinition<
 	model: ModelClass<TModel, TAttributes>,
 	name: string,
 ): StoredRelationDefinition | undefined {
-	return getRelationDefinitions(model).find(
-		(definition) => definition.name === name,
-	);
+	return resolveStoredRelationDefinition(model, name, BaseModel.prototype);
 }
 
 function resolveRelationModel<
@@ -1897,193 +886,22 @@ function resolveRelationModel<
 	return relatedModel as unknown as ModelClass<TRelated, TRelatedAttributes>;
 }
 
-function getModelConstructors<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): readonly ConstructorObject[] {
-	const constructors: ConstructorObject[] = [];
-	let current: ConstructorObject | undefined =
-		model as unknown as ConstructorObject;
-	const baseModel = BaseModel as unknown as ConstructorObject;
-
-	while (current && current !== baseModel) {
-		constructors.unshift(current);
-		const prototype: object = current.prototype;
-		const parentPrototype = Object.getPrototypeOf(prototype) as object | null;
-		current =
-			parentPrototype && parentPrototype !== BaseModel.prototype
-				? (parentPrototype.constructor as ConstructorObject)
-				: undefined;
-	}
-
-	return constructors;
-}
-
-function ensureModelMetadata<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): void {
-	const modelConstructor = model as unknown as ConstructorObject;
-	if (initializedModelMetadata.has(modelConstructor)) {
-		return;
-	}
-
-	initializedModelMetadata.add(modelConstructor);
-	new model();
-}
-
 function resolveColumnName<
 	TModel extends BaseModel<TAttributes>,
 	TAttributes extends ModelAttributes,
 >(model: ModelClass<TModel, TAttributes>, key: string): string {
-	return (
-		getColumnDefinitions(model).find(
-			(definition) => definition.propertyKey === key,
-		)?.columnName ?? key
-	);
-}
-
-function resolveRelationValue(
-	model: RelationValueSource,
-	key: string,
-): QueryPrimitive | null {
-	const attributes = model.toObject() as Record<string, unknown>;
-	const value = Object.hasOwn(attributes, key)
-		? attributes[key]
-		: (model as unknown as Record<string, unknown>)[key];
-
-	if (value === undefined || value === null) {
-		return null;
-	}
-
-	if (isQueryPrimitive(value)) {
-		return value;
-	}
-
-	throw new Error(`Relation key [${key}] must be a query primitive`);
+	return resolveModelColumnName(model, key, BaseModel.prototype);
 }
 
 function collectModelMutationValues<
 	TModel extends BaseModel<TAttributes>,
 	TAttributes extends ModelAttributes,
->(
-	model: ModelClass<TModel, TAttributes>,
-	attributes: Partial<TAttributes>,
-): QueryMutationValues<TAttributes> | null {
-	const columns = new Map(
-		getColumnDefinitions(model).map((definition) => [
-			definition.propertyKey,
-			definition.columnName,
-		]),
+>(model: ModelClass<TModel, TAttributes>, attributes: Partial<TAttributes>) {
+	return collectModelMutationValuesForModel(
+		model,
+		attributes,
+		BaseModel.prototype,
 	);
-	const hasColumnFilter = columns.size > 0;
-	const allowedUndecoratedColumns = new Set([
-		resolvePrimaryKey(model),
-		resolveCreatedAtColumn(model),
-		resolveUpdatedAtColumn(model),
-	]);
-	const values: Record<string, QueryPrimitive> = {};
-	let count = 0;
-
-	for (const key of Object.keys(attributes)) {
-		const attributeKey = key as Extract<keyof TAttributes, string>;
-		const value = attributes[attributeKey];
-		const mappedColumn = columns.get(key);
-
-		if (value === undefined) {
-			continue;
-		}
-
-		if (
-			hasColumnFilter &&
-			!mappedColumn &&
-			!allowedUndecoratedColumns.has(key)
-		) {
-			continue;
-		}
-
-		values[mappedColumn ?? key] = toQueryPrimitive(value, key);
-		count += 1;
-	}
-
-	if (count === 0) {
-		return null;
-	}
-
-	return values as QueryMutationValues<TAttributes>;
-}
-
-function normalizeHydratedAttributes<
-	TModel extends BaseModel<TAttributes>,
-	TAttributes extends ModelAttributes,
->(
-	model: ModelClass<TModel, TAttributes>,
-	attributes: TAttributes,
-): Partial<TAttributes> {
-	const definitions = getColumnDefinitions(model);
-	if (definitions.length === 0) {
-		return attributes;
-	}
-
-	const propertyByColumn = new Map(
-		definitions.map((definition) => [
-			definition.columnName,
-			definition.propertyKey,
-		]),
-	);
-	const source = attributes as Record<string, unknown>;
-	const normalized: Record<string, unknown> = {};
-
-	for (const key of Object.keys(source)) {
-		normalized[propertyByColumn.get(key) ?? key] = source[key];
-	}
-
-	return normalized as Partial<TAttributes>;
-}
-
-function normalizePropertyKey(propertyKey: string | symbol): string {
-	if (typeof propertyKey === "symbol") {
-		throw new Error("@column() cannot be used on symbol fields");
-	}
-
-	return propertyKey;
-}
-
-function normalizeDecoratorKey(
-	propertyKey: string | symbol,
-	decoratorName: string,
-): string {
-	if (typeof propertyKey === "symbol") {
-		throw new Error(`${decoratorName} cannot be used on symbol methods`);
-	}
-
-	return propertyKey;
-}
-
-function isFieldDecoratorContext(
-	value: string | symbol | ClassFieldDecoratorContext,
-): value is ClassFieldDecoratorContext {
-	return typeof value === "object" && value !== null && "kind" in value;
-}
-
-function isMethodDecoratorContext(
-	value: string | symbol | ClassMethodDecoratorContext,
-): value is ClassMethodDecoratorContext {
-	return typeof value === "object" && value !== null && "kind" in value;
-}
-
-function isConstructorObject(value: unknown): value is ConstructorObject {
-	const candidate = value as { readonly prototype?: unknown };
-
-	return (
-		typeof value === "function" &&
-		typeof candidate.prototype === "object" &&
-		candidate.prototype !== null
-	);
-}
-
-function modelHookKey(name: string, isStatic: boolean): string {
-	return `${isStatic ? "static" : "instance"}:${name}`;
 }
 
 function isModelClass(
