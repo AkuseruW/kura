@@ -92,13 +92,27 @@ export function authServicePath(choices: NewAppChoices): string {
 }
 
 export function authValidatorPath(choices: NewAppChoices): string {
-	return sourcePath(
-		choices,
-		"auth",
-		"auth_validator.ts",
-		"app/validators",
-		"application",
-	);
+	if (choices.architecture === "domain") {
+		return "app/domains/auth/application/validators.ts";
+	}
+
+	if (choices.architecture === "modular") {
+		return "app/modules/auth/validators.ts";
+	}
+
+	return "app/validators/auth.ts";
+}
+
+export function authValidatorImport(choices: NewAppChoices): string {
+	if (choices.architecture === "domain") {
+		return "#domains/auth/application/validators";
+	}
+
+	if (choices.architecture === "modular") {
+		return "#modules/auth/validators";
+	}
+
+	return "#validators/auth";
 }
 
 export function authMiddlewarePath(choices: NewAppChoices): string {

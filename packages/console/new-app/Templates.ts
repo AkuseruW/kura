@@ -48,6 +48,7 @@ import {
 	authControllerPath,
 	authMiddlewarePath,
 	authServicePath,
+	authValidatorImport,
 	authValidatorPath,
 	homeControllerPath,
 	makeDatabaseMetadataFiles,
@@ -502,19 +503,19 @@ function makeAuthFiles(choices: NewAppChoices): readonly NewAppFile[] {
 function makeRouteSupportFiles(choices: NewAppChoices): readonly NewAppFile[] {
 	const files: NewAppFile[] = [];
 
-	if (
-		choices.preset === "api" ||
-		choices.preset === "full" ||
-		choices.auth !== "none"
-	) {
+	if (choices.preset === "api" || choices.preset === "full") {
 		files.push({
-			path: "app/contracts/openapi.ts",
-			content: makeOpenApiContracts(choices),
+			path: openApiSchemaPath(choices, "api"),
+			content: makeApiOpenApiContracts(choices),
 		});
 	}
 
 	if (choices.auth !== "none") {
 		files.push(
+			{
+				path: openApiSchemaPath(choices, "auth"),
+				content: makeAuthOpenApiContracts(choices),
+			},
 			{
 				path: authValidatorPath(choices),
 				content: makeAuthValidator(),
@@ -527,6 +528,36 @@ function makeRouteSupportFiles(choices: NewAppChoices): readonly NewAppFile[] {
 	}
 
 	return files;
+}
+
+function openApiSchemaPath(
+	choices: NewAppChoices,
+	moduleName: "api" | "auth",
+): string {
+	if (choices.architecture === "domain") {
+		return `app/domains/${moduleName}/http/schemas.ts`;
+	}
+
+	if (choices.architecture === "modular") {
+		return `app/modules/${moduleName}/schemas.ts`;
+	}
+
+	return `app/schemas/${moduleName}.ts`;
+}
+
+function openApiSchemaImport(
+	choices: NewAppChoices,
+	moduleName: "api" | "auth",
+): string {
+	if (choices.architecture === "domain") {
+		return `#domains/${moduleName}/http/schemas`;
+	}
+
+	if (choices.architecture === "modular") {
+		return `#modules/${moduleName}/schemas`;
+	}
+
+	return `#schemas/${moduleName}`;
 }
 
 function makeOptionalModuleFiles(
@@ -882,7 +913,10 @@ function makeApiRoutes(
 			"#controllers/api_controller",
 			"http",
 		)}";`,
-		'import { appInfoResponseSchema, healthResponseSchema } from "#contracts/openapi";',
+		`import { appInfoResponseSchema, healthResponseSchema } from "${openApiSchemaImport(
+			choices,
+			"api",
+		)}";`,
 	];
 
 	if (options.includeDocumentation) {
@@ -987,13 +1021,7 @@ function makeAuthRoutes(choices: NewAppChoices): string {
 	const imports = [
 		'import type { Router } from "kura/http";',
 		'import { middleware } from "#start/kernel";',
-		`import {\n\tauthLoginRequestSchema,\n\tauthRegisterRequestSchema,\n} from "${moduleImport(
-			choices,
-			"auth",
-			"auth_validator",
-			"#validators/auth_validator",
-			"application",
-		)}";`,
+		`import {\n\tauthLoginRequestSchema,\n\tauthRegisterRequestSchema,\n} from "${authValidatorImport(choices)}";`,
 		`import { AuthController } from "${moduleImport(
 			choices,
 			"auth",
@@ -1001,7 +1029,10 @@ function makeAuthRoutes(choices: NewAppChoices): string {
 			"#controllers/auth_controller",
 			"http",
 		)}";`,
-		`import {\n\t${makeAuthOpenApiContractExports().join(",\n\t")},\n} from "#contracts/openapi";`,
+		`import {\n\t${makeAuthOpenApiContractExports().join(",\n\t")},\n} from "${openApiSchemaImport(
+			choices,
+			"auth",
+		)}";`,
 	];
 	const accessTokenSecurity =
 		choices.auth === "access-token"
@@ -1135,85 +1166,73 @@ function makeAuthOpenApiContractExports(): string[] {
 	];
 }
 
-function makeOpenApiContracts(choices: NewAppChoices): string {
-	const lines: string[] = [];
+function makeApiOpenApiContracts(choices: NewAppChoices): string {
+	return `export const appInfoResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\tframework: { type: "string", enum: ["kura"] },
+\t\tpreset: { type: "string", enum: ["${choices.preset}"] },
+\t\tok: { type: "boolean" },
+\t},
+\trequired: ["framework", "preset", "ok"],
+} as const;
 
-	if (choices.preset === "api" || choices.preset === "full") {
-		lines.push(
-			"export const appInfoResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			'\t\tframework: { type: "string", enum: ["kura"] },',
-			`\t\tpreset: { type: "string", enum: ["${choices.preset}"] },`,
-			'\t\tok: { type: "boolean" },',
-			"\t},",
-			'\trequired: ["framework", "preset", "ok"],',
-			"} as const;",
-			"",
-			"export const healthResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			'\t\tstatus: { type: "string", enum: ["up"] },',
-			"\t},",
-			'\trequired: ["status"],',
-			"} as const;",
-		);
-	}
+export const healthResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\tstatus: { type: "string", enum: ["up"] },
+\t},
+\trequired: ["status"],
+} as const;
+`;
+}
 
-	if (choices.auth !== "none") {
-		if (lines.length > 0) {
-			lines.push("");
-		}
+function makeAuthOpenApiContracts(choices: NewAppChoices): string {
+	return `export const authCurrentUserResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\tguard: { type: "string", enum: ["${choices.auth === "session" ? "session" : "api"}"] },
+\t\tuser: { type: ["object", "null"], additionalProperties: true },
+\t},
+\trequired: ["guard", "user"],
+} as const;
 
-		lines.push(
-			"export const authCurrentUserResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			`\t\tguard: { type: "string", enum: ["${choices.auth === "session" ? "session" : "api"}"] },`,
-			'\t\tuser: { type: ["object", "null"], additionalProperties: true },',
-			"\t},",
-			'\trequired: ["guard", "user"],',
-			"} as const;",
-			"",
-			"export const authLoginResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			`\t\ttoken: { type: ${choices.auth === "session" ? '["string", "null"]' : '"string"'} },`,
-			`\t\ttokenType: { type: "string", enum: ["${choices.auth === "session" ? "Cookie" : "Bearer"}"] },`,
-			'\t\texpiresIn: { type: "number" },',
-			'\t\tuser: { type: "object", additionalProperties: true },',
-			"\t},",
-			'\trequired: ["token", "tokenType", "expiresIn", "user"],',
-			"} as const;",
-			"",
-			"export const authErrorResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			"\t\terror: {",
-			'\t\t\ttype: "object",',
-			"\t\t\tproperties: {",
-			'\t\t\t\tcode: { type: "string" },',
-			'\t\t\t\tmessage: { type: "string" },',
-			'\t\t\t\tstatus: { type: "number" },',
-			'\t\t\t\tdetails: { type: "object", additionalProperties: true },',
-			"\t\t\t},",
-			'\t\t\trequired: ["code", "message", "status"],',
-			"\t\t},",
-			"\t},",
-			'\trequired: ["error"],',
-			"} as const;",
-			"",
-			"export const okResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			'\t\tok: { type: "boolean" },',
-			"\t},",
-			'\trequired: ["ok"],',
-			"} as const;",
-		);
-	}
+export const authLoginResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\ttoken: { type: ${choices.auth === "session" ? '["string", "null"]' : '"string"'} },
+\t\ttokenType: { type: "string", enum: ["${choices.auth === "session" ? "Cookie" : "Bearer"}"] },
+\t\texpiresIn: { type: "number" },
+\t\tuser: { type: "object", additionalProperties: true },
+\t},
+\trequired: ["token", "tokenType", "expiresIn", "user"],
+} as const;
 
-	return `${lines.join("\n")}\n`;
+export const authErrorResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\terror: {
+\t\t\ttype: "object",
+\t\t\tproperties: {
+\t\t\t\tcode: { type: "string" },
+\t\t\t\tmessage: { type: "string" },
+\t\t\t\tstatus: { type: "number" },
+\t\t\t\tdetails: { type: "object", additionalProperties: true },
+\t\t\t},
+\t\t\trequired: ["code", "message", "status"],
+\t\t},
+\t},
+\trequired: ["error"],
+} as const;
+
+export const okResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\tok: { type: "boolean" },
+\t},
+\trequired: ["ok"],
+} as const;
+`;
 }
 
 function makeReadme(appName: string, choices: NewAppChoices): string {
