@@ -411,8 +411,8 @@ describe("new app command", () => {
 			root,
 			"demo-api/app/validators/auth.ts",
 		);
-		expect(authValidator).toContain('import { v } from "kura/validation"');
-		expect(authValidator).toContain("authLoginRequestSchema = v.object");
+		expect(authValidator).toContain('import { k } from "kura/validation"');
+		expect(authValidator).toContain("authLoginRequestSchema = k.object");
 		const authMiddleware = await readGenerated(
 			root,
 			"demo-api/app/middleware/auth_middleware.ts",
@@ -1130,7 +1130,7 @@ describe("new app command", () => {
 		);
 		expect(
 			await readGenerated(root, "demo-web/app/validators/auth.ts"),
-		).toContain('import { v } from "kura/validation"');
+		).toContain('import { k } from "kura/validation"');
 		expect(
 			await readGenerated(root, "demo-web/app/controllers/auth_controller.ts"),
 		).toContain('import { authService } from "#services/auth_service"');

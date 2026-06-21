@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { guard } from "../auth/Guard";
 import { SessionGuard } from "../auth/SessionGuard";
 import { BaseException } from "../core/BaseException";
-import { v } from "../validation/Schema";
+import { k } from "../validation/Schema";
 import { BodyParser } from "./Middleware";
 import { Router } from "./Router";
 import {
@@ -123,7 +123,7 @@ describe("TestClient", () => {
 		router
 			.post("/users", (ctx) => Response.json(ctx.validated?.body))
 			.schema({
-				body: v.object({ name: v.string() }),
+				body: k.object({ name: k.string() }),
 			});
 		const client = createTestClient(router);
 

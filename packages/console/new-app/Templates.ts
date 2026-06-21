@@ -747,16 +747,16 @@ p {
 }
 
 function makeAuthValidator(): string {
-	return `import { v } from "kura/validation";
+	return `import { k } from "kura/validation";
 
-export const authLoginRequestSchema = v.object({
-\temail: v.string().email(),
-\tpassword: v.string().min(1),
+export const authLoginRequestSchema = k.object({
+\temail: k.string().email(),
+\tpassword: k.string().min(1),
 });
 
-export const authRegisterRequestSchema = v.object({
-\temail: v.string().email(),
-\tpassword: v.string().min(1),
+export const authRegisterRequestSchema = k.object({
+\temail: k.string().email(),
+\tpassword: k.string().min(1),
 });
 `;
 }

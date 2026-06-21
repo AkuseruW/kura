@@ -1,6 +1,6 @@
 import { Router } from "../../../packages/http/Router";
 import { Server } from "../../../packages/http/Server";
-import { v } from "../../../packages/validation/Schema";
+import { k } from "../../../packages/validation/Schema";
 
 const hostname = Bun.env.HOST ?? "127.0.0.1";
 const port = readPort(Bun.env.PORT ?? "4300");
@@ -30,8 +30,8 @@ router
 		);
 	})
 	.schema({
-		params: v.object({ id: v.string() }),
-		query: v.object({ tab: v.string().optional() }),
+		params: k.object({ id: k.string() }),
+		query: k.object({ tab: k.string().optional() }),
 	});
 
 const server = new Server({ hostname, port });
