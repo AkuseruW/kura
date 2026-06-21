@@ -39,10 +39,12 @@ export function makePackageJson(
 			"#generated/*": "./.kura/server/*.ts",
 			"#events/*": "./app/events/*.ts",
 			"#middleware/*": "./app/middleware/*.ts",
+			"#schemas/*": "./app/schemas/*.ts",
 			"#validators/*": "./app/validators/*.ts",
 			"#providers/*": "./providers/*.ts",
 			"#policies/*": "./app/policies/*.ts",
 			"#database/*": "./database/*.ts",
+			"#routes/*": makeRouteImportTarget(choices),
 			"#tests/*": "./tests/*.ts",
 			"#start/*": "./start/*.ts",
 			"#config/*": "./config/*.ts",
@@ -61,6 +63,30 @@ function makeBuildScript(choices: NewAppChoices): string {
 	const rootOption = choices.preset === "full" ? " --root ." : "";
 
 	return `bun build bin/server.ts --target=bun --production --outdir=build --packages=external${rootOption}`;
+}
+
+function makeRouteImportTarget(choices: NewAppChoices): string {
+	if (choices.architecture === "domain") {
+		return "./app/domains/*/http/routes.ts";
+	}
+
+	if (choices.architecture === "modular") {
+		return "./app/modules/*/routes.ts";
+	}
+
+	return "./routes/*.ts";
+}
+
+function makeRouteTsConfigTarget(choices: NewAppChoices): string {
+	if (choices.architecture === "domain") {
+		return "app/domains/*/http/routes";
+	}
+
+	if (choices.architecture === "modular") {
+		return "app/modules/*/routes";
+	}
+
+	return "routes/*";
 }
 
 export function makeTsConfig(choices: NewAppChoices): string {
@@ -86,10 +112,12 @@ export function makeTsConfig(choices: NewAppChoices): string {
 \t\t\t"#generated/*": [".kura/server/*"],
 \t\t\t"#events/*": ["app/events/*"],
 \t\t\t"#middleware/*": ["app/middleware/*"],
+\t\t\t"#schemas/*": ["app/schemas/*"],
 \t\t\t"#validators/*": ["app/validators/*"],
 \t\t\t"#providers/*": ["providers/*"],
 \t\t\t"#policies/*": ["app/policies/*"],
 \t\t\t"#database/*": ["database/*"],
+\t\t\t"#routes/*": ["${makeRouteTsConfigTarget(choices)}"],
 \t\t\t"#tests/*": ["tests/*"],
 \t\t\t"#start/*": ["start/*"],
 \t\t\t"#config/*": ["config/*"]
@@ -153,11 +181,11 @@ export function makeServerEntrypoint(choices: NewAppChoices): string {
 } from "kura/http";
 import home from "../resources/pages/home.html";
 import env from "#start/env";
-import { routerMiddleware, serverMiddleware } from "#start/kernel";
+import { kernel } from "#start/kernel";
 import { router } from "#start/routes";`
 			: `import { type Context, MiddlewarePipeline, Server } from "kura/http";
 import env from "#start/env";
-import { routerMiddleware, serverMiddleware } from "#start/kernel";
+import { kernel } from "#start/kernel";
 import { router } from "#start/routes";`;
 	const staticRouteExports =
 		choices.preset === "full"
@@ -181,12 +209,16 @@ export const development = (
 			? `{
 \t\tport: env.number("PORT", 3333) ?? 3333,
 \t\thostname: env.get("HOST", "localhost"),
+\t\tenvironment: env.get("NODE_ENV", "development"),
+\t\terrorHandler: kernel.errorHandler,
 \t\tstaticRoutes,
 \t\tdevelopment,
 \t}`
 			: `{
 \t\tport: env.number("PORT", 3333) ?? 3333,
 \t\thostname: env.get("HOST", "localhost"),
+\t\tenvironment: env.get("NODE_ENV", "development"),
+\t\terrorHandler: kernel.errorHandler,
 \t}`;
 
 	return `${imports}
@@ -199,11 +231,11 @@ export const handler = createHandler();
 function createHandler() {
 \tconst pipeline = new MiddlewarePipeline();
 
-\tfor (const middleware of serverMiddleware) {
+\tfor (const middleware of kernel.server) {
 \t\tpipeline.use(middleware);
 \t}
 
-\tfor (const middleware of routerMiddleware) {
+\tfor (const middleware of kernel.router) {
 \t\tpipeline.use(middleware);
 \t}
 
@@ -318,6 +350,7 @@ export default defineConfig({
 \t\tgenerated: "#generated/*",
 \t\tevents: "#events/*",
 \t\tmiddleware: "#middleware/*",
+\t\tschemas: "#schemas/*",
 \t\tvalidators: "#validators/*",
 \t\tproviders: "#providers/*",
 \t\tpolicies: "#policies/*",

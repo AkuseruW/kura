@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { v } from "../validation/Schema";
+import { k } from "../validation/Schema";
 import { createContext } from "./Context";
 import { BaseController, registerController } from "./Controller";
 import { BadRequestException } from "./ErrorHandler";
@@ -210,11 +210,11 @@ describe("Router", () => {
 				}),
 			)
 			.schema({
-				params: v.object({ id: v.string() }),
-				query: v.object({ tab: v.string().optional() }),
-				headers: v.object({ "x-tenant": v.string() }),
-				cookies: v.object({ session: v.string() }),
-				body: v.object({ name: v.string() }),
+				params: k.object({ id: k.string() }),
+				query: k.object({ tab: k.string().optional() }),
+				headers: k.object({ "x-tenant": k.string() }),
+				cookies: k.object({ session: k.string() }),
+				body: k.object({ name: k.string() }),
 			});
 
 		const response = await router.dispatch({
@@ -254,7 +254,7 @@ describe("Router", () => {
 				return Response.json({ ok: true });
 			})
 			.schema({
-				body: v.object({ name: v.string() }),
+				body: k.object({ name: k.string() }),
 			});
 
 		await expect(
@@ -278,7 +278,7 @@ describe("Router", () => {
 				return Response.json({ ok: true });
 			})
 			.schema({
-				body: v.object({ name: v.string() }),
+				body: k.object({ name: k.string() }),
 			});
 
 		await expect(
@@ -332,7 +332,7 @@ describe("Router", () => {
 				routes
 					.post("/users", (ctx) => Response.json(ctx.validatedBody()))
 					.schema({
-						body: v.object({ name: v.string() }),
+						body: k.object({ name: k.string() }),
 					});
 			});
 

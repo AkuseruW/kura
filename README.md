@@ -83,7 +83,7 @@ entrypoints for smaller, clearer imports.
 ```ts
 import { Router } from "kura/http";
 import { BaseModel, column } from "kura/database";
-import { v } from "kura/validation";
+import { k } from "kura/validation";
 import { SQLiteQueueDriver } from "kura/queue/sqlite";
 ```
 
@@ -125,13 +125,13 @@ API and full-stack starters expose OpenAPI docs from the route table.
 ```ts
 import { Router } from "kura/http";
 import { registerOpenApiRoutes } from "kura/openapi";
-import { v } from "kura/validation";
+import { k } from "kura/validation";
 
 export const router = new Router();
 
-const userResponse = v.object({
-	id: v.number(),
-	email: v.string().email(),
+const userResponse = k.object({
+	id: k.number(),
+	email: k.string().email(),
 });
 
 router.get("/users/:id", (ctx) => Response.json({ id: ctx.params?.id })).openapi({
@@ -159,9 +159,9 @@ the standard `422` JSON error response, and handlers can read parsed values from
 the validated helpers.
 
 ```ts
-const createUserRequest = v.object({
-	email: v.string().email(),
-	password: v.string().min(8),
+const createUserRequest = k.object({
+	email: k.string().email(),
+	password: k.string().min(8),
 });
 
 router.post("/users", (ctx) => {
@@ -367,12 +367,12 @@ Kura currently includes:
 ## Example Validation
 
 ```ts
-import { Schema, v } from "kura/validation";
+import { k } from "kura/validation";
 
-const createUser = Schema.object({
-	email: v.string().email(),
-	name: v.string().min(2),
-	birthdate: v.date(),
+const createUser = k.object({
+	email: k.string().email(),
+	name: k.string().min(2),
+	birthdate: k.date(),
 });
 
 const payload = createUser.parse({

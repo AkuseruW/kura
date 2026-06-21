@@ -68,13 +68,14 @@ export class Schema<T = unknown> {
 	string(): Schema<string> {
 		const schema = new Schema<string>();
 		schema._type = "string";
-		schema.rules.push((v) => typeof v === "string");
+		schema.rules.push((input) => typeof input === "string");
 		return schema;
 	}
 
 	email(this: Schema<string>): Schema<string> {
 		this.rules.push(
-			(v) => typeof v === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+			(input) =>
+				typeof input === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input),
 		);
 		return this;
 	}
@@ -82,25 +83,25 @@ export class Schema<T = unknown> {
 	regex(this: Schema<string>, pattern: RegExp): Schema<string> {
 		const expression = new RegExp(pattern.source, pattern.flags);
 
-		this.rules.push((v) => {
-			if (typeof v !== "string") {
+		this.rules.push((input) => {
+			if (typeof input !== "string") {
 				return false;
 			}
 
 			expression.lastIndex = 0;
-			return expression.test(v);
+			return expression.test(input);
 		});
 		return this;
 	}
 
 	url(this: Schema<string>): Schema<string> {
-		this.rules.push((v) => {
-			if (typeof v !== "string") {
+		this.rules.push((input) => {
+			if (typeof input !== "string") {
 				return false;
 			}
 
 			try {
-				new URL(v);
+				new URL(input);
 				return true;
 			} catch {
 				return false;
@@ -112,7 +113,7 @@ export class Schema<T = unknown> {
 	number(): Schema<number> {
 		const schema = new Schema<number>();
 		schema._type = "number";
-		schema.rules.push((v) => typeof v === "number");
+		schema.rules.push((input) => typeof input === "number");
 		return schema;
 	}
 
@@ -123,17 +124,17 @@ export class Schema<T = unknown> {
 		this: Schema<string> | Schema<number> | Schema<unknown[]>,
 		value: number,
 	): Schema<string> | Schema<number> | Schema<unknown[]> {
-		this.rules.push((v) => {
-			if (typeof v === "string") {
-				return v.length >= value;
+		this.rules.push((input) => {
+			if (typeof input === "string") {
+				return input.length >= value;
 			}
 
-			if (typeof v === "number") {
-				return v >= value;
+			if (typeof input === "number") {
+				return input >= value;
 			}
 
-			if (Array.isArray(v)) {
-				return v.length >= value;
+			if (Array.isArray(input)) {
+				return input.length >= value;
 			}
 
 			return false;
@@ -148,17 +149,17 @@ export class Schema<T = unknown> {
 		this: Schema<string> | Schema<number> | Schema<unknown[]>,
 		value: number,
 	): Schema<string> | Schema<number> | Schema<unknown[]> {
-		this.rules.push((v) => {
-			if (typeof v === "string") {
-				return v.length <= value;
+		this.rules.push((input) => {
+			if (typeof input === "string") {
+				return input.length <= value;
 			}
 
-			if (typeof v === "number") {
-				return v <= value;
+			if (typeof input === "number") {
+				return input <= value;
 			}
 
-			if (Array.isArray(v)) {
-				return v.length <= value;
+			if (Array.isArray(input)) {
+				return input.length <= value;
 			}
 
 			return false;
@@ -167,12 +168,14 @@ export class Schema<T = unknown> {
 	}
 
 	integer(this: Schema<number>): Schema<number> {
-		this.rules.push((v) => typeof v === "number" && Number.isInteger(v));
+		this.rules.push(
+			(input) => typeof input === "number" && Number.isInteger(input),
+		);
 		return this;
 	}
 
 	positive(this: Schema<number>): Schema<number> {
-		this.rules.push((v) => typeof v === "number" && v > 0);
+		this.rules.push((input) => typeof input === "number" && input > 0);
 		return this;
 	}
 
@@ -189,20 +192,20 @@ export class Schema<T = unknown> {
 	boolean(): Schema<boolean> {
 		const schema = new Schema<boolean>();
 		schema._type = "boolean";
-		schema.rules.push((v) => typeof v === "boolean");
+		schema.rules.push((input) => typeof input === "boolean");
 		return schema;
 	}
 
 	array<U>(itemSchema?: Schema<U>): Schema<U[]> {
 		const schema = new Schema<U[]>();
 		schema._type = "array";
-		schema.rules.push((v) => Array.isArray(v));
+		schema.rules.push((input) => Array.isArray(input));
 		if (itemSchema) {
 			schema.itemSchema = itemSchema as Schema<unknown>;
 			schema.requiresAsyncRules = itemSchema.requiresAsyncValidation();
 			if (!itemSchema.requiresAsyncValidation()) {
-				schema.rules.push((v) =>
-					(v as unknown[]).every((item) => {
+				schema.rules.push((input) =>
+					(input as unknown[]).every((item) => {
 						try {
 							itemSchema.parse(item);
 							return true;
@@ -212,18 +215,22 @@ export class Schema<T = unknown> {
 					}),
 				);
 			}
-			schema.parser = (v) =>
-				(v as unknown[]).map((item) => itemSchema.parse(item));
-			schema.asyncParser = async (v, context) =>
+			schema.parser = (input) =>
+				(input as unknown[]).map((item) => itemSchema.parse(item));
+			schema.asyncParser = async (input, context) =>
 				Promise.all(
-					(v as unknown[]).map((item) => itemSchema.parseAsync(item, context)),
+					(input as unknown[]).map((item) =>
+						itemSchema.parseAsync(item, context),
+					),
 				);
 		}
 		return schema;
 	}
 
 	distinct<U>(this: Schema<U[]>): Schema<U[]> {
-		this.rules.push((v) => Array.isArray(v) && new Set(v).size === v.length);
+		this.rules.push(
+			(input) => Array.isArray(input) && new Set(input).size === input.length,
+		);
 		return this;
 	}
 
@@ -235,9 +242,9 @@ export class Schema<T = unknown> {
 		schema.requiresAsyncRules = Object.values(shape).some((fieldSchema) =>
 			fieldSchema.requiresAsyncValidation(),
 		);
-		schema.rules.push((v) => typeof v === "object" && v !== null);
-		schema.rules.push((v) => {
-			const obj = v as Record<string, unknown>;
+		schema.rules.push((input) => typeof input === "object" && input !== null);
+		schema.rules.push((input) => {
+			const obj = input as Record<string, unknown>;
 			for (const [key, fieldSchema] of Object.entries(shape)) {
 				if (fieldSchema.requiresAsyncValidation()) {
 					continue;
@@ -251,16 +258,16 @@ export class Schema<T = unknown> {
 			}
 			return true;
 		});
-		schema.parser = (v) => {
-			const obj = v as Record<string, unknown>;
+		schema.parser = (input) => {
+			const obj = input as Record<string, unknown>;
 			const result: Record<string, unknown> = { ...obj };
 			for (const [key, fieldSchema] of Object.entries(shape)) {
 				result[key] = fieldSchema.parse(obj[key]);
 			}
 			return result as Result;
 		};
-		schema.asyncParser = async (v, context) => {
-			const obj = v as Record<string, unknown>;
+		schema.asyncParser = async (input, context) => {
+			const obj = input as Record<string, unknown>;
 			const result: Record<string, unknown> = { ...obj };
 			for (const [key, fieldSchema] of Object.entries(shape)) {
 				result[key] = await fieldSchema.parseAsync(obj[key], context);
@@ -273,14 +280,14 @@ export class Schema<T = unknown> {
 	file(): Schema<File> {
 		const schema = new Schema<File>();
 		schema._type = "file";
-		schema.rules.push((v) => v instanceof File);
+		schema.rules.push((input) => input instanceof File);
 		return schema;
 	}
 
 	maxSize(this: Schema<File>, bytes: number): Schema<File> {
 		const maxBytes = parseNonNegativeNumber(bytes, "maxSize");
 
-		this.rules.push((v) => v instanceof File && v.size <= maxBytes);
+		this.rules.push((input) => input instanceof File && input.size <= maxBytes);
 		return this;
 	}
 
@@ -288,7 +295,7 @@ export class Schema<T = unknown> {
 		const allowed = new Set(mimeTypes.map((type) => type.toLowerCase()));
 
 		this.rules.push(
-			(v) => v instanceof File && allowed.has(v.type.toLowerCase()),
+			(input) => input instanceof File && allowed.has(input.type.toLowerCase()),
 		);
 		return this;
 	}
@@ -296,12 +303,12 @@ export class Schema<T = unknown> {
 	extensions(this: Schema<File>, extensions: string[]): Schema<File> {
 		const allowed = new Set(extensions.map(normalizeExtension));
 
-		this.rules.push((v) => {
-			if (!(v instanceof File)) {
+		this.rules.push((input) => {
+			if (!(input instanceof File)) {
 				return false;
 			}
 
-			const extension = getFileExtension(v.name);
+			const extension = getFileExtension(input.name);
 			return extension !== null && allowed.has(extension);
 		});
 		return this;
@@ -311,7 +318,9 @@ export class Schema<T = unknown> {
 		const schema = new Schema<U>();
 		schema._type = "enum";
 		schema.enumValues = values;
-		schema.rules.push((v) => typeof v === "string" && values.includes(v as U));
+		schema.rules.push(
+			(input) => typeof input === "string" && values.includes(input as U),
+		);
 		return schema;
 	}
 
@@ -319,25 +328,26 @@ export class Schema<T = unknown> {
 		const schema = new Schema<Date>();
 		schema._type = "date";
 		schema.rules.push(
-			(v) =>
-				isValidDate(v) ||
-				(typeof v === "string" && !Number.isNaN(Date.parse(v))),
+			(input) =>
+				isValidDate(input) ||
+				(typeof input === "string" && !Number.isNaN(Date.parse(input))),
 		);
-		schema.parser = (v) => (v instanceof Date ? v : new Date(v as string));
+		schema.parser = (input) =>
+			input instanceof Date ? input : new Date(input as string);
 		return schema;
 	}
 
 	before(this: Schema<Date>, date: Date | string): Schema<Date> {
 		const boundary = parseDateRule(date, "before");
 
-		this.rules.push((v) => isDateInputBefore(v, boundary));
+		this.rules.push((input) => isDateInputBefore(input, boundary));
 		return this;
 	}
 
 	after(this: Schema<Date>, date: Date | string): Schema<Date> {
 		const boundary = parseDateRule(date, "after");
 
-		this.rules.push((v) => isDateInputAfter(v, boundary));
+		this.rules.push((input) => isDateInputAfter(input, boundary));
 		return this;
 	}
 
@@ -641,7 +651,7 @@ export class Schema<T = unknown> {
 	}
 }
 
-export const v = new Schema();
+export const k = new Schema();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);

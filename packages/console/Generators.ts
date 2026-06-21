@@ -485,9 +485,9 @@ export const ${input.className}: Middleware = async (_ctx, next) => {
 		suffix: "Validator",
 		directory: "app/validators",
 		modular: true,
-		makeContent: (input) => `import { v } from "kura/validation";
+		makeContent: (input) => `import { k } from "kura/validation";
 
-export const ${camelCase(input.className)} = v.object({});
+export const ${camelCase(input.className)} = k.object({});
 `,
 	},
 	{

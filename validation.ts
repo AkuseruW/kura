@@ -2,7 +2,7 @@ export {
 	type AsyncValidationContext,
 	type DatabaseValidationOptions,
 	type Infer,
+	k,
 	Schema,
 	type SchemaDescription,
-	v,
 } from "./packages/validation/Schema";

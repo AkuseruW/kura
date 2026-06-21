@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { v } from "../validation/Schema";
+import { k } from "../validation/Schema";
 import { createContext } from "./Context";
 import {
 	createOpenApiDocument,
@@ -14,12 +14,12 @@ const request = new Request("http://localhost/docs");
 describe("OpenAPI", () => {
 	test("creates an OpenAPI document from router metadata", () => {
 		const router = new Router();
-		const userSchema = v.object({
-			id: v.number(),
-			email: v.string().email(),
-			role: v.enum(["admin", "user"]),
-			deletedAt: v.date().nullable(),
-			tags: v.array(v.string()).optional(),
+		const userSchema = k.object({
+			id: k.number(),
+			email: k.string().email(),
+			role: k.enum(["admin", "user"]),
+			deletedAt: k.date().nullable(),
+			tags: k.array(k.string()).optional(),
 		});
 
 		router
@@ -84,11 +84,11 @@ describe("OpenAPI", () => {
 	});
 
 	test("converts Kura schemas to OpenAPI schemas", () => {
-		const schema = v.object({
-			name: v.string(),
-			avatar: v.file().optional(),
-			birthday: v.date().nullable(),
-			roles: v.array(v.enum(["admin", "user"])),
+		const schema = k.object({
+			name: k.string(),
+			avatar: k.file().optional(),
+			birthday: k.date().nullable(),
+			roles: k.array(k.enum(["admin", "user"])),
 		});
 
 		expect(toOpenApiSchema(schema)).toEqual({
@@ -107,8 +107,8 @@ describe("OpenAPI", () => {
 	});
 
 	test("supports OpenAPI 3.0 nullable schemas", () => {
-		const schema = v.object({
-			status: v.enum(["active", "disabled"]).nullable(),
+		const schema = k.object({
+			status: k.enum(["active", "disabled"]).nullable(),
 		});
 
 		expect(toOpenApiSchema(schema, "3.0.4")).toEqual({
@@ -130,8 +130,8 @@ describe("OpenAPI", () => {
 			.get("/health", () => Response.json({ status: "up" }))
 			.openapi({
 				responses: {
-					200: v.object({
-						status: v.enum(["up", "down"]).nullable(),
+					200: k.object({
+						status: k.enum(["up", "down"]).nullable(),
 					}),
 				},
 			});
@@ -159,16 +159,16 @@ describe("OpenAPI", () => {
 
 	test("creates request and response documentation from route schemas", () => {
 		const router = new Router();
-		const bodySchema = v.object({ email: v.string().email() });
-		const responseSchema = v.object({ id: v.string(), email: v.string() });
+		const bodySchema = k.object({ email: k.string().email() });
+		const responseSchema = k.object({ id: k.string(), email: k.string() });
 
 		router
 			.post("/teams/:teamId/users", () => Response.json({}))
 			.schema({
-				params: v.object({ teamId: v.string() }),
-				query: v.object({ invite: v.string().optional() }),
-				headers: v.object({ "x-request-source": v.string().optional() }),
-				cookies: v.object({ session: v.string().optional() }),
+				params: k.object({ teamId: k.string() }),
+				query: k.object({ invite: k.string().optional() }),
+				headers: k.object({ "x-request-source": k.string().optional() }),
+				cookies: k.object({ session: k.string().optional() }),
 				body: bodySchema,
 				responses: {
 					201: responseSchema,

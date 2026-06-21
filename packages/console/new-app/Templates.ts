@@ -46,7 +46,10 @@ import {
 import {
 	apiControllerPath,
 	authControllerPath,
+	authMiddlewarePath,
 	authServicePath,
+	authValidatorImport,
+	authValidatorPath,
 	homeControllerPath,
 	makeDatabaseMetadataFiles,
 	makeScaffoldDirectories,
@@ -188,19 +191,11 @@ export default env;
 		},
 		{
 			path: "start/kernel.ts",
-			content: `import { BodyLimit, Cors, type Middleware, RequestId, RequestTimeout } from "kura/http";
-
-export const serverMiddleware: readonly Middleware[] = [
-\tRequestId,
-\tCors(),
-\tRequestTimeout({ ms: 30_000 }),
-\tBodyLimit({ maxBytes: 1_048_576 }),
-];
-
-export const routerMiddleware: readonly Middleware[] = [];
-
-export const namedMiddleware = {};
-`,
+			content: makeKernel(choices),
+		},
+		{
+			path: "app/exceptions/handler.ts",
+			content: makeExceptionHandler(),
 		},
 		{
 			path: "config/app.ts",
@@ -217,8 +212,10 @@ export const namedMiddleware = {};
 		...makeFeatureConfigFiles(choices),
 		{
 			path: "start/routes.ts",
-			content: makeRoutes(choices),
+			content: makeStartRoutes(choices),
 		},
+		...makeRouteFiles(choices),
+		...makeRouteSupportFiles(choices),
 		...makePresetFiles(choices),
 		...makeAuthFiles(choices),
 		...makeOptionalModuleFiles(choices),
@@ -237,6 +234,69 @@ export const namedMiddleware = {};
 			content: makeReadme(appName, choices),
 		},
 	];
+}
+
+function makeKernel(choices: NewAppChoices): string {
+	const namedMiddleware =
+		choices.auth !== "none" ? "\tauth: authMiddleware,\n" : "";
+	const imports = [
+		'import { BodyLimit, Cors, defineHttpKernel, type Middleware, RequestId, RequestTimeout } from "kura/http";',
+		'import handleException from "#exceptions/handler";',
+	];
+
+	if (choices.auth !== "none") {
+		imports.push(
+			`import { authMiddleware } from "${moduleImport(
+				choices,
+				"auth",
+				"auth_middleware",
+				"#middleware/auth_middleware",
+				"http",
+			)}";`,
+		);
+	}
+
+	return `/*
+|--------------------------------------------------------------------------
+| HTTP kernel
+|--------------------------------------------------------------------------
+|
+| Register exception handling and middleware for the HTTP server.
+|
+*/
+
+${imports.join("\n")}
+
+const errorHandler = handleException;
+
+/**
+ * Server middleware runs for every request, including unmatched URLs.
+ */
+const server = [
+\tRequestId,
+\tCors(),
+\tRequestTimeout({ ms: 30_000 }),
+\tBodyLimit({ maxBytes: 1_048_576 }),
+];
+
+/**
+ * Router middleware runs only after a route has matched.
+ */
+const router: readonly Middleware[] = [];
+
+/**
+ * Named middleware is assigned directly to routes or route groups.
+ */
+export const middleware = {
+${namedMiddleware}};
+
+export const kernel = defineHttpKernel({
+\terrorHandler,
+\tserver,
+\trouter,
+\tnamed: middleware,
+});
+`;
 }
 
 function makeFeatureConfigFiles(choices: NewAppChoices): readonly NewAppFile[] {
@@ -440,6 +500,66 @@ function makeAuthFiles(choices: NewAppChoices): readonly NewAppFile[] {
 	return files;
 }
 
+function makeRouteSupportFiles(choices: NewAppChoices): readonly NewAppFile[] {
+	const files: NewAppFile[] = [];
+
+	if (choices.preset === "api" || choices.preset === "full") {
+		files.push({
+			path: openApiSchemaPath(choices, "api"),
+			content: makeApiOpenApiContracts(choices),
+		});
+	}
+
+	if (choices.auth !== "none") {
+		files.push(
+			{
+				path: openApiSchemaPath(choices, "auth"),
+				content: makeAuthOpenApiContracts(choices),
+			},
+			{
+				path: authValidatorPath(choices),
+				content: makeAuthValidator(),
+			},
+			{
+				path: authMiddlewarePath(choices),
+				content: makeAuthMiddleware(choices),
+			},
+		);
+	}
+
+	return files;
+}
+
+function openApiSchemaPath(
+	choices: NewAppChoices,
+	moduleName: "api" | "auth",
+): string {
+	if (choices.architecture === "domain") {
+		return `app/domains/${moduleName}/http/schemas.ts`;
+	}
+
+	if (choices.architecture === "modular") {
+		return `app/modules/${moduleName}/schemas.ts`;
+	}
+
+	return `app/schemas/${moduleName}.ts`;
+}
+
+function openApiSchemaImport(
+	choices: NewAppChoices,
+	moduleName: "api" | "auth",
+): string {
+	if (choices.architecture === "domain") {
+		return `#domains/${moduleName}/http/schemas`;
+	}
+
+	if (choices.architecture === "modular") {
+		return `#modules/${moduleName}/schemas`;
+	}
+
+	return `#schemas/${moduleName}`;
+}
+
 function makeOptionalModuleFiles(
 	choices: NewAppChoices,
 ): readonly NewAppFile[] {
@@ -626,280 +746,493 @@ p {
 `;
 }
 
-function makeRoutes(choices: NewAppChoices): string {
+function makeAuthValidator(): string {
+	return `import { k } from "kura/validation";
+
+export const authLoginRequestSchema = k.object({
+\temail: k.string().email(),
+\tpassword: k.string().min(1),
+});
+
+export const authRegisterRequestSchema = k.object({
+\temail: k.string().email(),
+\tpassword: k.string().min(1),
+});
+`;
+}
+
+function makeAuthMiddleware(choices: NewAppChoices): string {
+	const authServiceImport = moduleImport(
+		choices,
+		"auth",
+		"auth_service",
+		"#services/auth_service",
+		"application",
+	);
+
+	return `import { KuraResponse, type Middleware } from "kura/http";
+import { authService } from "${authServiceImport}";
+
+export const authMiddleware: Middleware = async (ctx, next) => {
+\tconst user = await authService.authenticate(ctx);
+
+\tif (!user) {
+\t\treturn KuraResponse.unauthenticated();
+\t}
+
+\treturn next();
+};
+`;
+}
+
+function makeExceptionHandler(): string {
+	return `import { createHttpErrorHandler } from "kura/http";
+import env from "#start/env";
+
+const isProduction = env.get<string>("NODE_ENV", "development") === "production";
+
+const handleException = createHttpErrorHandler({
+\tdebug: !isProduction,
+\tincludeStack: !isProduction,
+});
+
+export default handleException;
+`;
+}
+
+function makeStartRoutes(choices: NewAppChoices): string {
 	const imports = ['import { Router } from "kura/http";'];
-	const lines = ["export const router = new Router();"];
+	const registrars: string[] = [];
 
 	if (choices.preset === "api" || choices.preset === "full") {
-		imports.push('import { registerOpenApiRoutes } from "kura/openapi";');
-		imports.push(
-			`import { ApiController } from "${moduleImport(
-				choices,
-				"api",
-				"api_controller",
-				"#controllers/api_controller",
-				"http",
-			)}";`,
-		);
-		lines.push("", "const apiController = new ApiController();");
+		if (choices.architecture === "standard") {
+			imports.push('import { registerApiRoutes } from "#routes/api";');
+		} else {
+			imports.push(
+				'import { registerApiRoutes, registerDocumentationRoutes } from "#routes/api";',
+			);
+		}
+		registrars.push("registerApiRoutes(router);");
 	}
 
 	if (choices.preset === "web") {
-		imports.push(
-			`import { HomeController } from "${moduleImport(
-				choices,
-				"web",
-				"home_controller",
-				"#controllers/home_controller",
-				"http",
-			)}";`,
-		);
-		lines.push("", "const homeController = new HomeController();");
+		imports.push('import { registerWebRoutes } from "#routes/web";');
+		registrars.push("registerWebRoutes(router);");
 	}
 
 	if (choices.auth !== "none") {
-		imports.push('import { v } from "kura/validation";');
+		imports.push('import { registerAuthRoutes } from "#routes/auth";');
+		registrars.push("registerAuthRoutes(router);");
+	}
+
+	if (
+		choices.architecture === "standard" &&
+		(choices.preset === "api" || choices.preset === "full")
+	) {
 		imports.push(
-			`import { AuthController } from "${moduleImport(
-				choices,
-				"auth",
-				"auth_controller",
-				"#controllers/auth_controller",
-				"http",
-			)}";`,
+			'import { registerDocumentationRoutes } from "#routes/openapi";',
 		);
-		lines.push("", "const authController = new AuthController();");
 	}
 
-	const openApiSchemaDefinitions = makeOpenApiSchemaDefinitions(choices);
-	if (openApiSchemaDefinitions.length > 0) {
-		lines.push("", ...openApiSchemaDefinitions);
+	if (choices.preset === "api" || choices.preset === "full") {
+		registrars.push("registerDocumentationRoutes(router);");
 	}
 
-	if (choices.preset === "api") {
-		lines.push(
-			"",
-			'router.get("/", (ctx) => apiController.index(ctx)).as("home").openapi({',
-			'\ttags: ["App"],',
-			'\tsummary: "Application information",',
-			"\tresponses: {",
-			"\t\t200: appInfoResponseSchema,",
-			"\t},",
-			"});",
-			'router.get("/health", (ctx) => apiController.health(ctx)).as("health").openapi({',
-			'\ttags: ["Health"],',
-			'\tsummary: "Health check",',
-			"\tresponses: {",
-			"\t\t200: healthResponseSchema,",
-			"\t},",
-			"});",
-		);
+	return `${imports.join("\n")}
+
+export const router = new Router();
+
+${registrars.join("\n")}
+`;
+}
+
+function makeRouteFiles(choices: NewAppChoices): readonly NewAppFile[] {
+	const files: NewAppFile[] = [];
+
+	if (choices.preset === "api" || choices.preset === "full") {
+		files.push({
+			path: routeFilePath(choices, "api"),
+			content: makeApiRoutes(choices, {
+				includeDocumentation: choices.architecture !== "standard",
+			}),
+		});
 	}
 
 	if (choices.preset === "web") {
-		lines.push(
-			"",
-			'router.get("/", (ctx) => homeController.index(ctx)).as("home");',
-			'router.get("/health", () => Response.json({ status: "up" })).as("health");',
-		);
+		files.push({
+			path: routeFilePath(choices, "web"),
+			content: makeWebRoutes(choices),
+		});
 	}
 
-	if (choices.preset === "full") {
+	if (choices.auth !== "none") {
+		files.push({
+			path: routeFilePath(choices, "auth"),
+			content: makeAuthRoutes(choices),
+		});
+	}
+
+	if (
+		choices.architecture === "standard" &&
+		(choices.preset === "api" || choices.preset === "full")
+	) {
+		files.push({
+			path: "routes/openapi.ts",
+			content: makeOpenApiRoutes(choices),
+		});
+	}
+
+	return files;
+}
+
+function routeFilePath(
+	choices: NewAppChoices,
+	moduleName: "api" | "auth" | "web",
+): string {
+	if (choices.architecture === "domain") {
+		return `app/domains/${moduleName}/http/routes.ts`;
+	}
+
+	if (choices.architecture === "modular") {
+		return `app/modules/${moduleName}/routes.ts`;
+	}
+
+	return `routes/${moduleName}.ts`;
+}
+
+function makeApiRoutes(
+	choices: NewAppChoices,
+	options: { readonly includeDocumentation: boolean },
+): string {
+	const imports = [
+		'import type { Router } from "kura/http";',
+		`import { ApiController } from "${moduleImport(
+			choices,
+			"api",
+			"api_controller",
+			"#controllers/api_controller",
+			"http",
+		)}";`,
+		`import { appInfoResponseSchema, healthResponseSchema } from "${openApiSchemaImport(
+			choices,
+			"api",
+		)}";`,
+	];
+
+	if (options.includeDocumentation) {
+		imports.push('import { registerOpenApiRoutes } from "kura/openapi";');
+	}
+
+	const lines = ["const apiController = new ApiController();", ""];
+
+	if (choices.preset === "api") {
 		lines.push(
-			"",
-			'router.get("/health", (ctx) => apiController.health(ctx)).as("health").openapi({',
-			'\ttags: ["Health"],',
-			'\tsummary: "Health check",',
-			"\tresponses: {",
-			"\t\t200: healthResponseSchema,",
-			"\t},",
-			"});",
-			'router.group().prefix("/api").as("api.").routes((api) => {',
-			'\tapi.get("/", (ctx) => apiController.index(ctx)).as("index").openapi({',
+			"export function registerApiRoutes(router: Router): void {",
+			"\trouter",
+			'\t\t.get("/", (ctx) => apiController.index(ctx))',
+			'\t\t.as("home")',
+			"\t\t.openapi({",
 			'\t\ttags: ["App"],',
 			'\t\tsummary: "Application information",',
 			"\t\tresponses: {",
 			"\t\t\t200: appInfoResponseSchema,",
 			"\t\t},",
 			"\t});",
-			'\tapi.get("/health", (ctx) => apiController.health(ctx)).as("health").openapi({',
+			"\trouter",
+			'\t\t.get("/health", (ctx) => apiController.health(ctx))',
+			'\t\t.as("health")',
+			"\t\t.openapi({",
 			'\t\ttags: ["Health"],',
 			'\t\tsummary: "Health check",',
 			"\t\tresponses: {",
 			"\t\t\t200: healthResponseSchema,",
 			"\t\t},",
 			"\t});",
-			"});",
+			"}",
 		);
 	}
 
-	if (choices.auth !== "none") {
+	if (choices.preset === "full") {
 		lines.push(
-			"",
-			'router.group().prefix("/auth").as("auth.").routes((auth) => {',
-			'\tauth.get("/me", (ctx) => authController.me(ctx)).as("me").openapi({',
-			'\t\ttags: ["Auth"],',
-			'\t\tsummary: "Current authenticated user",',
-			...(choices.auth === "access-token"
-				? ["\t\tsecurity: [{ bearerAuth: [] }],"]
-				: []),
+			"export function registerApiRoutes(router: Router): void {",
+			"\trouter",
+			'\t\t.get("/health", (ctx) => apiController.health(ctx))',
+			'\t\t.as("health")',
+			"\t\t.openapi({",
+			'\t\ttags: ["Health"],',
+			'\t\tsummary: "Health check",',
 			"\t\tresponses: {",
-			"\t\t\t200: authCurrentUserResponseSchema,",
-			'\t\t\t401: { description: "Unauthenticated", body: authErrorResponseSchema },',
+			"\t\t\t200: healthResponseSchema,",
 			"\t\t},",
 			"\t});",
-			'\tauth.post("/login", (ctx) => authController.login(ctx)).as("login").schema({',
-			"\t\tbody: authLoginRequestSchema,",
-			"\t}).openapi({",
-			'\t\ttags: ["Auth"],',
-			'\t\tsummary: "Login",',
-			"\t\tbody: authLoginRequestSchema,",
-			"\t\tresponses: {",
-			"\t\t\t200: authLoginResponseSchema,",
-			'\t\t\t401: { description: "Invalid credentials", body: authErrorResponseSchema },',
-			'\t\t\t422: { description: "Validation error", body: authErrorResponseSchema },',
-			"\t\t},",
+			'\trouter.group().prefix("/api").as("api.").routes((api) => {',
+			"\t\tapi",
+			'\t\t\t.get("/", (ctx) => apiController.index(ctx))',
+			'\t\t\t.as("index")',
+			"\t\t\t.openapi({",
+			'\t\t\ttags: ["App"],',
+			'\t\t\tsummary: "Application information",',
+			"\t\t\tresponses: {",
+			"\t\t\t\t200: appInfoResponseSchema,",
+			"\t\t\t},",
+			"\t\t});",
+			"\t\tapi",
+			'\t\t\t.get("/health", (ctx) => apiController.health(ctx))',
+			'\t\t\t.as("health")',
+			"\t\t\t.openapi({",
+			'\t\t\ttags: ["Health"],',
+			'\t\t\tsummary: "Health check",',
+			"\t\t\tresponses: {",
+			"\t\t\t\t200: healthResponseSchema,",
+			"\t\t\t},",
+			"\t\t});",
 			"\t});",
-			'\tauth.post("/register", (ctx) => authController.register(ctx)).as("register").schema({',
-			"\t\tbody: authRegisterRequestSchema,",
-			"\t}).openapi({",
-			'\t\ttags: ["Auth"],',
-			'\t\tsummary: "Register",',
-			"\t\tbody: authRegisterRequestSchema,",
-			"\t\tresponses: {",
-			"\t\t\t201: authLoginResponseSchema,",
-			'\t\t\t409: { description: "Email already registered", body: authErrorResponseSchema },',
-			'\t\t\t422: { description: "Validation error", body: authErrorResponseSchema },',
-			"\t\t},",
-			"\t});",
-			'\tauth.post("/logout", (ctx) => authController.logout(ctx)).as("logout").openapi({',
-			'\t\ttags: ["Auth"],',
-			'\t\tsummary: "Logout",',
-			...(choices.auth === "access-token"
-				? ["\t\tsecurity: [{ bearerAuth: [] }],"]
-				: []),
-			"\t\tresponses: {",
-			"\t\t\t200: okResponseSchema,",
-			'\t\t\t401: { description: "Unauthenticated", body: authErrorResponseSchema },',
-			"\t\t},",
-			"\t});",
-			"});",
+			"}",
 		);
 	}
 
-	if (choices.preset === "api" || choices.preset === "full") {
-		lines.push(
-			"",
-			...(choices.auth === "access-token"
-				? [
-						"registerOpenApiRoutes(router, {",
-						'\ttitle: "Kura API",',
-						'\tversion: "0.1.0",',
-						"\tcomponents: {",
-						"\t\tsecuritySchemes: {",
-						'\t\t\tbearerAuth: { type: "http", scheme: "bearer" },',
-						"\t\t},",
-						"\t},",
-						"});",
-					]
-				: [
-						'registerOpenApiRoutes(router, { title: "Kura API", version: "0.1.0" });',
-					]),
-		);
+	if (options.includeDocumentation) {
+		lines.push("", makeOpenApiRouteRegistrar(choices));
 	}
 
 	return `${imports.join("\n")}\n\n${lines.join("\n")}\n`;
 }
 
-function makeOpenApiSchemaDefinitions(choices: NewAppChoices): string[] {
-	const lines: string[] = [];
+function makeWebRoutes(choices: NewAppChoices): string {
+	return `import type { Router } from "kura/http";
+import { HomeController } from "${moduleImport(
+		choices,
+		"web",
+		"home_controller",
+		"#controllers/home_controller",
+		"http",
+	)}";
 
-	if (choices.preset === "api" || choices.preset === "full") {
-		lines.push(
-			"const appInfoResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			'\t\tframework: { type: "string", enum: ["kura"] },',
-			`\t\tpreset: { type: "string", enum: ["${choices.preset}"] },`,
-			'\t\tok: { type: "boolean" },',
-			"\t},",
-			'\trequired: ["framework", "preset", "ok"],',
-			"} as const;",
-			"",
-			"const healthResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			'\t\tstatus: { type: "string", enum: ["up"] },',
-			"\t},",
-			'\trequired: ["status"],',
-			"} as const;",
-		);
-	}
+const homeController = new HomeController();
 
-	if (choices.auth !== "none") {
-		if (lines.length > 0) {
-			lines.push("");
-		}
+export function registerWebRoutes(router: Router): void {
+\trouter.get("/", (ctx) => homeController.index(ctx)).as("home");
+\trouter.get("/health", () => Response.json({ status: "up" })).as("health");
+}
+`;
+}
 
-		lines.push(
-			"const authCurrentUserResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			`\t\tguard: { type: "string", enum: ["${choices.auth === "session" ? "session" : "api"}"] },`,
-			'\t\tuser: { type: ["object", "null"], additionalProperties: true },',
-			"\t},",
-			'\trequired: ["guard", "user"],',
-			"} as const;",
-			"",
-			"const authLoginRequestSchema = v.object({",
-			"\temail: v.string().email(),",
-			"\tpassword: v.string().min(1),",
-			"});",
-			"",
-			"const authRegisterRequestSchema = v.object({",
-			"\temail: v.string().email(),",
-			"\tpassword: v.string().min(1),",
-			"});",
-			"",
-			"const authLoginResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			`\t\ttoken: { type: ${choices.auth === "session" ? '["string", "null"]' : '"string"'} },`,
-			`\t\ttokenType: { type: "string", enum: ["${choices.auth === "session" ? "Cookie" : "Bearer"}"] },`,
-			'\t\texpiresIn: { type: "number" },',
-			'\t\tuser: { type: "object", additionalProperties: true },',
-			"\t},",
-			'\trequired: ["token", "tokenType", "expiresIn", "user"],',
-			"} as const;",
-			"",
-			"const authErrorResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			"\t\terror: {",
-			'\t\t\ttype: "object",',
-			"\t\t\tproperties: {",
-			'\t\t\t\tcode: { type: "string" },',
-			'\t\t\t\tmessage: { type: "string" },',
-			'\t\t\t\tstatus: { type: "number" },',
-			'\t\t\t\tdetails: { type: "object", additionalProperties: true },',
-			"\t\t\t},",
-			'\t\t\trequired: ["code", "message", "status"],',
-			"\t\t},",
-			"\t},",
-			'\trequired: ["error"],',
-			"} as const;",
-			"",
-			"const okResponseSchema = {",
-			'\ttype: "object",',
-			"\tproperties: {",
-			'\t\tok: { type: "boolean" },',
-			"\t},",
-			'\trequired: ["ok"],',
-			"} as const;",
-		);
-	}
+function makeAuthRoutes(choices: NewAppChoices): string {
+	const imports = [
+		'import type { Router } from "kura/http";',
+		'import { middleware } from "#start/kernel";',
+		`import {\n\tauthLoginRequestSchema,\n\tauthRegisterRequestSchema,\n} from "${authValidatorImport(choices)}";`,
+		`import { AuthController } from "${moduleImport(
+			choices,
+			"auth",
+			"auth_controller",
+			"#controllers/auth_controller",
+			"http",
+		)}";`,
+		`import {\n\t${makeAuthOpenApiContractExports().join(",\n\t")},\n} from "${openApiSchemaImport(
+			choices,
+			"auth",
+		)}";`,
+	];
+	const accessTokenSecurity =
+		choices.auth === "access-token"
+			? "\t\t\t\t\tsecurity: [{ bearerAuth: [] }],\n"
+			: "";
 
-	return lines;
+	return `${imports.join("\n")}
+
+const authController = new AuthController();
+
+export function registerAuthRoutes(router: Router): void {
+\trouter.group().prefix("/auth").as("auth.").routes((auth) => {
+\t\tauth
+\t\t\t.post("/login", (ctx) => authController.login(ctx))
+\t\t\t.as("login")
+\t\t\t.schema({
+\t\t\t\tbody: authLoginRequestSchema,
+\t\t\t})
+\t\t\t.openapi({
+\t\t\t\ttags: ["Auth"],
+\t\t\t\tsummary: "Login",
+\t\t\t\tbody: authLoginRequestSchema,
+\t\t\t\tresponses: {
+\t\t\t\t\t200: authLoginResponseSchema,
+\t\t\t\t\t401: {
+\t\t\t\t\t\tdescription: "Invalid credentials",
+\t\t\t\t\t\tbody: authErrorResponseSchema,
+\t\t\t\t\t},
+\t\t\t\t\t422: {
+\t\t\t\t\t\tdescription: "Validation error",
+\t\t\t\t\t\tbody: authErrorResponseSchema,
+\t\t\t\t\t},
+\t\t\t\t},
+\t\t\t});
+\t\tauth
+\t\t\t.post("/register", (ctx) => authController.register(ctx))
+\t\t\t.as("register")
+\t\t\t.schema({
+\t\t\t\tbody: authRegisterRequestSchema,
+\t\t\t})
+\t\t\t.openapi({
+\t\t\t\ttags: ["Auth"],
+\t\t\t\tsummary: "Register",
+\t\t\t\tbody: authRegisterRequestSchema,
+\t\t\t\tresponses: {
+\t\t\t\t\t201: authLoginResponseSchema,
+\t\t\t\t\t409: {
+\t\t\t\t\t\tdescription: "Email already registered",
+\t\t\t\t\t\tbody: authErrorResponseSchema,
+\t\t\t\t\t},
+\t\t\t\t\t422: {
+\t\t\t\t\t\tdescription: "Validation error",
+\t\t\t\t\t\tbody: authErrorResponseSchema,
+\t\t\t\t\t},
+\t\t\t\t},
+\t\t\t});
+\t});
+
+\trouter
+\t\t.group()
+\t\t.prefix("/auth")
+\t\t.as("auth.")
+\t\t.middleware(middleware.auth)
+\t\t.routes((auth) => {
+\t\t\tauth
+\t\t\t\t.get("/me", (ctx) => authController.me(ctx))
+\t\t\t\t.as("me")
+\t\t\t\t.openapi({
+\t\t\t\t\ttags: ["Auth"],
+\t\t\t\t\tsummary: "Current authenticated user",
+${accessTokenSecurity}\t\t\t\t\tresponses: {
+\t\t\t\t\t\t200: authCurrentUserResponseSchema,
+\t\t\t\t\t\t401: {
+\t\t\t\t\t\t\tdescription: "Unauthenticated",
+\t\t\t\t\t\t\tbody: authErrorResponseSchema,
+\t\t\t\t\t\t},
+\t\t\t\t\t},
+\t\t\t\t});
+\t\t\tauth
+\t\t\t\t.post("/logout", (ctx) => authController.logout(ctx))
+\t\t\t\t.as("logout")
+\t\t\t\t.openapi({
+\t\t\t\t\ttags: ["Auth"],
+\t\t\t\t\tsummary: "Logout",
+${accessTokenSecurity}\t\t\t\t\tresponses: {
+\t\t\t\t\t\t200: okResponseSchema,
+\t\t\t\t\t\t401: {
+\t\t\t\t\t\t\tdescription: "Unauthenticated",
+\t\t\t\t\t\t\tbody: authErrorResponseSchema,
+\t\t\t\t\t\t},
+\t\t\t\t\t},
+\t\t\t\t});
+\t\t});
+}
+`;
+}
+
+function makeOpenApiRoutes(choices: NewAppChoices): string {
+	return `import type { Router } from "kura/http";
+import { registerOpenApiRoutes } from "kura/openapi";
+
+${makeOpenApiRouteRegistrar(choices)}
+`;
+}
+
+function makeOpenApiRouteRegistrar(choices: NewAppChoices): string {
+	const body =
+		choices.auth === "access-token"
+			? `registerOpenApiRoutes(router, {
+\t\ttitle: "Kura API",
+\t\tversion: "0.1.0",
+\t\tcomponents: {
+\t\t\tsecuritySchemes: {
+\t\t\t\tbearerAuth: { type: "http", scheme: "bearer" },
+\t\t\t},
+\t\t},
+\t});`
+			: 'registerOpenApiRoutes(router, { title: "Kura API", version: "0.1.0" });';
+
+	return `export function registerDocumentationRoutes(router: Router): void {
+\t${body}
+}`;
+}
+
+function makeAuthOpenApiContractExports(): string[] {
+	return [
+		"authCurrentUserResponseSchema",
+		"authLoginResponseSchema",
+		"authErrorResponseSchema",
+		"okResponseSchema",
+	];
+}
+
+function makeApiOpenApiContracts(choices: NewAppChoices): string {
+	return `export const appInfoResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\tframework: { type: "string", enum: ["kura"] },
+\t\tpreset: { type: "string", enum: ["${choices.preset}"] },
+\t\tok: { type: "boolean" },
+\t},
+\trequired: ["framework", "preset", "ok"],
+} as const;
+
+export const healthResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\tstatus: { type: "string", enum: ["up"] },
+\t},
+\trequired: ["status"],
+} as const;
+`;
+}
+
+function makeAuthOpenApiContracts(choices: NewAppChoices): string {
+	return `export const authCurrentUserResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\tguard: { type: "string", enum: ["${choices.auth === "session" ? "session" : "api"}"] },
+\t\tuser: { type: ["object", "null"], additionalProperties: true },
+\t},
+\trequired: ["guard", "user"],
+} as const;
+
+export const authLoginResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\ttoken: { type: ${choices.auth === "session" ? '["string", "null"]' : '"string"'} },
+\t\ttokenType: { type: "string", enum: ["${choices.auth === "session" ? "Cookie" : "Bearer"}"] },
+\t\texpiresIn: { type: "number" },
+\t\tuser: { type: "object", additionalProperties: true },
+\t},
+\trequired: ["token", "tokenType", "expiresIn", "user"],
+} as const;
+
+export const authErrorResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\terror: {
+\t\t\ttype: "object",
+\t\t\tproperties: {
+\t\t\t\tcode: { type: "string" },
+\t\t\t\tmessage: { type: "string" },
+\t\t\t\tstatus: { type: "number" },
+\t\t\t\tdetails: { type: "object", additionalProperties: true },
+\t\t\t},
+\t\t\trequired: ["code", "message", "status"],
+\t\t},
+\t},
+\trequired: ["error"],
+} as const;
+
+export const okResponseSchema = {
+\ttype: "object",
+\tproperties: {
+\t\tok: { type: "boolean" },
+\t},
+\trequired: ["ok"],
+} as const;
+`;
 }
 
 function makeReadme(appName: string, choices: NewAppChoices): string {

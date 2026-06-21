@@ -4,7 +4,7 @@ import {
 	type MemoryDatabaseConnection,
 	MemoryDatabaseDriver,
 } from "../database/Database";
-import { type Infer, v } from "./Schema";
+import { type Infer, k } from "./Schema";
 
 type Equal<TLeft, TRight> = [TLeft] extends [TRight]
 	? [TRight] extends [TLeft]
@@ -13,11 +13,11 @@ type Equal<TLeft, TRight> = [TLeft] extends [TRight]
 	: false;
 type Expect<T extends true> = T;
 
-const inferredUserSchema = v.object({
-	age: v.number().integer().optional(),
-	deletedAt: v.date().nullable(),
-	email: v.string().email(),
-	tags: v.array(v.string()),
+const inferredUserSchema = k.object({
+	age: k.number().integer().optional(),
+	deletedAt: k.date().nullable(),
+	email: k.string().email(),
+	tags: k.array(k.string()),
 });
 
 type InferredUser = Infer<typeof inferredUserSchema>;
@@ -29,15 +29,15 @@ type ExpectedUser = {
 };
 type _InferredUserMatches = Expect<Equal<InferredUser, ExpectedUser>>;
 
-const crossFieldSchema = v
+const crossFieldSchema = k
 	.object({
-		adminCode: v.string().optional(),
-		backupEmail: v.string().email().optional(),
-		email: v.string().email(),
-		emailConfirmation: v.string().email(),
-		password: v.string(),
-		passwordConfirmation: v.string().optional(),
-		role: v.enum(["admin", "user"]),
+		adminCode: k.string().optional(),
+		backupEmail: k.string().email().optional(),
+		email: k.string().email(),
+		emailConfirmation: k.string().email(),
+		password: k.string(),
+		passwordConfirmation: k.string().optional(),
+		role: k.enum(["admin", "user"]),
 	})
 	.confirmed("password")
 	.same("emailConfirmation", "email")
@@ -78,59 +78,59 @@ async function memoryConnection(
 
 describe("Schema", () => {
 	test("validates primitive values", () => {
-		expect(v.string().parse("kura")).toBe("kura");
-		expect(v.number().parse(1)).toBe(1);
-		expect(v.boolean().parse(true)).toBe(true);
+		expect(k.string().parse("kura")).toBe("kura");
+		expect(k.number().parse(1)).toBe(1);
+		expect(k.boolean().parse(true)).toBe(true);
 	});
 
 	test("validates string rules", () => {
-		expect(v.string().email().parse("dev@kura.dev")).toBe("dev@kura.dev");
-		expect(v.string().min(3).max(5).parse("kura")).toBe("kura");
-		expect(v.string().regex(/^ku/).parse("kura")).toBe("kura");
-		expect(v.string().url().parse("https://kura.dev/docs")).toBe(
+		expect(k.string().email().parse("dev@kura.dev")).toBe("dev@kura.dev");
+		expect(k.string().min(3).max(5).parse("kura")).toBe("kura");
+		expect(k.string().regex(/^ku/).parse("kura")).toBe("kura");
+		expect(k.string().url().parse("https://kura.dev/docs")).toBe(
 			"https://kura.dev/docs",
 		);
 
-		expect(() => v.string().email().parse("invalid")).toThrow(
+		expect(() => k.string().email().parse("invalid")).toThrow(
 			"Validation failed for string",
 		);
-		expect(() => v.string().min(3).parse("ku")).toThrow(
+		expect(() => k.string().min(3).parse("ku")).toThrow(
 			"Validation failed for string",
 		);
-		expect(() => v.string().max(3).parse("kura")).toThrow(
+		expect(() => k.string().max(3).parse("kura")).toThrow(
 			"Validation failed for string",
 		);
-		expect(() => v.string().regex(/^ku$/).parse("kura")).toThrow(
+		expect(() => k.string().regex(/^ku$/).parse("kura")).toThrow(
 			"Validation failed for string",
 		);
-		expect(() => v.string().url().parse("kura")).toThrow(
+		expect(() => k.string().url().parse("kura")).toThrow(
 			"Validation failed for string",
 		);
 	});
 
 	test("validates number rules", () => {
-		expect(v.number().min(1).max(10).parse(5)).toBe(5);
-		expect(v.number().integer().parse(5)).toBe(5);
-		expect(v.number().positive().parse(1)).toBe(1);
+		expect(k.number().min(1).max(10).parse(5)).toBe(5);
+		expect(k.number().integer().parse(5)).toBe(5);
+		expect(k.number().positive().parse(1)).toBe(1);
 
-		expect(() => v.number().min(3).parse(2)).toThrow(
+		expect(() => k.number().min(3).parse(2)).toThrow(
 			"Validation failed for number",
 		);
-		expect(() => v.number().max(3).parse(4)).toThrow(
+		expect(() => k.number().max(3).parse(4)).toThrow(
 			"Validation failed for number",
 		);
-		expect(() => v.number().integer().parse(1.5)).toThrow(
+		expect(() => k.number().integer().parse(1.5)).toThrow(
 			"Validation failed for number",
 		);
-		expect(() => v.number().positive().parse(0)).toThrow(
+		expect(() => k.number().positive().parse(0)).toThrow(
 			"Validation failed for number",
 		);
 	});
 
 	test("validates arrays and objects", () => {
-		const schema = v.object({
-			ids: v.array(v.number()),
-			name: v.string(),
+		const schema = k.object({
+			ids: k.array(k.number()),
+			name: k.string(),
 		});
 
 		expect(schema.parse({ ids: [1, 2], name: "kura" })).toEqual({
@@ -140,25 +140,25 @@ describe("Schema", () => {
 	});
 
 	test("validates array rules", () => {
-		expect(v.array(v.number()).min(2).max(3).parse([1, 2])).toEqual([1, 2]);
-		expect(v.array(v.string()).distinct().parse(["api", "http"])).toEqual([
+		expect(k.array(k.number()).min(2).max(3).parse([1, 2])).toEqual([1, 2]);
+		expect(k.array(k.string()).distinct().parse(["api", "http"])).toEqual([
 			"api",
 			"http",
 		]);
 
-		expect(() => v.array(v.number()).min(2).parse([1])).toThrow(
+		expect(() => k.array(k.number()).min(2).parse([1])).toThrow(
 			"Validation failed for array",
 		);
-		expect(() => v.array(v.number()).max(2).parse([1, 2, 3])).toThrow(
+		expect(() => k.array(k.number()).max(2).parse([1, 2, 3])).toThrow(
 			"Validation failed for array",
 		);
-		expect(() => v.array(v.string()).distinct().parse(["api", "api"])).toThrow(
+		expect(() => k.array(k.string()).distinct().parse(["api", "api"])).toThrow(
 			"Validation failed for array",
 		);
 	});
 
 	test("validates enum values", () => {
-		const schema = v.enum(["draft", "published"]);
+		const schema = k.enum(["draft", "published"]);
 
 		expect(schema.parse("draft")).toBe("draft");
 		expect(() => schema.parse("archived")).toThrow(
@@ -167,14 +167,14 @@ describe("Schema", () => {
 	});
 
 	test("parses date strings into Date instances", () => {
-		const date = v.date().parse("2026-01-01");
+		const date = k.date().parse("2026-01-01");
 
 		expect(date).toBeInstanceOf(Date);
 		expect(date.toISOString()).toBe("2026-01-01T00:00:00.000Z");
 	});
 
 	test("validates date rules", () => {
-		const date = v
+		const date = k
 			.date()
 			.after("2026-01-01")
 			.before(new Date("2026-12-31"))
@@ -183,16 +183,16 @@ describe("Schema", () => {
 		expect(date).toBeInstanceOf(Date);
 		expect(date.toISOString()).toBe("2026-06-01T00:00:00.000Z");
 
-		expect(() => v.date().after("2026-01-01").parse("2026-01-01")).toThrow(
+		expect(() => k.date().after("2026-01-01").parse("2026-01-01")).toThrow(
 			"Validation failed for date",
 		);
-		expect(() => v.date().before("2026-01-01").parse("2026-01-01")).toThrow(
+		expect(() => k.date().before("2026-01-01").parse("2026-01-01")).toThrow(
 			"Validation failed for date",
 		);
-		expect(() => v.date().after("invalid")).toThrow(
+		expect(() => k.date().after("invalid")).toThrow(
 			"Invalid date for after rule",
 		);
-		expect(() => v.date().parse(new Date("invalid"))).toThrow(
+		expect(() => k.date().parse(new Date("invalid"))).toThrow(
 			"Validation failed for date",
 		);
 	});
@@ -201,49 +201,49 @@ describe("Schema", () => {
 		const file = new File(["kura"], "avatar.PNG", { type: "image/png" });
 
 		expect(
-			v
+			k
 				.file()
 				.maxSize(4)
 				.mimeTypes(["image/png"])
 				.extensions([".png"])
 				.parse(file),
 		).toBe(file);
-		expect(v.file().extensions(["png"]).parse(file)).toBe(file);
+		expect(k.file().extensions(["png"]).parse(file)).toBe(file);
 
-		expect(() => v.file().maxSize(3).parse(file)).toThrow(
+		expect(() => k.file().maxSize(3).parse(file)).toThrow(
 			"Validation failed for file",
 		);
-		expect(() => v.file().mimeTypes(["image/jpeg"]).parse(file)).toThrow(
+		expect(() => k.file().mimeTypes(["image/jpeg"]).parse(file)).toThrow(
 			"Validation failed for file",
 		);
-		expect(() => v.file().extensions(["jpg"]).parse(file)).toThrow(
+		expect(() => k.file().extensions(["jpg"]).parse(file)).toThrow(
 			"Validation failed for file",
 		);
-		expect(() => v.file().maxSize(-1)).toThrow(
+		expect(() => k.file().maxSize(-1)).toThrow(
 			"Invalid number for maxSize rule",
 		);
 	});
 
 	test("parses optional and nullable values", () => {
-		expect(v.string().optional().parse(undefined)).toBeUndefined();
-		expect(v.string().optional().parse("kura")).toBe("kura");
-		expect(v.date().nullable().parse(null)).toBeNull();
+		expect(k.string().optional().parse(undefined)).toBeUndefined();
+		expect(k.string().optional().parse("kura")).toBe("kura");
+		expect(k.date().nullable().parse(null)).toBeNull();
 
-		expect(() => v.string().optional().parse(null)).toThrow(
+		expect(() => k.string().optional().parse(null)).toThrow(
 			"Validation failed for string",
 		);
-		expect(() => v.date().nullable().parse(undefined)).toThrow(
+		expect(() => k.date().nullable().parse(undefined)).toThrow(
 			"Validation failed for date",
 		);
 	});
 
 	test("describes schemas for documentation", () => {
-		const schema = v.object({
-			id: v.number(),
-			name: v.string(),
-			role: v.enum(["admin", "user"]),
-			deletedAt: v.date().nullable(),
-			tags: v.array(v.string()).optional(),
+		const schema = k.object({
+			id: k.number(),
+			name: k.string(),
+			role: k.enum(["admin", "user"]),
+			deletedAt: k.date().nullable(),
+			tags: k.array(k.string()).optional(),
 		});
 
 		expect(schema.describe()).toEqual({
@@ -286,10 +286,10 @@ describe("Schema", () => {
 	});
 
 	test("validates confirmed object fields", () => {
-		const schema = v
+		const schema = k
 			.object({
-				password: v.string(),
-				passwordConfirmation: v.string().optional(),
+				password: k.string(),
+				passwordConfirmation: k.string().optional(),
 			})
 			.confirmed("password");
 
@@ -314,11 +314,11 @@ describe("Schema", () => {
 	});
 
 	test("validates explicit same and different object fields", () => {
-		const schema = v
+		const schema = k
 			.object({
-				backupEmail: v.string().email(),
-				email: v.string().email(),
-				emailConfirmation: v.string().email(),
+				backupEmail: k.string().email(),
+				email: k.string().email(),
+				emailConfirmation: k.string().email(),
 			})
 			.same("emailConfirmation", "email")
 			.different("backupEmail", "email");
@@ -351,13 +351,13 @@ describe("Schema", () => {
 	});
 
 	test("skips comparison rules when the source field is missing", () => {
-		const schema = v
+		const schema = k
 			.object({
-				backupEmail: v.string().email().optional(),
-				email: v.string().email(),
-				emailConfirmation: v.string().email().optional(),
-				password: v.string().optional(),
-				passwordConfirmation: v.string().optional(),
+				backupEmail: k.string().email().optional(),
+				email: k.string().email(),
+				emailConfirmation: k.string().email().optional(),
+				password: k.string().optional(),
+				passwordConfirmation: k.string().optional(),
 			})
 			.confirmed("password")
 			.same("emailConfirmation", "email")
@@ -373,22 +373,22 @@ describe("Schema", () => {
 	});
 
 	test("validates conditional required object fields", () => {
-		const requiredIfSchema = v
+		const requiredIfSchema = k
 			.object({
-				adminCode: v.string().optional(),
-				role: v.enum(["admin", "user"]),
+				adminCode: k.string().optional(),
+				role: k.enum(["admin", "user"]),
 			})
 			.requiredIf("adminCode", "role", "admin");
-		const requiredWithSchema = v
+		const requiredWithSchema = k
 			.object({
-				contactMethod: v.string().optional(),
-				email: v.string().email().optional(),
+				contactMethod: k.string().optional(),
+				email: k.string().email().optional(),
 			})
 			.requiredWith("contactMethod", "email");
-		const requiredWithoutSchema = v
+		const requiredWithoutSchema = k
 			.object({
-				email: v.string().email().optional(),
-				phone: v.string().optional(),
+				email: k.string().email().optional(),
+				phone: k.string().optional(),
 			})
 			.requiredWithout("email", "phone");
 
@@ -447,7 +447,7 @@ describe("Schema", () => {
 			rows: [{ aggregate: 1 }],
 			affectedRows: 0,
 		});
-		const schema = v.string().email().unique("users", "email", { database });
+		const schema = k.string().email().unique("users", "email", { database });
 
 		await expect(schema.parseAsync("dev@kura.dev")).resolves.toBe(
 			"dev@kura.dev",
@@ -478,7 +478,7 @@ describe("Schema", () => {
 			rows: [{ aggregate: 0 }],
 			affectedRows: 0,
 		});
-		const schema = v.number().integer().exists("users", "id");
+		const schema = k.number().integer().exists("users", "id");
 
 		await expect(schema.parseAsync(1, { database })).resolves.toBe(1);
 		await expect(schema.parseAsync(2, { database })).rejects.toThrow(
@@ -507,7 +507,7 @@ describe("Schema", () => {
 			rows: [{ aggregate: 1 }],
 			affectedRows: 0,
 		});
-		const schema = v.string().unique("users", "email", { database });
+		const schema = k.string().unique("users", "email", { database });
 
 		await expect(schema.validateAsync("new@kura.dev")).resolves.toBe(true);
 		await expect(schema.validateAsync("taken@kura.dev")).resolves.toBe(false);
@@ -524,8 +524,8 @@ describe("Schema", () => {
 			rows: [{ aggregate: 1 }],
 			affectedRows: 0,
 		});
-		const schema = v.object({
-			emails: v.array(v.string().email().unique("users", "email")),
+		const schema = k.object({
+			emails: k.array(k.string().email().unique("users", "email")),
 		});
 
 		await expect(
@@ -557,10 +557,10 @@ describe("Schema", () => {
 			rows: [{ aggregate: 0 }],
 			affectedRows: 0,
 		});
-		const schema = v
+		const schema = k
 			.object({
-				email: v.string().email().unique("users", "email"),
-				emailConfirmation: v.string().email(),
+				email: k.string().email().unique("users", "email"),
+				emailConfirmation: k.string().email(),
 			})
 			.same("emailConfirmation", "email");
 
@@ -599,8 +599,8 @@ describe("Schema", () => {
 
 	test("requires parseAsync for async rules", () => {
 		const database = createDatabase();
-		const schema = v.object({
-			email: v.string().unique("users", "email", { database }),
+		const schema = k.object({
+			email: k.string().unique("users", "email", { database }),
 		});
 
 		expect(() => schema.parse({ email: "dev@kura.dev" })).toThrow(
@@ -610,16 +610,16 @@ describe("Schema", () => {
 
 	test("requires a database manager for database validation rules", async () => {
 		await expect(
-			v.string().unique("users", "email").parseAsync("dev@kura.dev"),
+			k.string().unique("users", "email").parseAsync("dev@kura.dev"),
 		).rejects.toThrow("Database manager is required for unique validation");
 		await expect(
-			v.number().exists("users", "id").parseAsync(1),
+			k.number().exists("users", "id").parseAsync(1),
 		).rejects.toThrow("Database manager is required for exists validation");
 	});
 
 	test("throws for invalid values", () => {
-		expect(() => v.string().parse(1)).toThrow("Validation failed for string");
-		expect(() => v.array(v.number()).parse([1, "2"])).toThrow(
+		expect(() => k.string().parse(1)).toThrow("Validation failed for string");
+		expect(() => k.array(k.number()).parse([1, "2"])).toThrow(
 			"Validation failed for array",
 		);
 	});
