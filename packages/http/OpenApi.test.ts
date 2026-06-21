@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { k } from "../validation/Schema";
+import { k, type SchemaLike } from "../validation/Schema";
 import { createContext } from "./Context";
 import {
 	createOpenApiDocument,
@@ -103,6 +103,24 @@ describe("OpenAPI", () => {
 				},
 			},
 			required: ["name", "birthday", "roles"],
+		});
+	});
+
+	test("converts schema-like values from separate public entrypoints", () => {
+		const schema = schemaLike(
+			k.object({
+				email: k.string().email(),
+				password: k.string().min(1),
+			}),
+		);
+
+		expect(toOpenApiSchema(schema)).toEqual({
+			type: "object",
+			properties: {
+				email: { type: "string" },
+				password: { type: "string" },
+			},
+			required: ["email", "password"],
 		});
 	});
 
@@ -255,3 +273,11 @@ describe("OpenAPI", () => {
 		expect(html).toContain("swagger-ui-dist");
 	});
 });
+
+function schemaLike<T>(schema: SchemaLike<T>): SchemaLike<T> {
+	return {
+		parse: (value) => schema.parse(value),
+		parseAsync: (value, context) => schema.parseAsync(value, context),
+		describe: () => schema.describe(),
+	};
+}

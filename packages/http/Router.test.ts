@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { k } from "../validation/Schema";
+import { k, type SchemaLike } from "../validation/Schema";
 import { createContext } from "./Context";
 import { BaseController, registerController } from "./Controller";
 import { BadRequestException } from "./ErrorHandler";
@@ -245,6 +245,36 @@ describe("Router", () => {
 		});
 	});
 
+	test("validates schema-like request bodies from separate public entrypoints", async () => {
+		const router = new Router();
+		router
+			.post("/login", (ctx) => Response.json(ctx.validatedBody()))
+			.schema({
+				body: schemaLike(
+					k.object({
+						email: k.string().email(),
+						password: k.string().min(1),
+					}),
+				),
+			});
+
+		const response = await router.dispatch({
+			request: new Request("http://localhost/login", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					email: "dev@kura.dev",
+					password: "secret",
+				}),
+			}),
+		});
+
+		expect(await response.json()).toEqual({
+			email: "dev@kura.dev",
+			password: "secret",
+		});
+	});
+
 	test("rejects invalid route schemas before handlers run", async () => {
 		const router = new Router();
 		let called = false;
@@ -347,3 +377,11 @@ describe("Router", () => {
 		expect(await response.json()).toEqual({ name: "Ada" });
 	});
 });
+
+function schemaLike<T>(schema: SchemaLike<T>): SchemaLike<T> {
+	return {
+		parse: (value) => schema.parse(value),
+		parseAsync: (value, context) => schema.parseAsync(value, context),
+		describe: () => schema.describe(),
+	};
+}

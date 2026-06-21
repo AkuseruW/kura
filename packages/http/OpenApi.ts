@@ -1,4 +1,8 @@
-import { Schema, type SchemaDescription } from "../validation/Schema";
+import {
+	isSchema,
+	type SchemaDescription,
+	type SchemaLike,
+} from "../validation/Schema";
 import type { RegisteredRoute, Router, RouteSchemaOptions } from "./Router";
 
 export type OpenApiJsonPrimitive = string | number | boolean | null;
@@ -138,7 +142,7 @@ export type OpenApiDocument = {
 export type OpenApiVersion = "3.0.4" | "3.1.2" | "3.2.0";
 
 export type OpenApiSchemaInput =
-	| Schema<unknown>
+	| SchemaLike<unknown>
 	| OpenApiSchemaObject
 	| OpenApiReferenceObject;
 
@@ -269,7 +273,7 @@ export function toOpenApiSchema(
 	input: OpenApiSchemaInput,
 	specVersion: OpenApiVersion = DEFAULT_OPENAPI_VERSION,
 ): OpenApiSchemaObject | OpenApiReferenceObject {
-	if (input instanceof Schema) {
+	if (isSchema(input)) {
 		return schemaDescriptionToOpenApi(input.describe(), specVersion);
 	}
 
@@ -566,14 +570,14 @@ function appendNull(
 function isRouteOpenApiBodyObject(
 	value: OpenApiSchemaInput | RouteOpenApiBodyObject,
 ): value is RouteOpenApiBodyObject {
-	return !(value instanceof Schema) && isRecord(value) && "schema" in value;
+	return !isSchema(value) && isRecord(value) && "schema" in value;
 }
 
 function isRouteOpenApiResponseObject(
 	value: OpenApiSchemaInput | RouteOpenApiResponseObject,
 ): value is RouteOpenApiResponseObject {
 	return (
-		!(value instanceof Schema) &&
+		!isSchema(value) &&
 		isRecord(value) &&
 		("body" in value ||
 			"headers" in value ||

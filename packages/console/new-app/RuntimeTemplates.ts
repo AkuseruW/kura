@@ -138,8 +138,10 @@ export function makeConsoleEntrypoint(choices: NewAppChoices): string {
 		choices.preset === "full"
 			? `,\n\tloadStaticRoutes: async () => {\n\t\tconst server = await import("./server");\n\t\treturn server.staticRoutes;\n\t}`
 			: "";
+	const databaseImports = makeConsoleDatabaseImports(choices);
+	const databaseRegistration = makeConsoleDatabaseRegistration(choices);
 
-	return `import {
+	return `${databaseImports}import {
 \tcreateConsole,
 \tregisterDevToolCommands,
 \tregisterGeneratorCommands,
@@ -156,7 +158,7 @@ registerGeneratorCommands(appConsole, {
 registerServeCommand(appConsole, {
 \tentry: "bin/server.ts",
 });
-registerDevToolCommands(appConsole, {
+${databaseRegistration}registerDevToolCommands(appConsole, {
 \troot: process.cwd(),
 \tloadRouter: async () => {
 \t\tconst routes = await import("#start/routes");
@@ -167,6 +169,88 @@ registerDevToolCommands(appConsole, {
 const exitCode = await appConsole.run(Bun.argv.slice(2));
 process.exit(exitCode);
 `;
+}
+
+function makeConsoleDatabaseImports(choices: NewAppChoices): string {
+	if (!usesDatabaseFiles(choices)) {
+		return "";
+	}
+
+	const migrationImports = makeMigrationImports(choices);
+
+	return `import databaseConfig from "#config/database";
+${migrationImports}import {
+\tDatabaseManager,
+\tMemoryDatabaseDriver,
+\tregisterDatabaseCommands,
+} from "kura/database";
+`;
+}
+
+function makeConsoleDatabaseRegistration(choices: NewAppChoices): string {
+	if (!usesDatabaseFiles(choices)) {
+		return "";
+	}
+
+	const migrationDefinitions = makeMigrationDefinitions(choices);
+
+	return `const database = new DatabaseManager(databaseConfig);
+database.extend("memory", new MemoryDatabaseDriver());
+
+registerDatabaseCommands(appConsole, {
+\tdatabase,
+\tmigrations: [${migrationDefinitions.join(", ")}],
+});
+
+`;
+}
+
+function makeMigrationImports(choices: NewAppChoices): string {
+	const imports: string[] = [];
+
+	if (choices.auth !== "none") {
+		imports.push(
+			'import CreateUsers from "#database/migrations/00000000000000_create_users";',
+		);
+	}
+
+	if (choices.auth === "access-token") {
+		imports.push(
+			'import CreateAccessTokens from "#database/migrations/00000000000001_create_access_tokens";',
+		);
+	}
+
+	if (choices.auth === "session") {
+		imports.push(
+			'import CreateSessions from "#database/migrations/00000000000001_create_sessions";',
+		);
+	}
+
+	return imports.length > 0 ? `${imports.join("\n")}\n` : "";
+}
+
+function makeMigrationDefinitions(choices: NewAppChoices): string[] {
+	const migrations: string[] = [];
+
+	if (choices.auth !== "none") {
+		migrations.push(
+			'{ name: "00000000000000_create_users", migration: CreateUsers }',
+		);
+	}
+
+	if (choices.auth === "access-token") {
+		migrations.push(
+			'{ name: "00000000000001_create_access_tokens", migration: CreateAccessTokens }',
+		);
+	}
+
+	if (choices.auth === "session") {
+		migrations.push(
+			'{ name: "00000000000001_create_sessions", migration: CreateSessions }',
+		);
+	}
+
+	return migrations;
 }
 
 export function makeServerEntrypoint(choices: NewAppChoices): string {

@@ -293,21 +293,24 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/kura.config.ts")).toContain(
 			'preloads: ["#start/env", "#start/kernel", "#start/routes"]',
 		);
-		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
-			'await import("#start/env")',
+		const consoleEntrypoint = await readGenerated(
+			root,
+			"demo-api/bin/console.ts",
 		);
-		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
-			'entry: "bin/server.ts"',
+		expect(consoleEntrypoint).toContain('await import("#start/env")');
+		expect(consoleEntrypoint).toContain('entry: "bin/server.ts"');
+		expect(consoleEntrypoint).toContain("registerDevToolCommands");
+		expect(consoleEntrypoint).toContain('from "kura/console"');
+		expect(consoleEntrypoint).toContain('await import("#start/routes")');
+		expect(consoleEntrypoint).toContain('from "kura/database"');
+		expect(consoleEntrypoint).toContain("new DatabaseManager(databaseConfig)");
+		expect(consoleEntrypoint).toContain(
+			'database.extend("memory", new MemoryDatabaseDriver())',
 		);
-		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
-			"registerDevToolCommands",
-		);
-		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
-			'from "kura/console"',
-		);
-		expect(await readGenerated(root, "demo-api/bin/console.ts")).toContain(
-			'await import("#start/routes")',
-		);
+		expect(consoleEntrypoint).toContain("registerDatabaseCommands(appConsole");
+		expect(consoleEntrypoint).toContain("CreateUsers");
+		expect(consoleEntrypoint).toContain("CreateAccessTokens");
+		expect(consoleEntrypoint).not.toContain("CreateSessions");
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
 			'import env from "#start/env"',
 		);
@@ -1038,6 +1041,9 @@ describe("new app command", () => {
 			false,
 		);
 		expect(await generatedPathExists(root, "minimal/database")).toBe(false);
+		expect(await readGenerated(root, "minimal/bin/console.ts")).not.toContain(
+			"registerDatabaseCommands",
+		);
 
 		const envExample = await readGenerated(root, "minimal/.env.example");
 		expect(envExample).not.toContain("CACHE_STORE");
