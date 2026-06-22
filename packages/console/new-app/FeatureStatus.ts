@@ -114,10 +114,28 @@ function authSupportRow(auth: string): FeatureSupportRow | undefined {
 		return undefined;
 	}
 
+	if (auth === "access-token") {
+		return {
+			name: "Auth",
+			status: "starter",
+			message:
+				"Access token auth routes, users, migrations, and database-backed opaque tokens are scaffolded.",
+		};
+	}
+
+	if (auth === "session") {
+		return {
+			name: "Auth",
+			status: "starter",
+			message:
+				"Session auth routes, users, migrations, and database-backed HttpOnly cookie sessions are scaffolded.",
+		};
+	}
+
 	return {
 		name: "Auth",
 		status: "starter",
-		message: `${formatAuth(auth)} auth routes and demo persistence are scaffolded; review persistence and security before production.`,
+		message: `${formatAuth(auth)} auth routes and persistence are scaffolded; review security before production.`,
 	};
 }
 

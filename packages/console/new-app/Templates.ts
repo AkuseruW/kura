@@ -443,7 +443,7 @@ function makeKernel(choices: NewAppChoices): string {
 	const namedMiddleware =
 		choices.auth !== "none" ? "\tauth: authMiddleware,\n" : "";
 	const imports = [
-		'import { BodyLimit, Cors, defineHttpKernel, type Middleware, RequestId, RequestTimeout } from "kura/http";',
+		'import { BodyLimit, BodyParser, Cors, defineHttpKernel, type Middleware, RequestId, RequestTimeout } from "kura/http";',
 		'import handleException from "#exceptions/handler";',
 	];
 
@@ -480,6 +480,7 @@ const server = [
 \tCors(),
 \tRequestTimeout({ ms: 30_000 }),
 \tBodyLimit({ maxBytes: 1_048_576 }),
+\tBodyParser,
 ];
 
 /**

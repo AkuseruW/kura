@@ -1,4 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import {
+	DatabaseManager,
+	type MemoryDatabaseConnection,
+	MemoryDatabaseDriver,
+	type QueryRow,
+} from "../database/Database";
 import { createContext } from "../http/Context";
 import { Router } from "../http/Router";
 import {
@@ -7,6 +13,7 @@ import {
 	MemoryAccessTokenStore,
 } from "./AccessToken";
 import { AuthManager } from "./AuthManager";
+import { DatabaseAccessTokenStore } from "./DatabaseAccessTokenStore";
 import { type AuthContext, type GuardResult, guard } from "./Guard";
 import {
 	type JwtClaims,
@@ -259,6 +266,107 @@ describe("AccessTokenManager", () => {
 		const orphanedToken = await manager.create(user);
 		userExists = false;
 		await expect(manager.authenticate(orphanedToken.value)).resolves.toBeNull();
+	});
+});
+
+describe("DatabaseAccessTokenStore", () => {
+	type AccessTokenRow = QueryRow & {
+		identifier: string;
+		tokenable_id: number;
+		type: string;
+		name: string | null;
+		token_hash: string;
+		abilities: string;
+		created_at: string;
+		updated_at: string;
+		last_used_at: string | null;
+		expires_at: string | null;
+	};
+
+	test("persists and reads access token records through a database client", async () => {
+		const database = new DatabaseManager({
+			default: "primary",
+			connections: {
+				primary: { driver: "memory" },
+			},
+		});
+		database.extend("memory", new MemoryDatabaseDriver());
+		const connection =
+			await database.connection<MemoryDatabaseConnection>("primary");
+		const store = new DatabaseAccessTokenStore<number>(database);
+		const createdAt = new Date("2026-01-01T00:00:00.000Z");
+		const expiresAt = new Date("2026-01-01T01:00:00.000Z");
+
+		await store.create({
+			identifier: "token-1",
+			tokenableId: 1,
+			type: "api",
+			name: "login",
+			tokenHash: "hash",
+			abilities: ["profile:read"],
+			createdAt,
+			expiresAt,
+		});
+
+		expect(connection.queries[0]).toEqual({
+			sql: 'insert into "auth_access_tokens" ("identifier", "tokenable_id", "type", "name", "token_hash", "abilities", "created_at", "updated_at", "last_used_at", "expires_at") values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+			bindings: [
+				"token-1",
+				1,
+				"api",
+				"login",
+				"hash",
+				'["profile:read"]',
+				createdAt,
+				createdAt,
+				null,
+				expiresAt,
+			],
+		});
+
+		connection.queueResult<AccessTokenRow>({
+			rows: [
+				{
+					identifier: "token-1",
+					tokenable_id: 1,
+					type: "api",
+					name: "login",
+					token_hash: "hash",
+					abilities: '["profile:read"]',
+					created_at: "2026-01-01T00:00:00.000Z",
+					updated_at: "2026-01-01T00:00:00.000Z",
+					last_used_at: null,
+					expires_at: "2026-01-01T01:00:00.000Z",
+				},
+			],
+			affectedRows: 0,
+		});
+
+		await expect(store.find("token-1")).resolves.toEqual({
+			identifier: "token-1",
+			tokenableId: 1,
+			type: "api",
+			name: "login",
+			tokenHash: "hash",
+			abilities: ["profile:read"],
+			createdAt,
+			updatedAt: createdAt,
+			lastUsedAt: undefined,
+			expiresAt,
+		});
+
+		const usedAt = new Date("2026-01-01T00:10:00.000Z");
+		await store.updateLastUsedAt("token-1", usedAt);
+		await store.delete("token-1");
+
+		expect(connection.queries.at(-2)).toEqual({
+			sql: 'update "auth_access_tokens" set "last_used_at" = ?, "updated_at" = ? where "identifier" = ?',
+			bindings: [usedAt, usedAt, "token-1"],
+		});
+		expect(connection.queries.at(-1)).toEqual({
+			sql: 'delete from "auth_access_tokens" where "identifier" = ?',
+			bindings: ["token-1"],
+		});
 	});
 });
 

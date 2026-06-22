@@ -91,12 +91,12 @@ const authPresetChoices = [
 	{
 		value: "session",
 		label: "Session",
-		description: "Starter: cookie routes and demo persistence",
+		description: "Starter: cookie routes with database-backed sessions",
 	},
 	{
 		value: "access-token",
 		label: "Access Token",
-		description: "Starter: Bearer token routes and demo persistence",
+		description: "Starter: database-backed opaque Bearer tokens",
 	},
 ] as const satisfies readonly NewAppPromptChoice<AuthPreset>[];
 
@@ -254,18 +254,19 @@ export async function promptChoices(
 	return {
 		preset,
 		architecture,
-		database: featureSet.has("database")
-			? readPreset(
-					await prompt.select(
-						"Database",
+		database:
+			featureSet.has("database") || featureSet.has("auth")
+				? readPreset(
+						await prompt.select(
+							"Database",
+							databasePresets,
+							defaults.database === "none" ? "sqlite" : defaults.database,
+							databasePresetChoices,
+						),
 						databasePresets,
-						defaults.database === "none" ? "sqlite" : defaults.database,
-						databasePresetChoices,
-					),
-					databasePresets,
-					"database",
-				)
-			: "none",
+						"database",
+					)
+				: "none",
 		auth: featureSet.has("auth")
 			? readAuthPreset(
 					await prompt.select(
