@@ -43,6 +43,8 @@ export function formatNewAppPlan(options: {
 		"  bun kura",
 		"  bun kura routes",
 		"  bun kura doctor",
+		"  bun kura deploy:doctor",
+		"  bun run preview",
 	];
 
 	return lines.join("\n");
@@ -93,8 +95,10 @@ export function formatNewAppCreated(options: {
 		"  bun kura",
 		"  bun kura routes",
 		"  bun kura doctor",
+		"  bun kura deploy:doctor",
 		"  bun kura env",
 		"  bun kura config app.starter",
+		"  bun run preview",
 		"",
 		"Next steps",
 		`  cd ${nextPath}`,

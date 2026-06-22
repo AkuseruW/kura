@@ -133,6 +133,14 @@ dist
 `,
 		},
 		{
+			path: ".dockerignore",
+			content: makeDockerIgnore(),
+		},
+		{
+			path: "Dockerfile",
+			content: makeDockerfile(choices),
+		},
+		{
 			path: ".env.example",
 			content: makeEnvExample(choices),
 		},
@@ -218,7 +226,195 @@ export { router };
 			path: "README.md",
 			content: makeReadme(appName, choices),
 		},
+		{
+			path: "DEPLOYMENT.md",
+			content: makeDeploymentGuide(appName, choices),
+		},
 	];
+}
+
+function makeDockerIgnore(): string {
+	return `.git
+.github
+.kura
+node_modules
+build
+dist
+tmp
+coverage
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local persistence
+database/*.sqlite
+database/*.sqlite-*
+storage/app
+
+# Logs and OS files
+*.log
+.DS_Store
+`;
+}
+
+function makeDockerfile(choices: NewAppChoices): string {
+	const volumes = makeDockerVolumePaths(choices);
+	const volumeBlock =
+		volumes.length > 0
+			? `\nVOLUME [${volumes.map((path) => JSON.stringify(path)).join(", ")}]\n`
+			: "\n";
+
+	return `# syntax=docker/dockerfile:1
+
+FROM oven/bun:1.3 AS build
+
+WORKDIR /app
+COPY . .
+
+RUN if [ -f bun.lock ]; then bun install --frozen-lockfile; else bun install; fi
+RUN bun run build
+RUN bun install --production
+
+FROM oven/bun:1.3 AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=3333
+
+COPY --from=build /app ./
+${volumeBlock}EXPOSE 3333
+
+CMD ["bun", "bin/console.ts", "preview", "--no-build", "--host", "0.0.0.0"]
+`;
+}
+
+function makeDeploymentGuide(appName: string, choices: NewAppChoices): string {
+	const imageName = dockerImageName(appName);
+	const volumeNotes = makeDeploymentVolumeNotes(choices);
+	const envNotes = makeDeploymentEnvNotes(choices);
+
+	return `# Deployment
+
+This app ships with a production-oriented Docker template for Bun hosts and Docker-style platforms.
+
+## Local Production Check
+
+\`\`\`sh
+bun install
+bun run build
+bun run preview
+bun run deploy:doctor
+\`\`\`
+
+## Docker
+
+\`\`\`sh
+docker build -t ${imageName} .
+docker run --rm -p 3333:3333 --env-file .env -e HOST=0.0.0.0 -e PORT=3333 ${imageName}
+\`\`\`
+
+The container runs the built server through:
+
+\`\`\`sh
+bun bin/console.ts preview --no-build --host 0.0.0.0
+\`\`\`
+
+## Runtime Environment
+
+- Set \`NODE_ENV=production\`.
+- Set \`HOST=0.0.0.0\` and provide the platform \`PORT\`.
+- Keep \`.env\` out of git and inject secrets through your host.
+${envNotes}
+
+## Persistence
+
+${volumeNotes}
+
+## Platform Notes
+
+- Docker, Railway, Render, Fly.io, and similar Bun-capable hosts should run the generated Dockerfile or an equivalent build/start flow.
+- Serverless and edge hosts need an adapter before they can run the Bun HTTP server directly.
+- Run \`bun kura deploy:doctor\` after changing dependencies, scripts, or selected features.
+`;
+}
+
+function makeDockerVolumePaths(choices: NewAppChoices): readonly string[] {
+	const paths = new Set<string>();
+
+	if (choices.database === "sqlite" || choices.queue === "sqlite") {
+		paths.add("/app/database");
+	}
+
+	if (choices.cache === "file") {
+		paths.add("/app/tmp");
+	}
+
+	if (choices.modules.includes("storage")) {
+		paths.add("/app/storage");
+	}
+
+	return [...paths];
+}
+
+function makeDeploymentVolumeNotes(choices: NewAppChoices): string {
+	const notes: string[] = [];
+
+	if (choices.database === "sqlite" || choices.queue === "sqlite") {
+		notes.push(
+			"- SQLite stores data under `/app/database`; mount a volume for production containers.",
+		);
+	}
+
+	if (choices.cache === "file") {
+		notes.push(
+			"- File cache stores records under `/app/tmp`; mount a volume or use a remote cache for multi-instance deployments.",
+		);
+	}
+
+	if (choices.modules.includes("storage")) {
+		notes.push(
+			"- Local storage writes to `/app/storage`; mount a volume or replace it with object storage before production use.",
+		);
+	}
+
+	if (notes.length === 0) {
+		return "This starter does not require a persistent container volume by default.";
+	}
+
+	return notes.join("\n");
+}
+
+function makeDeploymentEnvNotes(choices: NewAppChoices): string {
+	const notes = ["- `APP_KEY` must be stable across deploys."];
+
+	if (choices.database === "postgres" || choices.database === "mysql") {
+		notes.push("- `DATABASE_URL` must point at your production database.");
+	}
+
+	if (choices.cache === "redis" || choices.queue === "redis") {
+		notes.push("- `REDIS_URL` must point at your production Redis service.");
+	}
+
+	if (choices.auth !== "none") {
+		notes.push(
+			"- Review generated auth persistence and token/session settings before accepting production traffic.",
+		);
+	}
+
+	return notes.join("\n");
+}
+
+function dockerImageName(appName: string): string {
+	const name = appName
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+
+	return name.length > 0 ? name : "kura-app";
 }
 
 function makeKernel(choices: NewAppChoices): string {
@@ -1253,12 +1449,23 @@ bun run dev
 
 Open http://localhost:3333.
 
+## Production
+
+\`\`\`sh
+bun run build
+bun run preview
+bun run deploy:doctor
+\`\`\`
+
+See \`DEPLOYMENT.md\` for Docker and host-specific notes.
+
 ## Commands
 
 \`\`\`sh
 bun kura
 bun kura routes
 bun kura doctor
+bun kura deploy:doctor
 bun kura env
 bun kura config app.starter
 bun kura make:controller Home

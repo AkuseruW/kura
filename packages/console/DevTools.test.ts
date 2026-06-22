@@ -206,6 +206,104 @@ describe("dev tool console commands", () => {
 		expect(output.text()).not.toContain("local-development-key");
 	});
 
+	test("checks Docker deployment templates for deploy doctor", async () => {
+		const root = await makeRoot();
+		await writeFile(
+			join(root, "package.json"),
+			JSON.stringify({
+				scripts: {
+					build: "bun build bin/server.ts --target=bun --production",
+					preview: "bun bin/console.ts preview",
+					start: "bun bin/console.ts serve --host 0.0.0.0",
+				},
+				dependencies: {
+					kura: "^0.1.10",
+				},
+			}),
+		);
+		await writeFile(join(root, ".env"), "APP_KEY=local-development-key");
+		await writeFile(join(root, "tsconfig.json"), "{}");
+		await writeFile(
+			join(root, "Dockerfile"),
+			'CMD ["bun", "bin/console.ts", "preview", "--no-build", "--host", "0.0.0.0"]',
+		);
+		await writeFile(
+			join(root, ".dockerignore"),
+			[".env", "node_modules", "build", ""].join("\n"),
+		);
+		await mkdir(join(root, "config"));
+		setEnv("APP_KEY", "local-development-key");
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, {
+			root,
+			loadConfig: () =>
+				new Config({
+					app: {
+						starter: {
+							database: "sqlite",
+							auth: "none",
+							cache: "file",
+							queue: "none",
+							modules: ["storage"],
+						},
+					},
+				}),
+		});
+
+		expect(await console.run(["deploy:doctor"])).toBe(0);
+
+		expect(output.text()).toContain("deploy:dockerfile");
+		expect(output.text()).toContain("Dockerfile runs the built app");
+		expect(output.text()).toContain("deploy:dockerignore");
+		expect(output.text()).toContain("deploy:dependencies");
+		expect(output.text()).toContain(
+			"runtime dependencies are registry-compatible",
+		);
+		expect(output.text()).toContain("/app/database");
+		expect(output.text()).toContain("/app/tmp");
+		expect(output.text()).toContain("/app/storage");
+	});
+
+	test("fails deploy doctor for local runtime dependencies", async () => {
+		const root = await makeRoot();
+		await writeFile(
+			join(root, "package.json"),
+			JSON.stringify({
+				scripts: {
+					build: "bun build bin/server.ts --target=bun --production",
+					preview: "bun bin/console.ts preview",
+					start: "bun bin/console.ts serve --host 0.0.0.0",
+				},
+				dependencies: {
+					kura: "file:../kura/dist",
+				},
+			}),
+		);
+		await writeFile(join(root, ".env"), "APP_KEY=local-development-key");
+		await writeFile(
+			join(root, "Dockerfile"),
+			'CMD ["bun", "bin/console.ts", "preview", "--no-build", "--host", "0.0.0.0"]',
+		);
+		await writeFile(
+			join(root, ".dockerignore"),
+			[".env", "node_modules", "build", ""].join("\n"),
+		);
+		setEnv("APP_KEY", "local-development-key");
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, {
+			root,
+		});
+
+		expect(await console.run(["deploy:doctor"])).toBe(1);
+
+		expect(output.text()).toContain("deploy:dependencies");
+		expect(output.text()).toContain(
+			"runtime dependencies use local paths: kura",
+		);
+	});
+
 	test("warns about scaffold-only generated features", async () => {
 		const root = await makeRoot();
 		await writeFile(join(root, "package.json"), "{}");

@@ -518,6 +518,30 @@ describe("new app command", () => {
 		expect(readme).toContain("- Auth (starter): Access token");
 		expect(readme).toContain("- Mail (starter): Config and mailable class");
 		expect(readme).toContain("- Storage (starter): Local storage service");
+		expect(readme).toContain("## Production");
+		expect(readme).toContain("bun run deploy:doctor");
+		expect(readme).toContain("DEPLOYMENT.md");
+		const dockerfile = await readGenerated(root, "demo-api/Dockerfile");
+		expect(dockerfile).toContain("FROM oven/bun:1.3 AS build");
+		expect(dockerfile).toContain("bun run build");
+		expect(dockerfile).toContain("bun install --production");
+		expect(dockerfile).toContain(
+			'CMD ["bun", "bin/console.ts", "preview", "--no-build", "--host", "0.0.0.0"]',
+		);
+		expect(dockerfile).toContain(
+			'VOLUME ["/app/database", "/app/tmp", "/app/storage"]',
+		);
+		const dockerignore = await readGenerated(root, "demo-api/.dockerignore");
+		expect(dockerignore).toContain("node_modules");
+		expect(dockerignore).toContain("build");
+		expect(dockerignore).toContain(".env");
+		expect(dockerignore).toContain("database/*.sqlite");
+		const deployment = await readGenerated(root, "demo-api/DEPLOYMENT.md");
+		expect(deployment).toContain("docker build -t demo-api .");
+		expect(deployment).toContain("bun run deploy:doctor");
+		expect(deployment).toContain("/app/database");
+		expect(deployment).toContain("/app/tmp");
+		expect(deployment).toContain("/app/storage");
 		const appConfig = await readGenerated(root, "demo-api/config/app.ts");
 		expect(appConfig).toContain("export const appUrl");
 		expect(appConfig).toContain("const appConfig = defineConfig");

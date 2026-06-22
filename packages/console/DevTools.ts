@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Config } from "../core/Config";
 import { Config as ConfigStore } from "../core/Config";
@@ -37,6 +37,12 @@ type DoctorCheck = {
 	readonly name: string;
 	readonly status: DoctorStatus;
 	readonly message: string;
+};
+
+type DeploymentPackageJson = {
+	readonly dependencies: Readonly<Record<string, string>>;
+	readonly optionalDependencies: Readonly<Record<string, string>>;
+	readonly scripts: Readonly<Record<string, string>>;
 };
 
 const defaultEnvKeys = [
@@ -215,7 +221,9 @@ function createDoctorCommand(options: DevToolConsoleOptions): Command {
 		},
 		async (ctx) => {
 			const root = resolveRoot(options, ctx.options);
-			const checks = await runDoctorChecks(root, options);
+			const checks = await runDoctorChecks(root, options, {
+				deployment: ctx.parsed.commandName === "deploy:doctor",
+			});
 
 			if (isEnabled(ctx.options, "json")) {
 				ctx.output.write(formatJson(checks));
@@ -317,6 +325,7 @@ async function readEnvEntries(
 async function runDoctorChecks(
 	root: string,
 	options: DevToolConsoleOptions,
+	mode: { readonly deployment: boolean } = { deployment: false },
 ): Promise<readonly DoctorCheck[]> {
 	const checks: DoctorCheck[] = [];
 	const packageExists = await exists(resolve(root, "package.json"));
@@ -392,6 +401,10 @@ async function runDoctorChecks(
 		}
 	}
 
+	if (mode.deployment) {
+		checks.push(...(await runDeploymentChecks(root, options)));
+	}
+
 	return checks;
 }
 
@@ -453,6 +466,222 @@ async function runFeatureSupportChecks(
 			},
 		];
 	}
+}
+
+async function runDeploymentChecks(
+	root: string,
+	options: DevToolConsoleOptions,
+): Promise<readonly DoctorCheck[]> {
+	const checks: DoctorCheck[] = [];
+	const dockerfile = await readOptionalText(resolve(root, "Dockerfile"));
+	const dockerignore = await readOptionalText(resolve(root, ".dockerignore"));
+	const packageJson = await readDeploymentPackageJson(root);
+
+	checks.push({
+		name: "deploy:dockerfile",
+		status: dockerfile
+			? dockerfile.includes("preview") &&
+				dockerfile.includes("--no-build") &&
+				dockerfile.includes("0.0.0.0")
+				? "ok"
+				: "warn"
+			: "warn",
+		message: dockerfile
+			? dockerfile.includes("preview") &&
+				dockerfile.includes("--no-build") &&
+				dockerfile.includes("0.0.0.0")
+				? "Dockerfile runs the built app through production preview"
+				: "Dockerfile found; verify it runs the built app and binds to 0.0.0.0"
+			: "Dockerfile is missing for Docker-style deployments",
+	});
+	checks.push({
+		name: "deploy:dockerignore",
+		status: dockerignore
+			? dockerignore.includes(".env") &&
+				dockerignore.includes("node_modules") &&
+				dockerignore.includes("build")
+				? "ok"
+				: "warn"
+			: "warn",
+		message: dockerignore
+			? dockerignore.includes(".env") &&
+				dockerignore.includes("node_modules") &&
+				dockerignore.includes("build")
+				? ".dockerignore excludes secrets, dependencies, and local builds"
+				: ".dockerignore found; verify it excludes secrets, dependencies, and local builds"
+			: ".dockerignore is missing",
+	});
+
+	if (!packageJson) {
+		checks.push({
+			name: "deploy:package",
+			status: "error",
+			message: "package.json could not be inspected",
+		});
+		return checks;
+	}
+
+	const buildScript = packageJson.scripts.build;
+	const startScript = packageJson.scripts.start;
+	const previewScript = packageJson.scripts.preview;
+	const localDependencies = findLocalRuntimeDependencies(packageJson);
+
+	checks.push({
+		name: "deploy:build",
+		status: buildScript ? "ok" : "error",
+		message: buildScript
+			? `build script found: ${buildScript}`
+			: "build script is missing",
+	});
+	checks.push({
+		name: "deploy:start",
+		status: startScript
+			? startScript.includes("0.0.0.0")
+				? "ok"
+				: "warn"
+			: "error",
+		message: startScript
+			? startScript.includes("0.0.0.0")
+				? "start script binds to 0.0.0.0"
+				: "start script should bind to 0.0.0.0 on container hosts"
+			: "start script is missing",
+	});
+	checks.push({
+		name: "deploy:preview",
+		status: previewScript?.includes("preview") ? "ok" : "warn",
+		message: previewScript?.includes("preview")
+			? "preview script is available for local production checks"
+			: "preview script is missing",
+	});
+	checks.push({
+		name: "deploy:dependencies",
+		status: localDependencies.length === 0 ? "ok" : "error",
+		message:
+			localDependencies.length === 0
+				? "runtime dependencies are registry-compatible"
+				: `runtime dependencies use local paths: ${localDependencies.join(", ")}`,
+	});
+
+	checks.push(...(await runDeploymentFeatureChecks(root, options)));
+
+	return checks;
+}
+
+async function runDeploymentFeatureChecks(
+	root: string,
+	options: DevToolConsoleOptions,
+): Promise<readonly DoctorCheck[]> {
+	try {
+		const config = await resolveConfig(options, { root });
+		const choices = readFeatureSupportChoices(config.get("app.starter"));
+
+		if (!choices) {
+			return [];
+		}
+
+		const checks: DoctorCheck[] = [];
+
+		if (choices.database === "sqlite" || choices.queue === "sqlite") {
+			checks.push({
+				name: "deploy:volume",
+				status: "warn",
+				message:
+					"SQLite persistence uses /app/database; mount a volume for production containers",
+			});
+		}
+
+		if (choices.cache === "file") {
+			checks.push({
+				name: "deploy:volume",
+				status: "warn",
+				message:
+					"File cache uses /app/tmp; mount a volume or use a remote cache for multi-instance deployments",
+			});
+		}
+
+		if (choices.modules.includes("storage")) {
+			checks.push({
+				name: "deploy:volume",
+				status: "warn",
+				message:
+					"Local storage uses /app/storage; mount a volume or configure object storage",
+			});
+		}
+
+		return checks;
+	} catch (error) {
+		return [
+			{
+				name: "deploy:features",
+				status: "warn",
+				message: `deployment feature notes could not be inspected: ${errorMessage(error)}`,
+			},
+		];
+	}
+}
+
+async function readDeploymentPackageJson(
+	root: string,
+): Promise<DeploymentPackageJson | undefined> {
+	try {
+		const value = JSON.parse(
+			await readFile(resolve(root, "package.json"), "utf8"),
+		);
+
+		if (!isRecord(value)) {
+			return undefined;
+		}
+
+		return {
+			dependencies: readStringRecord(value.dependencies),
+			optionalDependencies: readStringRecord(value.optionalDependencies),
+			scripts: readStringRecord(value.scripts),
+		};
+	} catch {
+		return undefined;
+	}
+}
+
+async function readOptionalText(path: string): Promise<string | undefined> {
+	try {
+		return await readFile(path, "utf8");
+	} catch {
+		return undefined;
+	}
+}
+
+function readStringRecord(value: unknown): Readonly<Record<string, string>> {
+	if (!isRecord(value)) {
+		return {};
+	}
+
+	const entries = Object.entries(value).filter(
+		(entry): entry is [string, string] => typeof entry[1] === "string",
+	);
+
+	return Object.fromEntries(entries);
+}
+
+function findLocalRuntimeDependencies(
+	packageJson: DeploymentPackageJson,
+): readonly string[] {
+	const dependencies = {
+		...packageJson.dependencies,
+		...packageJson.optionalDependencies,
+	};
+
+	return Object.entries(dependencies)
+		.filter(([, version]) => isLocalDependency(version))
+		.map(([name]) => name)
+		.sort();
+}
+
+function isLocalDependency(version: string): boolean {
+	return (
+		version.startsWith("file:") ||
+		version.startsWith("link:") ||
+		version.startsWith("workspace:")
+	);
 }
 
 async function exists(path: string): Promise<boolean> {
