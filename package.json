@@ -1,6 +1,6 @@
 {
 	"name": "@akuseru_w/kura",
-	"version": "0.1.10",
+	"version": "0.1.11",
 	"description": "A Bun-native TypeScript web framework.",
 	"keywords": [
 		"bun",
