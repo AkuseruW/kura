@@ -65,6 +65,16 @@ export type DatabaseTransactionCallback<TResult> = (
 	transaction: DatabaseTransaction,
 ) => TResult | Promise<TResult>;
 
+export type DatabaseConnectionTransactionCallback<TResult> = (
+	connection: DatabaseConnection,
+) => TResult | Promise<TResult>;
+
+export interface TransactionalDatabaseConnection extends DatabaseConnection {
+	transaction<TResult>(
+		callback: DatabaseConnectionTransactionCallback<TResult>,
+	): Promise<TResult>;
+}
+
 export class DatabaseTransaction implements DatabaseClient {
 	constructor(
 		private readonly connection: DatabaseConnection,
@@ -178,6 +188,17 @@ export class DatabaseManager implements DatabaseClient {
 			resolvedConnectionName,
 		);
 
+		if (isTransactionalConnection(connection)) {
+			return connection.transaction((transactionConnection) =>
+				callback(
+					new DatabaseTransaction(
+						transactionConnection,
+						resolvedConnectionName,
+					),
+				),
+			);
+		}
+
 		await transaction.query("begin");
 
 		try {
@@ -236,6 +257,14 @@ export class DatabaseManager implements DatabaseClient {
 
 		return connectionName;
 	}
+}
+
+function isTransactionalConnection(
+	connection: DatabaseConnection,
+): connection is TransactionalDatabaseConnection {
+	const candidate = connection as Partial<TransactionalDatabaseConnection>;
+
+	return typeof candidate.transaction === "function";
 }
 
 export class MemoryDatabaseDriver implements DatabaseDriver {

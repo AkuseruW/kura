@@ -94,6 +94,14 @@ function databaseSupportRow(database: string): FeatureSupportRow | undefined {
 		};
 	}
 
+	if (database === "postgres") {
+		return {
+			name: "Database",
+			status: "runtime-ready",
+			message: "Postgres config, migrations, and Bun SQL driver are ready.",
+		};
+	}
+
 	return {
 		name: "Database",
 		status: "config-only",

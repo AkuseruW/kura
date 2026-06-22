@@ -310,6 +310,9 @@ describe("new app command", () => {
 		expect(consoleEntrypoint).toContain(
 			'database.extend("sqlite", new SQLiteDatabaseDriver())',
 		);
+		expect(consoleEntrypoint).toContain(
+			'database.extend("postgres", new PostgresDatabaseDriver())',
+		);
 		expect(consoleEntrypoint).toContain("registerDatabaseCommands(appConsole");
 		expect(consoleEntrypoint).toContain("CreateUsers");
 		expect(consoleEntrypoint).toContain("CreateAccessTokens");
@@ -520,7 +523,7 @@ describe("new app command", () => {
 		);
 		expect(databaseConfig).toContain("const databaseConfig = defineConfig");
 		expect(databaseConfig).toContain(
-			"Support level: runtime-ready for memory/sqlite",
+			"Support level: runtime-ready for memory/sqlite/postgres",
 		);
 		expect(databaseConfig).toContain('env.get("DB_CONNECTION", "sqlite")');
 		expect(databaseConfig).toContain("connections: {");
@@ -1085,7 +1088,7 @@ describe("new app command", () => {
 		expect(output.text()).toContain("Structure standard");
 		expect(output.text()).toContain("Modules  i18n, websockets");
 		expect(output.text()).toContain("Feature Status");
-		expect(output.text()).toMatch(/Database\s+config-only/);
+		expect(output.text()).toMatch(/Database\s+runtime-ready/);
 		expect(output.text()).toMatch(/Auth\s+starter/);
 		expect(output.text()).toMatch(/Cache\s+config-only/);
 		expect(output.text()).toMatch(/Queue\s+config-only/);
@@ -1363,7 +1366,7 @@ describe("new app command", () => {
 		);
 		expect(messages[3]).toContain("Database\n\n  1. None");
 		expect(messages[3]).toContain("Runtime-ready: local file database");
-		expect(messages[3]).toContain("Config-only: DATABASE_URL connection");
+		expect(messages[3]).toContain("Runtime-ready: DATABASE_URL connection");
 		expect(messages[8]).toContain("Create project");
 		expect(output.text()).toContain("fake install");
 		expect(output.text()).toContain("Scaffold");

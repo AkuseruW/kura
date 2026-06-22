@@ -86,6 +86,14 @@ export {
 	TableBuilder,
 } from "./packages/database/Migration";
 export {
+	PostgresDatabaseConnection,
+	type PostgresDatabaseConnectionConfig,
+	PostgresDatabaseDriver,
+	type PostgresSqlClient,
+	type PostgresSqlClientFactory,
+	type PostgresSqlOptions,
+} from "./packages/database/PostgresDatabase";
+export {
 	type CompiledQuery,
 	type PaginatedResult,
 	QueryBuilder,

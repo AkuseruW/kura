@@ -182,6 +182,7 @@ function makeConsoleDatabaseImports(choices: NewAppChoices): string {
 ${migrationImports}import {
 \tDatabaseManager,
 \tMemoryDatabaseDriver,
+\tPostgresDatabaseDriver,
 \tregisterDatabaseCommands,
 \tSQLiteDatabaseDriver,
 } from "kura/database";
@@ -198,6 +199,7 @@ function makeConsoleDatabaseRegistration(choices: NewAppChoices): string {
 	return `const database = new DatabaseManager(databaseConfig);
 database.extend("memory", new MemoryDatabaseDriver());
 database.extend("sqlite", new SQLiteDatabaseDriver());
+database.extend("postgres", new PostgresDatabaseDriver());
 
 registerDatabaseCommands(appConsole, {
 \tdatabase,
@@ -628,8 +630,8 @@ import env from "#start/env";
 /**
  * Database configuration.
  *
- * Support level: runtime-ready for memory/sqlite. Postgres and MySQL are
- * config-only until their drivers are registered.
+ * Support level: runtime-ready for memory/sqlite/postgres. MySQL is
+ * config-only until its driver is registered.
  */
 const databaseConfig = defineConfig({
 \tdefault: env.get("DB_CONNECTION", "${defaultConnection}"),

@@ -178,8 +178,8 @@ describe("dev tool console commands", () => {
 
 		expect(await console.run(["doctor"])).toBe(0);
 
-		expect(output.text()).toContain("feature:database");
-		expect(output.text()).toContain("config-only: Postgres config");
+		expect(output.text()).not.toContain("feature:database");
+		expect(output.text()).not.toContain("config-only: Postgres config");
 		expect(output.text()).toContain("feature:auth");
 		expect(output.text()).toContain("starter: Session auth routes");
 		expect(output.text()).toContain("feature:cache");
