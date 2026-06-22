@@ -187,16 +187,9 @@ function makeConsoleDatabaseImports(choices: NewAppChoices): string {
 		return "";
 	}
 
-	const migrationImports = makeMigrationImports(choices);
-
-	return `import databaseConfig from "#config/database";
-${migrationImports}import {
-\tDatabaseManager,
-\tMemoryDatabaseDriver,
-\tPostgresDatabaseDriver,
-\tregisterDatabaseCommands,
-\tSQLiteDatabaseDriver,
-} from "kura/database";
+	return `import { database } from "#database/connection";
+import { migrations } from "#database/migrations";
+import { registerDatabaseCommands } from "kura/database";
 `;
 }
 
@@ -205,18 +198,43 @@ function makeConsoleDatabaseRegistration(choices: NewAppChoices): string {
 		return "";
 	}
 
-	const migrationDefinitions = makeMigrationDefinitions(choices);
+	return `registerDatabaseCommands(appConsole, {
+\tdatabase,
+\tmigrations,
+});
 
-	return `const database = new DatabaseManager(databaseConfig);
+`;
+}
+
+export function makeDatabaseConnection(): string {
+	return `import databaseConfig from "#config/database";
+import {
+\tDatabaseManager,
+\tMemoryDatabaseDriver,
+\tPostgresDatabaseDriver,
+\tSQLiteDatabaseDriver,
+} from "kura/database";
+
+export const database = new DatabaseManager(databaseConfig);
 database.extend("memory", new MemoryDatabaseDriver());
 database.extend("sqlite", new SQLiteDatabaseDriver());
 database.extend("postgres", new PostgresDatabaseDriver());
 
-registerDatabaseCommands(appConsole, {
-\tdatabase,
-\tmigrations: [${migrationDefinitions.join(", ")}],
-});
+export default database;
+`;
+}
 
+export function makeDatabaseMigrations(choices: NewAppChoices): string {
+	const migrationImports = makeMigrationImports(choices);
+	const migrationDefinitions = makeMigrationDefinitions(choices);
+	const migrations =
+		migrationDefinitions.length > 0
+			? `\n\t${migrationDefinitions.join(",\n\t")},\n`
+			: "";
+
+	return `${migrationImports}import type { MigrationDefinition } from "kura/database";
+
+export const migrations = [${migrations}] satisfies readonly MigrationDefinition[];
 `;
 }
 

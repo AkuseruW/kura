@@ -380,6 +380,143 @@ describe("production build", () => {
 			await expect(
 				access(join(appRoot, "demo/app/controllers/home_controller.ts")),
 			).resolves.toBeNull();
+
+			const newSqliteApp = Bun.spawnSync({
+				cmd: [
+					process.execPath,
+					"dist/bin/kura.js",
+					"new",
+					"sqlite-demo",
+					"--yes",
+					"--preset",
+					"api",
+					"--database",
+					"sqlite",
+					"--auth",
+					"access-token",
+					"--root",
+					appRoot,
+				],
+				cwd: root,
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(newSqliteApp.exitCode).toBe(0);
+
+			const sqliteInstall = Bun.spawnSync({
+				cmd: [process.execPath, "install"],
+				cwd: join(appRoot, "sqlite-demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(sqliteInstall.exitCode).toBe(0);
+
+			const sqliteMigrate = Bun.spawnSync({
+				cmd: [process.execPath, "kura", "migration:run"],
+				cwd: join(appRoot, "sqlite-demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(sqliteMigrate.exitCode).toBe(0);
+			expect(sqliteMigrate.stdout.toString()).toContain(
+				"Migrated 2 migrations",
+			);
+			await expect(
+				access(join(appRoot, "sqlite-demo/database/database.sqlite")),
+			).resolves.toBeNull();
+
+			const sqliteTypecheck = Bun.spawnSync({
+				cmd: [process.execPath, "run", "typecheck"],
+				cwd: join(appRoot, "sqlite-demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(sqliteTypecheck.exitCode).toBe(0);
+
+			const sqliteBuild = Bun.spawnSync({
+				cmd: [process.execPath, "run", "build"],
+				cwd: join(appRoot, "sqlite-demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(sqliteBuild.exitCode).toBe(0);
+
+			const sqliteDeployDoctor = Bun.spawnSync({
+				cmd: [process.execPath, "kura", "deploy:doctor"],
+				cwd: join(appRoot, "sqlite-demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(sqliteDeployDoctor.exitCode).toBe(1);
+			expect(sqliteDeployDoctor.stdout.toString()).toContain(
+				"runtime dependencies use local paths: kura",
+			);
+			expect(sqliteDeployDoctor.stdout.toString()).toContain(
+				"SQLite persistence uses /app/database",
+			);
+
+			const sqlitePort = reservePort();
+			await writeFile(
+				join(appRoot, "sqlite-demo/.env"),
+				[
+					"APP_NAME=Kura API",
+					"TZ=UTC",
+					`PORT=${sqlitePort}`,
+					"HOST=localhost",
+					"NODE_ENV=production",
+					"LOG_LEVEL=silent",
+					"APP_KEY=local-development-key",
+					`APP_URL=http://localhost:${sqlitePort}`,
+					"HASH_DRIVER=bcrypt",
+					"AUTH_GUARD=api",
+					"DB_CONNECTION=sqlite",
+					"",
+				].join("\n"),
+			);
+
+			const sqlitePreview = Bun.spawn({
+				cmd: [process.execPath, "kura", "preview", "--no-build"],
+				cwd: join(appRoot, "sqlite-demo"),
+				env: childEnv({ NODE_ENV: "production" }),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			try {
+				await waitForHttp(`http://localhost:${sqlitePort}/health`);
+
+				const health = await fetch(`http://localhost:${sqlitePort}/health`);
+				expect(health.status).toBe(200);
+				expect(await health.json()).toEqual({ status: "up" });
+
+				const register = await fetch(
+					`http://localhost:${sqlitePort}/auth/register`,
+					{
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({
+							email: "ada@example.com",
+							password: "secret",
+						}),
+					},
+				);
+				expect(register.status).toBe(201);
+				const payload = (await register.json()) as {
+					readonly tokenType?: string;
+					readonly user?: { readonly email?: string };
+				};
+				expect(payload.tokenType).toBe("Bearer");
+				expect(payload.user?.email).toBe("ada@example.com");
+			} finally {
+				sqlitePreview.kill();
+				await sqlitePreview.exited.catch(() => undefined);
+			}
 		} finally {
 			await rm(join(root, "dist"), { force: true, recursive: true });
 			await rm(join(root, "packages/create-kura-app/dist"), {
@@ -388,7 +525,7 @@ describe("production build", () => {
 			});
 			await rm(appRoot, { force: true, recursive: true });
 		}
-	}, 25000);
+	}, 45000);
 });
 
 async function expectFile(path: string): Promise<void> {

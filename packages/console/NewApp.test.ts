@@ -312,20 +312,41 @@ describe("new app command", () => {
 		expect(consoleEntrypoint).toContain("registerPreviewCommand");
 		expect(consoleEntrypoint).toContain('entry: "build/server.js"');
 		expect(consoleEntrypoint).toContain('from "kura/database"');
-		expect(consoleEntrypoint).toContain("new DatabaseManager(databaseConfig)");
 		expect(consoleEntrypoint).toContain(
-			'database.extend("memory", new MemoryDatabaseDriver())',
+			'import { database } from "#database/connection"',
 		);
 		expect(consoleEntrypoint).toContain(
-			'database.extend("sqlite", new SQLiteDatabaseDriver())',
-		);
-		expect(consoleEntrypoint).toContain(
-			'database.extend("postgres", new PostgresDatabaseDriver())',
+			'import { migrations } from "#database/migrations"',
 		);
 		expect(consoleEntrypoint).toContain("registerDatabaseCommands(appConsole");
-		expect(consoleEntrypoint).toContain("CreateUsers");
-		expect(consoleEntrypoint).toContain("CreateAccessTokens");
+		expect(consoleEntrypoint).not.toContain("new DatabaseManager");
+		expect(consoleEntrypoint).not.toContain("CreateUsers");
+		expect(consoleEntrypoint).not.toContain("CreateAccessTokens");
 		expect(consoleEntrypoint).not.toContain("CreateSessions");
+		const databaseConnection = await readGenerated(
+			root,
+			"demo-api/database/connection.ts",
+		);
+		expect(databaseConnection).toContain("new DatabaseManager(databaseConfig)");
+		expect(databaseConnection).toContain(
+			'database.extend("memory", new MemoryDatabaseDriver())',
+		);
+		expect(databaseConnection).toContain(
+			'database.extend("sqlite", new SQLiteDatabaseDriver())',
+		);
+		expect(databaseConnection).toContain(
+			'database.extend("postgres", new PostgresDatabaseDriver())',
+		);
+		const databaseMigrations = await readGenerated(
+			root,
+			"demo-api/database/migrations.ts",
+		);
+		expect(databaseMigrations).toContain("CreateUsers");
+		expect(databaseMigrations).toContain("CreateAccessTokens");
+		expect(databaseMigrations).not.toContain("CreateSessions");
+		expect(databaseMigrations).toContain(
+			"satisfies readonly MigrationDefinition[]",
+		);
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
 			'import env from "#start/env"',
 		);

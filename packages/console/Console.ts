@@ -1,4 +1,5 @@
 import { BaseException } from "../core/BaseException";
+import { formatMissingCommandHelp } from "./CommandSuggestions";
 
 export type ConsoleOptionValue = string | boolean | string[];
 export type ConsoleOptions = Record<string, ConsoleOptionValue>;
@@ -150,6 +151,17 @@ export class ConsoleException extends BaseException {
 			404,
 		);
 	}
+
+	static missingArgument(
+		commandName: string,
+		argumentName: string,
+	): ConsoleException {
+		return new ConsoleException(
+			`Command [${commandName}] requires <${argumentName}>.`,
+			"CONSOLE_MISSING_ARGUMENT",
+			422,
+		);
+	}
 }
 
 export interface ConsoleRunOptions {
@@ -220,7 +232,11 @@ export class ConsoleKernel {
 
 		if (!command) {
 			return this.fail(
-				ConsoleException.missingCommand(commandName),
+				new ConsoleException(
+					formatMissingCommandHelp(commandName, this.list()),
+					"CONSOLE_COMMAND_NOT_FOUND",
+					404,
+				),
 				output,
 				options,
 			);
@@ -231,6 +247,20 @@ export class ConsoleKernel {
 		if (parsed.options.help === true || parsed.options.h === true) {
 			output.write(this.commandHelp(command));
 			return 0;
+		}
+
+		const missingArgument = findMissingRequiredArgument(command, parsed.args);
+
+		if (missingArgument) {
+			return this.fail(
+				new ConsoleException(
+					this.missingArgumentHelp(command, missingArgument),
+					"CONSOLE_MISSING_ARGUMENT",
+					422,
+				),
+				output,
+				options,
+			);
 		}
 
 		try {
@@ -261,7 +291,7 @@ export class ConsoleKernel {
 				return this.commandHelp(command);
 			}
 
-			return `Command [${commandName}] was not found`;
+			return formatMissingCommandHelp(commandName, this.list());
 		}
 
 		const lines = [
@@ -322,6 +352,24 @@ export class ConsoleKernel {
 					`  ${pad(formatOption(option), 18)} ${option.description ?? ""}`.trimEnd(),
 				);
 			}
+		}
+
+		return lines.join("\n");
+	}
+
+	private missingArgumentHelp(
+		command: Command,
+		argument: CommandArgumentDefinition,
+	): string {
+		const lines = [
+			ConsoleException.missingArgument(command.name, argument.name).message,
+			"",
+			this.commandHelp(command),
+		];
+		const example = makeCommandExample(command, argument);
+
+		if (example) {
+			lines.push("", "Example:", `  ${example}`);
 		}
 
 		return lines.join("\n");
@@ -414,6 +462,46 @@ function readHelpTarget(argv: readonly string[]): string | undefined {
 	return argv
 		.slice(1)
 		.find((token) => token !== "--" && !token.startsWith("-"));
+}
+
+function findMissingRequiredArgument(
+	command: Command,
+	args: readonly string[],
+): CommandArgumentDefinition | undefined {
+	let argumentIndex = 0;
+
+	for (const definition of command.argumentDefinitions) {
+		if (definition.variadic) {
+			return definition.required && args.length <= argumentIndex
+				? definition
+				: undefined;
+		}
+
+		if (definition.required && args[argumentIndex] === undefined) {
+			return definition;
+		}
+
+		if (args[argumentIndex] !== undefined) {
+			argumentIndex += 1;
+		}
+	}
+
+	return undefined;
+}
+
+function makeCommandExample(
+	command: Command,
+	missingArgument: CommandArgumentDefinition,
+): string | undefined {
+	if (missingArgument.name !== "name") {
+		return undefined;
+	}
+
+	const args = command.argumentDefinitions.map((argument) =>
+		argument.name === missingArgument.name ? "User" : formatArgument(argument),
+	);
+
+	return `kura ${command.name} ${args.join(" ")}`;
 }
 
 function parseLongOption(
