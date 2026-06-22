@@ -380,6 +380,7 @@ describe("new app command", () => {
 		expect(kernel).toContain("export const middleware = {");
 		expect(kernel).toContain('from "kura/http"');
 		expect(kernel).toContain("BodyLimit({ maxBytes: 1_048_576 })");
+		expect(kernel).toContain("BodyParser");
 		expect(kernel).toContain("RequestTimeout({ ms: 30_000 })");
 		const startRoutes = await readGenerated(root, "demo-api/start/routes.ts");
 		expect(startRoutes).toContain('import { Router } from "kura/http"');
@@ -492,12 +493,30 @@ describe("new app command", () => {
 		).toContain("AccessTokenManager");
 		expect(
 			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
+		).toContain("DatabaseAccessTokenStore");
+		expect(
+			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
+		).toContain('tokenPrefix: "oat_"');
+		expect(
+			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
+		).not.toContain("MemoryAccessTokenStore");
+		expect(
+			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
+		).not.toContain("new Map");
+		expect(
+			await readGenerated(root, "demo-api/app/services/auth_service.ts"),
 		).toContain("async register(");
 		expect(await readGenerated(root, "demo-api/app/models/user.ts")).toContain(
 			'from "kura/database"',
 		);
 		expect(await readGenerated(root, "demo-api/app/models/user.ts")).toContain(
+			'import database from "#database/connection"',
+		);
+		expect(await readGenerated(root, "demo-api/app/models/user.ts")).toContain(
 			"export class User extends BaseModel<UserAttributes>",
+		);
+		expect(await readGenerated(root, "demo-api/app/models/user.ts")).toContain(
+			"User.useDatabase(database)",
 		);
 		expect(
 			await readGenerated(
@@ -985,6 +1004,24 @@ describe("new app command", () => {
 		expect(
 			await readGenerated(
 				root,
+				"demo-domain/app/domains/auth/infrastructure/persistence/user_record.ts",
+			),
+		).toContain("UserRecord.useDatabase(database)");
+		expect(
+			await readGenerated(
+				root,
+				"demo-domain/app/domains/auth/infrastructure/persistence/sql_user_repository.ts",
+			),
+		).toContain("async find(id: number): Promise<User | null>");
+		expect(
+			await readGenerated(
+				root,
+				"demo-domain/app/domains/auth/infrastructure/persistence/sql_user_repository.ts",
+			),
+		).toContain("async save(user: User): Promise<User>");
+		expect(
+			await readGenerated(
+				root,
 				"demo-domain/app/domains/auth/application/register_user.ts",
 			),
 		).toContain("constructor(private readonly users: UserRepository)");
@@ -1066,7 +1103,7 @@ describe("new app command", () => {
 		) as { dependencies: { kura: string } };
 		expect(packageJson.dependencies.kura).not.toBe("latest");
 		expect(
-			packageJson.dependencies.kura === "npm:@akuseru_w/kura@^0.1.10" ||
+			packageJson.dependencies.kura === "npm:@akuseru_w/kura@0.1.10" ||
 				(packageJson.dependencies.kura.startsWith("file:") &&
 					packageJson.dependencies.kura.endsWith("dist")),
 		).toBe(true);
@@ -1219,6 +1256,12 @@ describe("new app command", () => {
 		expect(
 			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
 		).toContain('from "kura/hash"');
+		expect(
+			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
+		).toContain('database.table<SessionRow>("sessions")');
+		expect(
+			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
+		).not.toContain("new Map");
 		expect(
 			await readGenerated(
 				root,

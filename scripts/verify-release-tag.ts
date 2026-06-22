@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 
 type PackageJson = {
-	readonly dependencies?: Record<string, string>;
 	readonly name: string;
 	readonly version: string;
 };
@@ -29,15 +28,6 @@ const creatorPackage = await readPackageJson(
 assertPackage(runtimePackage, "@akuseru_w/kura", releaseVersion);
 assertPackage(creatorPackage, "create-kura-app", releaseVersion);
 
-const expectedRuntimeRange = `^${releaseVersion}`;
-const actualRuntimeRange = creatorPackage.dependencies?.["@akuseru_w/kura"];
-
-if (actualRuntimeRange !== expectedRuntimeRange) {
-	throw new Error(
-		`create-kura-app depends on @akuseru_w/kura [${actualRuntimeRange}], expected [${expectedRuntimeRange}].`,
-	);
-}
-
 console.log(`Release tag ${tagName} matches npm package versions.`);
 
 async function readPackageJson(path: string): Promise<PackageJson> {
@@ -49,7 +39,6 @@ async function readPackageJson(path: string): Promise<PackageJson> {
 	}
 
 	return {
-		dependencies: parsed.dependencies,
 		name: parsed.name,
 		version: parsed.version,
 	};

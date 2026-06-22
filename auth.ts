@@ -20,6 +20,10 @@ export {
 	GuardAuthenticator,
 } from "./packages/auth/AuthManager";
 export {
+	DatabaseAccessTokenStore,
+	type DatabaseAccessTokenStoreOptions,
+} from "./packages/auth/DatabaseAccessTokenStore";
+export {
 	type AuthContext,
 	type Guard,
 	type GuardInput,

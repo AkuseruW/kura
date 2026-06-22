@@ -438,7 +438,7 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 	}
 
 	if (choices.auth === "session") {
-		lines.push("SESSION_DRIVER=cookie");
+		lines.push("SESSION_DRIVER=database");
 	}
 
 	if (choices.cache !== "memory") {
@@ -450,9 +450,7 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 	}
 
 	if (usesDatabaseFiles(choices)) {
-		lines.push(
-			`DB_CONNECTION=${choices.database === "none" ? "memory" : choices.database}`,
-		);
+		lines.push(`DB_CONNECTION=${defaultDatabaseConnection(choices)}`);
 		if (choices.database === "postgres" || choices.database === "mysql") {
 			lines.push("DATABASE_URL=");
 		}
@@ -507,7 +505,7 @@ function makeEnvSchemaEntries(choices: NewAppChoices): string {
 		entries.push(
 			[
 				"SESSION_DRIVER",
-				'envVar.enum(["cookie", "memory", "database"]).default("cookie")',
+				'envVar.enum(["cookie", "memory", "database"]).default("database")',
 			],
 			["SESSION_COOKIE_NAME", 'envVar.string().default("kura-session")'],
 		);
@@ -535,7 +533,7 @@ function makeEnvSchemaEntries(choices: NewAppChoices): string {
 		entries.push([
 			"DB_CONNECTION",
 			`envVar.enum(["memory", "sqlite", "postgres", "mysql"]).default(${JSON.stringify(
-				choices.database === "none" ? "memory" : choices.database,
+				defaultDatabaseConnection(choices),
 			)})`,
 		]);
 	}
@@ -767,11 +765,16 @@ export default cacheConfig;
 }
 
 export function makeDatabaseConfig(choices: NewAppChoices): string {
-	const defaultConnection =
-		choices.database === "none" ? "memory" : choices.database;
+	const defaultConnection = defaultDatabaseConnection(choices);
 
-	return `import { defineConfig } from "kura/config";
+	return `import { basename, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "kura/config";
 import env from "#start/env";
+
+const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const appRoot =
+\tbasename(runtimeRoot) === "build" ? resolve(runtimeRoot, "..") : runtimeRoot;
 
 /**
  * Database configuration.
@@ -791,10 +794,10 @@ const databaseConfig = defineConfig({
 
 \t\tsqlite: {
 \t\t\tdriver: "sqlite",
-\t\t\tfilename: "database/database.sqlite",
+\t\t\tfilename: resolve(appRoot, "database/database.sqlite"),
 \t\t\tmigrations: {
 \t\t\t\tnaturalSort: true,
-\t\t\t\tpaths: ["database/migrations"],
+\t\t\t\tpaths: [resolve(appRoot, "database/migrations")],
 \t\t\t},
 \t\t\tdebug: env.get<string>("NODE_ENV", "development") === "development",
 \t\t},
@@ -804,7 +807,7 @@ const databaseConfig = defineConfig({
 \t\t\turl: env.get("DATABASE_URL", ""),
 \t\t\tmigrations: {
 \t\t\t\tnaturalSort: true,
-\t\t\t\tpaths: ["database/migrations"],
+\t\t\t\tpaths: [resolve(appRoot, "database/migrations")],
 \t\t\t},
 \t\t\tdebug: env.get<string>("NODE_ENV", "development") === "development",
 \t\t},
@@ -814,7 +817,7 @@ const databaseConfig = defineConfig({
 \t\t\turl: env.get("DATABASE_URL", ""),
 \t\t\tmigrations: {
 \t\t\t\tnaturalSort: true,
-\t\t\t\tpaths: ["database/migrations"],
+\t\t\t\tpaths: [resolve(appRoot, "database/migrations")],
 \t\t\t},
 \t\t\tdebug: env.get<string>("NODE_ENV", "development") === "development",
 \t\t},
@@ -823,6 +826,14 @@ const databaseConfig = defineConfig({
 
 export default databaseConfig;
 `;
+}
+
+function defaultDatabaseConnection(choices: NewAppChoices): string {
+	if (choices.database !== "none") {
+		return choices.database;
+	}
+
+	return choices.auth === "none" ? "memory" : "sqlite";
 }
 
 export function makeEncryptionConfig(): string {
@@ -919,8 +930,14 @@ export default loggerConfig;
 }
 
 export function makeQueueConfig(choices: NewAppChoices): string {
-	return `import { defineConfig } from "kura/config";
+	return `import { basename, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "kura/config";
 import env from "#start/env";
+
+const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const appRoot =
+\tbasename(runtimeRoot) === "build" ? resolve(runtimeRoot, "..") : runtimeRoot;
 
 /**
  * Queue configuration.
@@ -943,7 +960,7 @@ const queueConfig = defineConfig({
 
 \t\tsqlite: {
 \t\t\tdriver: "sqlite",
-\t\t\tfilename: "database/queue.sqlite",
+\t\t\tfilename: resolve(appRoot, "database/queue.sqlite"),
 \t\t\ttable: "jobs",
 \t\t\tqueue: "default",
 \t\t},

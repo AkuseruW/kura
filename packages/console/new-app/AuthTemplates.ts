@@ -108,19 +108,28 @@ function normalizeCredentials(input: LoginInput | undefined): LoginInput | null 
 
 export function makeAuthService(choices: NewAppChoices): string {
 	return choices.auth === "session"
-		? makeSessionAuthService()
-		: makeAccessTokenAuthService();
+		? makeSessionAuthService(choices)
+		: makeAccessTokenAuthService(choices);
 }
 
-function makeAccessTokenAuthService(): string {
-	return `import {
-	AccessTokenManager,
-	MemoryAccessTokenStore,
-} from "kura/auth";
+function makeAccessTokenAuthService(choices: NewAppChoices): string {
+	if (choices.architecture === "domain") {
+		return makeDomainAccessTokenAuthService();
+	}
+
+	return makeModelAccessTokenAuthService(choices);
+}
+
+function makeModelAccessTokenAuthService(choices: NewAppChoices): string {
+	const userImport = moduleImport(choices, "auth", "user", "#models/user");
+
+	return `import { database } from "#database/connection";
+import { AccessTokenManager, DatabaseAccessTokenStore } from "kura/auth";
 import { Hash } from "kura/hash";
 import type { Context } from "kura/http";
+import { User } from "${userImport}";
 
-type DemoUser = {
+type AuthUser = {
 	readonly id: number;
 	readonly email: string;
 	readonly passwordHash: string;
@@ -136,25 +145,19 @@ type AuthServiceResult = {
 	readonly headers?: Record<string, string>;
 };
 
-const DEMO_EMAIL = "demo@example.com";
-const DEMO_PASSWORD = "password";
 const TOKEN_TTL_SECONDS = 60 * 60 * 2;
-const tokenStore = new MemoryAccessTokenStore<number>();
 
 class AuthService {
-	private readonly users = new Map<number, DemoUser>();
-	private nextUserId = 1;
-	private readonly tokens = new AccessTokenManager<DemoUser>({
-		store: tokenStore,
+	private readonly tokens = new AccessTokenManager<AuthUser>({
+		store: new DatabaseAccessTokenStore<number>(database),
 		resolveUser: async (id) => this.findUserById(Number(id)),
+		tokenPrefix: "oat_",
 	});
 
 	async register(
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
-		await this.ensureDemoUser();
-
 		if (await this.findUserByEmail(email)) {
 			return null;
 		}
@@ -218,7 +221,7 @@ class AuthService {
 		return { body: { ok: true } };
 	}
 
-	private async createLoginResult(user: DemoUser): Promise<AuthServiceResult> {
+	private async createLoginResult(user: AuthUser): Promise<AuthServiceResult> {
 		const token = await this.tokens.create(user, {
 			type: "api",
 			name: "login",
@@ -235,39 +238,34 @@ class AuthService {
 		};
 	}
 
-	private async findUserById(id: number): Promise<DemoUser | null> {
-		await this.ensureDemoUser();
+	private async findUserById(id: number): Promise<AuthUser | null> {
+		const user = await User.find(id);
 
-		return this.users.get(id) ?? null;
+		return user ? toAuthUser(user) : null;
 	}
 
-	private async findUserByEmail(email: string): Promise<DemoUser | null> {
-		await this.ensureDemoUser();
+	private async findUserByEmail(email: string): Promise<AuthUser | null> {
+		const user = await User.query().where("email", email).first();
 
-		return (
-			[...this.users.values()].find((user) => user.email === email) ?? null
-		);
+		return user ? toAuthUser(user) : null;
 	}
 
-	private async ensureDemoUser(): Promise<void> {
-		if (this.users.size > 0) {
-			return;
+	private async createUser(email: string, password: string): Promise<AuthUser> {
+		const user = await User.create({
+			email,
+			password: await Hash.make(password),
+		});
+
+		if (user.id !== undefined) {
+			return toAuthUser(user);
 		}
 
-		await this.createUser(DEMO_EMAIL, DEMO_PASSWORD);
-	}
+		const persisted = await this.findUserByEmail(email);
+		if (!persisted) {
+			throw new Error("Created user record was not found");
+		}
 
-	private async createUser(email: string, password: string): Promise<DemoUser> {
-		const user = {
-			id: this.nextUserId,
-			email,
-			passwordHash: await Hash.make(password),
-		};
-
-		this.nextUserId += 1;
-		this.users.set(user.id, user);
-
-		return user;
+		return persisted;
 	}
 }
 
@@ -279,20 +277,212 @@ function bearerToken(request: Request): string | null {
 	);
 }
 
-function publicUser(user: DemoUser): PublicUser {
+function publicUser(user: AuthUser): PublicUser {
 	return {
 		id: user.id,
 		email: user.email,
 	};
 }
+
+function toAuthUser(user: User): AuthUser {
+	if (user.id === undefined) {
+		throw new Error("Authenticated user record is missing an id");
+	}
+
+	return {
+		id: user.id,
+		email: user.email,
+		passwordHash: user.password,
+	};
+}
 `;
 }
 
-function makeSessionAuthService(): string {
-	return `import { Hash } from "kura/hash";
+function makeDomainAccessTokenAuthService(): string {
+	return `import { database } from "#database/connection";
+import { AccessTokenManager, DatabaseAccessTokenStore } from "kura/auth";
+import { Hash } from "kura/hash";
 import type { Context } from "kura/http";
+import type { User } from "../domain/user";
+import { RegisterUser } from "./register_user";
+import { SqlUserRepository } from "../infrastructure/persistence/sql_user_repository";
 
-type DemoUser = {
+type AuthUser = {
+	readonly id: number;
+	readonly email: string;
+	readonly passwordHash: string;
+};
+
+type PublicUser = {
+	readonly id: number;
+	readonly email: string;
+};
+
+type AuthServiceResult = {
+	readonly body: Record<string, unknown>;
+	readonly headers?: Record<string, string>;
+};
+
+const TOKEN_TTL_SECONDS = 60 * 60 * 2;
+const users = new SqlUserRepository();
+const registerUser = new RegisterUser(users);
+
+class AuthService {
+	private readonly tokens = new AccessTokenManager<AuthUser>({
+		store: new DatabaseAccessTokenStore<number>(database),
+		resolveUser: async (id) => this.findUserById(Number(id)),
+		tokenPrefix: "oat_",
+	});
+
+	async register(
+		email: string,
+		password: string,
+	): Promise<AuthServiceResult | null> {
+		if (await users.findByEmail(email)) {
+			return null;
+		}
+
+		const user = await registerUser.handle({
+			email,
+			passwordHash: await Hash.make(password),
+		});
+
+		return this.createLoginResult(toAuthUser(user));
+	}
+
+	async login(
+		email: string,
+		password: string,
+	): Promise<AuthServiceResult | null> {
+		const user = await this.findUserByEmail(email);
+
+		if (!user) {
+			return null;
+		}
+
+		const validCredentials =
+			email === user.email && (await Hash.verify(user.passwordHash, password));
+
+		if (!validCredentials) {
+			return null;
+		}
+
+		return this.createLoginResult(user);
+	}
+
+	async authenticate(ctx: Context): Promise<PublicUser | null> {
+		const token = bearerToken(ctx.request);
+		const auth = await this.tokens.authenticate(token);
+
+		if (!auth) {
+			return null;
+		}
+
+		const user = publicUser(auth.user);
+		ctx.auth = {
+			guard: "api",
+			user,
+			token: auth.token,
+			claims: {
+				abilities: [...auth.record.abilities],
+				tokenIdentifier: auth.record.identifier,
+			},
+		};
+
+		return user;
+	}
+
+	async logout(ctx: Context): Promise<AuthServiceResult | null> {
+		const token = bearerToken(ctx.request);
+
+		if (!token || !(await this.tokens.authenticate(token))) {
+			return null;
+		}
+
+		await this.tokens.revoke(token);
+
+		return { body: { ok: true } };
+	}
+
+	private async createLoginResult(user: AuthUser): Promise<AuthServiceResult> {
+		const token = await this.tokens.create(user, {
+			type: "api",
+			name: "login",
+			expiresIn: TOKEN_TTL_SECONDS,
+		});
+
+		return {
+			body: {
+				token: token.value,
+				tokenType: "Bearer",
+				expiresIn: TOKEN_TTL_SECONDS,
+				user: publicUser(user),
+			},
+		};
+	}
+
+	private async findUserById(id: number): Promise<AuthUser | null> {
+		const user = await users.find(id);
+
+		return user ? toAuthUser(user) : null;
+	}
+
+	private async findUserByEmail(email: string): Promise<AuthUser | null> {
+		const user = await users.findByEmail(email);
+
+		return user ? toAuthUser(user) : null;
+	}
+}
+
+export const authService = new AuthService();
+
+function bearerToken(request: Request): string | null {
+	return (
+		request.headers.get("authorization")?.match(/^Bearer\\s+(.+)$/i)?.[1] ?? null
+	);
+}
+
+function publicUser(user: AuthUser): PublicUser {
+	return {
+		id: user.id,
+		email: user.email,
+	};
+}
+
+function toAuthUser(user: User): AuthUser {
+	const id = user.id;
+
+	if (id === undefined) {
+		throw new Error("Authenticated user record is missing an id");
+	}
+
+	return {
+		id,
+		email: user.email,
+		passwordHash: user.passwordHash,
+	};
+}
+`;
+}
+
+function makeSessionAuthService(choices: NewAppChoices): string {
+	if (choices.architecture === "domain") {
+		return makeDomainSessionAuthService();
+	}
+
+	return makeModelSessionAuthService(choices);
+}
+
+function makeModelSessionAuthService(choices: NewAppChoices): string {
+	const userImport = moduleImport(choices, "auth", "user", "#models/user");
+
+	return `import { database } from "#database/connection";
+import type { QueryRow } from "kura/database";
+import { Hash } from "kura/hash";
+import type { Context } from "kura/http";
+import { User } from "${userImport}";
+
+type AuthUser = {
 	readonly id: number;
 	readonly email: string;
 	readonly passwordHash: string;
@@ -314,22 +504,23 @@ type AuthServiceResult = {
 	readonly headers?: Record<string, string>;
 };
 
-const DEMO_EMAIL = "demo@example.com";
-const DEMO_PASSWORD = "password";
 const SESSION_COOKIE_NAME = "kura-session";
 const SESSION_TTL_SECONDS = 60 * 60 * 2;
 
-class AuthService {
-	private readonly users = new Map<number, DemoUser>();
-	private nextUserId = 1;
-	private readonly sessions = new Map<string, SessionRecord>();
+type SessionRow = QueryRow & {
+	readonly id: string;
+	readonly user_id: number | null;
+	readonly payload: string;
+	readonly expires_at: Date | string;
+	readonly created_at?: Date | string;
+	readonly updated_at?: Date | string;
+};
 
+class AuthService {
 	async register(
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
-		await this.ensureDemoUser();
-
 		if (await this.findUserByEmail(email)) {
 			return null;
 		}
@@ -361,9 +552,12 @@ class AuthService {
 
 	async authenticate(ctx: Context): Promise<PublicUser | null> {
 		const sessionId = readSessionCookie(ctx.request);
-		const session = sessionId ? this.sessions.get(sessionId) : null;
+		const session = sessionId ? await this.findSession(sessionId) : null;
 
 		if (!session || session.expiresAt.getTime() <= Date.now()) {
+			if (sessionId) {
+				await this.deleteSession(sessionId);
+			}
 			return null;
 		}
 
@@ -387,9 +581,11 @@ class AuthService {
 	async logout(ctx: Context): Promise<AuthServiceResult | null> {
 		const sessionId = readSessionCookie(ctx.request);
 
-		if (!sessionId || !this.sessions.delete(sessionId)) {
+		if (!sessionId || !(await this.findSession(sessionId))) {
 			return null;
 		}
+
+		await this.deleteSession(sessionId);
 
 		return {
 			body: { ok: true },
@@ -399,8 +595,8 @@ class AuthService {
 		};
 	}
 
-	private createLoginResult(user: DemoUser): AuthServiceResult {
-		const session = this.createSession(user.id);
+	private async createLoginResult(user: AuthUser): Promise<AuthServiceResult> {
+		const session = await this.createSession(user.id);
 
 		return {
 			body: {
@@ -415,57 +611,315 @@ class AuthService {
 		};
 	}
 
-	private async findUserById(id: number): Promise<DemoUser | null> {
-		await this.ensureDemoUser();
+	private async findUserById(id: number): Promise<AuthUser | null> {
+		const user = await User.find(id);
 
-		return this.users.get(id) ?? null;
+		return user ? toAuthUser(user) : null;
 	}
 
-	private async findUserByEmail(email: string): Promise<DemoUser | null> {
-		await this.ensureDemoUser();
+	private async findUserByEmail(email: string): Promise<AuthUser | null> {
+		const user = await User.query().where("email", email).first();
 
-		return (
-			[...this.users.values()].find((user) => user.email === email) ?? null
-		);
+		return user ? toAuthUser(user) : null;
 	}
 
-	private async ensureDemoUser(): Promise<void> {
-		if (this.users.size > 0) {
-			return;
+	private async createUser(email: string, password: string): Promise<AuthUser> {
+		const user = await User.create({
+			email,
+			password: await Hash.make(password),
+		});
+
+		if (user.id !== undefined) {
+			return toAuthUser(user);
 		}
 
-		await this.createUser(DEMO_EMAIL, DEMO_PASSWORD);
+		const persisted = await this.findUserByEmail(email);
+		if (!persisted) {
+			throw new Error("Created user record was not found");
+		}
+
+		return persisted;
 	}
 
-	private async createUser(email: string, password: string): Promise<DemoUser> {
-		const user = {
-			id: this.nextUserId,
-			email,
-			passwordHash: await Hash.make(password),
-		};
-
-		this.nextUserId += 1;
-		this.users.set(user.id, user);
-
-		return user;
-	}
-
-	private createSession(userId: number): SessionRecord {
+	private async createSession(userId: number): Promise<SessionRecord> {
 		const session: SessionRecord = {
 			id: crypto.randomUUID(),
 			userId,
 			expiresAt: new Date(Date.now() + SESSION_TTL_SECONDS * 1000),
 		};
+		const now = new Date();
 
-		this.sessions.set(session.id, session);
+		await database.table<SessionRow>("sessions").insert({
+			id: session.id,
+			user_id: session.userId,
+			payload: "{}",
+			expires_at: session.expiresAt,
+			created_at: now,
+			updated_at: now,
+		});
 
 		return session;
+	}
+
+	private async findSession(sessionId: string): Promise<SessionRecord | null> {
+		const row = await database
+			.table<SessionRow>("sessions")
+			.where("id", sessionId)
+			.first();
+
+		if (!row || row.user_id === null) {
+			return null;
+		}
+
+		return {
+			id: row.id,
+			userId: row.user_id,
+			expiresAt: readDate(row.expires_at),
+		};
+	}
+
+	private async deleteSession(sessionId: string): Promise<void> {
+		await database.table<SessionRow>("sessions").where("id", sessionId).delete();
 	}
 }
 
 export const authService = new AuthService();
 
-function readSessionCookie(request: Request): string | null {
+${sessionHelpers()}
+
+function toAuthUser(user: User): AuthUser {
+	if (user.id === undefined) {
+		throw new Error("Authenticated user record is missing an id");
+	}
+
+	return {
+		id: user.id,
+		email: user.email,
+		passwordHash: user.password,
+	};
+}
+`;
+}
+
+function makeDomainSessionAuthService(): string {
+	return `import { database } from "#database/connection";
+import type { QueryRow } from "kura/database";
+import { Hash } from "kura/hash";
+import type { Context } from "kura/http";
+import type { User } from "../domain/user";
+import { RegisterUser } from "./register_user";
+import { SqlUserRepository } from "../infrastructure/persistence/sql_user_repository";
+
+type AuthUser = {
+	readonly id: number;
+	readonly email: string;
+	readonly passwordHash: string;
+};
+
+type PublicUser = {
+	readonly id: number;
+	readonly email: string;
+};
+
+type SessionRecord = {
+	readonly id: string;
+	readonly userId: number;
+	readonly expiresAt: Date;
+};
+
+type AuthServiceResult = {
+	readonly body: Record<string, unknown>;
+	readonly headers?: Record<string, string>;
+};
+
+const SESSION_COOKIE_NAME = "kura-session";
+const SESSION_TTL_SECONDS = 60 * 60 * 2;
+const users = new SqlUserRepository();
+const registerUser = new RegisterUser(users);
+
+type SessionRow = QueryRow & {
+	readonly id: string;
+	readonly user_id: number | null;
+	readonly payload: string;
+	readonly expires_at: Date | string;
+	readonly created_at?: Date | string;
+	readonly updated_at?: Date | string;
+};
+
+class AuthService {
+	async register(
+		email: string,
+		password: string,
+	): Promise<AuthServiceResult | null> {
+		if (await users.findByEmail(email)) {
+			return null;
+		}
+
+		const user = await registerUser.handle({
+			email,
+			passwordHash: await Hash.make(password),
+		});
+
+		return this.createLoginResult(toAuthUser(user));
+	}
+
+	async login(
+		email: string,
+		password: string,
+	): Promise<AuthServiceResult | null> {
+		const user = await this.findUserByEmail(email);
+
+		if (!user) {
+			return null;
+		}
+
+		const validCredentials =
+			email === user.email && (await Hash.verify(user.passwordHash, password));
+
+		if (!validCredentials) {
+			return null;
+		}
+
+		return this.createLoginResult(user);
+	}
+
+	async authenticate(ctx: Context): Promise<PublicUser | null> {
+		const sessionId = readSessionCookie(ctx.request);
+		const session = sessionId ? await this.findSession(sessionId) : null;
+
+		if (!session || session.expiresAt.getTime() <= Date.now()) {
+			if (sessionId) {
+				await this.deleteSession(sessionId);
+			}
+			return null;
+		}
+
+		const user = await this.findUserById(session.userId);
+
+		if (!user) {
+			return null;
+		}
+
+		const publicProfile = publicUser(user);
+		ctx.auth = {
+			guard: "session",
+			user: publicProfile,
+			token: session.id,
+			claims: { sessionId: session.id },
+		};
+
+		return publicProfile;
+	}
+
+	async logout(ctx: Context): Promise<AuthServiceResult | null> {
+		const sessionId = readSessionCookie(ctx.request);
+
+		if (!sessionId || !(await this.findSession(sessionId))) {
+			return null;
+		}
+
+		await this.deleteSession(sessionId);
+
+		return {
+			body: { ok: true },
+			headers: {
+				"Set-Cookie": serializeSessionCookie("", 0),
+			},
+		};
+	}
+
+	private async createLoginResult(user: AuthUser): Promise<AuthServiceResult> {
+		const session = await this.createSession(user.id);
+
+		return {
+			body: {
+				token: null,
+				tokenType: "Cookie",
+				expiresIn: SESSION_TTL_SECONDS,
+				user: publicUser(user),
+			},
+			headers: {
+				"Set-Cookie": serializeSessionCookie(session.id, SESSION_TTL_SECONDS),
+			},
+		};
+	}
+
+	private async findUserById(id: number): Promise<AuthUser | null> {
+		const user = await users.find(id);
+
+		return user ? toAuthUser(user) : null;
+	}
+
+	private async findUserByEmail(email: string): Promise<AuthUser | null> {
+		const user = await users.findByEmail(email);
+
+		return user ? toAuthUser(user) : null;
+	}
+
+	private async createSession(userId: number): Promise<SessionRecord> {
+		const session: SessionRecord = {
+			id: crypto.randomUUID(),
+			userId,
+			expiresAt: new Date(Date.now() + SESSION_TTL_SECONDS * 1000),
+		};
+		const now = new Date();
+
+		await database.table<SessionRow>("sessions").insert({
+			id: session.id,
+			user_id: session.userId,
+			payload: "{}",
+			expires_at: session.expiresAt,
+			created_at: now,
+			updated_at: now,
+		});
+
+		return session;
+	}
+
+	private async findSession(sessionId: string): Promise<SessionRecord | null> {
+		const row = await database
+			.table<SessionRow>("sessions")
+			.where("id", sessionId)
+			.first();
+
+		if (!row || row.user_id === null) {
+			return null;
+		}
+
+		return {
+			id: row.id,
+			userId: row.user_id,
+			expiresAt: readDate(row.expires_at),
+		};
+	}
+
+	private async deleteSession(sessionId: string): Promise<void> {
+		await database.table<SessionRow>("sessions").where("id", sessionId).delete();
+	}
+}
+
+export const authService = new AuthService();
+
+${sessionHelpers()}
+
+function toAuthUser(user: User): AuthUser {
+	const id = user.id;
+
+	if (id === undefined) {
+		throw new Error("Authenticated user record is missing an id");
+	}
+
+	return {
+		id,
+		email: user.email,
+		passwordHash: user.passwordHash,
+	};
+}
+`;
+}
+
+function sessionHelpers(): string {
+	return `function readSessionCookie(request: Request): string | null {
 	const cookieHeader = request.headers.get("cookie");
 
 	if (!cookieHeader) {
@@ -498,16 +952,24 @@ function serializeSessionCookie(sessionId: string, maxAge: number): string {
 		.join("; ");
 }
 
-function publicUser(user: DemoUser): PublicUser {
+function publicUser(user: AuthUser): PublicUser {
 	return {
 		id: user.id,
 		email: user.email,
 	};
 }
-`;
+
+function readDate(value: Date | string): Date {
+	if (value instanceof Date) {
+		return value;
+	}
+
+	return new Date(value);
+}`;
 }
 export function makeUserModel(): string {
-	return `import { BaseModel, column, type QueryRow } from "kura/database";
+	return `import database from "#database/connection";
+import { BaseModel, column, type QueryRow } from "kura/database";
 
 export type UserAttributes = QueryRow & {
 \tid?: number;
@@ -535,6 +997,8 @@ export class User extends BaseModel<UserAttributes> {
 \t@column({ name: "updated_at" })
 \tdeclare updatedAt?: Date;
 }
+
+User.useDatabase(database);
 `;
 }
 
@@ -594,11 +1058,12 @@ export class User {
 }
 
 export function makeUserRepositoryPort(): string {
-	return `import type { User } from "./user";
+	return `import type { User, UserId } from "./user";
 
 export interface UserRepository {
+\tfind(id: UserId): Promise<User | null>;
 \tfindByEmail(email: string): Promise<User | null>;
-\tsave(user: User): Promise<void>;
+\tsave(user: User): Promise<User>;
 }
 `;
 }
@@ -623,16 +1088,15 @@ export class RegisterUser {
 \t\t}
 
 \t\tconst user = User.register(command);
-\t\tawait this.users.save(user);
-
-\t\treturn user;
+\t\treturn this.users.save(user);
 \t}
 }
 `;
 }
 
 export function makeUserRecord(): string {
-	return `import { BaseModel, column, type QueryRow } from "kura/database";
+	return `import database from "#database/connection";
+import { BaseModel, column, type QueryRow } from "kura/database";
 
 export type UserRecordAttributes = QueryRow & {
 \tid?: number;
@@ -660,6 +1124,8 @@ export class UserRecord extends BaseModel<UserRecordAttributes> {
 \t@column({ name: "updated_at" })
 \tdeclare updatedAt?: Date;
 }
+
+UserRecord.useDatabase(database);
 `;
 }
 
@@ -669,13 +1135,19 @@ import type { UserRepository } from "../../domain/user_repository";
 import { UserRecord } from "./user_record";
 
 export class SqlUserRepository implements UserRepository {
+\tasync find(id: number): Promise<User | null> {
+\t\tconst record = await UserRecord.find(id);
+
+\t\treturn record ? toDomain(record) : null;
+\t}
+
 \tasync findByEmail(email: string): Promise<User | null> {
 \t\tconst record = await UserRecord.query().where("email", email).first();
 
 \t\treturn record ? toDomain(record) : null;
 \t}
 
-\tasync save(user: User): Promise<void> {
+\tasync save(user: User): Promise<User> {
 \t\tconst data = user.toJSON();
 
 \t\tif (data.id !== undefined) {
@@ -688,13 +1160,24 @@ export class SqlUserRepository implements UserRepository {
 \t\t\trecord.email = data.email;
 \t\t\trecord.password = data.passwordHash;
 \t\t\tawait record.save();
-\t\t\treturn;
+\t\t\treturn toDomain(record);
 \t\t}
 
-\t\tawait UserRecord.create({
+\t\tconst record = await UserRecord.create({
 \t\t\temail: data.email,
 \t\t\tpassword: data.passwordHash,
 \t\t});
+
+\t\tif (record.id !== undefined) {
+\t\t\treturn toDomain(record);
+\t\t}
+
+\t\tconst persisted = await this.findByEmail(data.email);
+\t\tif (!persisted) {
+\t\t\tthrow new Error("Created user record was not found");
+\t\t}
+
+\t\treturn persisted;
 \t}
 }
 
@@ -737,6 +1220,7 @@ export default class CreateAccessTokens extends Migration {
 \toverride up(schema: SchemaBuilder): void {
 \t\tschema.createTable("auth_access_tokens", (table) => {
 \t\t\ttable.id();
+\t\t\ttable.string("identifier").notNull().unique();
 \t\t\ttable.integer("tokenable_id").notNull();
 \t\t\ttable.string("type").notNull();
 \t\t\ttable.string("name").nullable();
