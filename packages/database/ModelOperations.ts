@@ -1,5 +1,5 @@
 import type { BaseModel } from "./BaseModel";
-import type { DatabaseManager, QueryPrimitive, QueryRow } from "./Database";
+import type { DatabaseClient, QueryPrimitive, QueryRow } from "./Database";
 import {
 	getColumnDefinitions,
 	resolveColumnName as resolveStoredColumnName,
@@ -35,7 +35,7 @@ export function createPivotQueryBuilder<
 export function resolveDatabase<
 	TModel extends BaseModel<TAttributes>,
 	TAttributes extends ModelAttributes,
->(model: ModelClass<TModel, TAttributes>): DatabaseManager {
+>(model: ModelClass<TModel, TAttributes>): DatabaseClient {
 	if (!model.database) {
 		throw new Error(
 			`Database manager is not configured for model [${model.name}]`,

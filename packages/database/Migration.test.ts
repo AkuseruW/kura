@@ -373,6 +373,33 @@ describe("MigrationRunner", () => {
 		expect(await memoryConnection(database, "primary")).not.toBe(analytics);
 	});
 
+	test("reports applied and pending migration status", async () => {
+		const database = createDatabase();
+		const connection = await memoryConnection(database);
+		connection.queueResult(queryResult());
+		connection.queueResult({
+			rows: [{ name: "001_create_users", batch: 2 }],
+			affectedRows: 0,
+		});
+		const runner = new MigrationRunner(database);
+
+		const result = await runner.status(migrations);
+
+		expect(result).toEqual([
+			{
+				name: "001_create_users",
+				status: "applied",
+				batch: 2,
+			},
+			{
+				name: "002_add_user_profile",
+				status: "pending",
+				batch: null,
+			},
+		]);
+		expect(connection.queries).toHaveLength(2);
+	});
+
 	test("rejects duplicate names and unknown rollback records", async () => {
 		const database = createDatabase();
 		const connection = await memoryConnection(database);

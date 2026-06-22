@@ -88,6 +88,7 @@ describe("database console commands", () => {
 			"db:seed",
 			"migration:rollback",
 			"migration:run",
+			"migration:status",
 		]);
 	});
 
@@ -133,6 +134,31 @@ describe("database console commands", () => {
 
 		expect(exitCode).toBe(0);
 		expect(output.text()).toBe("No pending migrations.");
+	});
+
+	test("reports migration status", async () => {
+		const database = createDatabase();
+		const connection = await memoryConnection(database);
+		connection
+			.queueResult(queryResult())
+			.queueResult(queryResult([{ name: "001_create_users", batch: 1 }]));
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDatabaseCommands(console, { database, migrations });
+
+		const exitCode = await console.run(["migration:status"]);
+
+		expect(exitCode).toBe(0);
+		expect(output.text()).toBe(
+			[
+				"Migration Status",
+				"",
+				"Status   Batch  Migration",
+				"-------  -----  -------------------",
+				"Applied  1      001_create_users",
+				"Pending  -      002_add_user_status",
+			].join("\n"),
+		);
 	});
 
 	test("rolls back the latest migration batch", async () => {

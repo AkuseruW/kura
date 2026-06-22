@@ -34,6 +34,18 @@ export type DatabaseManagerOptions = {
 	readonly connections?: Record<string, DatabaseConnectionConfig>;
 };
 
+export interface DatabaseClient {
+	query<TRow extends QueryRow = QueryRow>(
+		sql: string,
+		bindings?: QueryBindings,
+		connectionName?: string,
+	): Promise<QueryResult<TRow>>;
+	table<TRow extends QueryRow = QueryRow>(
+		tableName: string,
+		connectionName?: string,
+	): QueryBuilder<TRow>;
+}
+
 export interface DatabaseConnection {
 	query<TRow extends QueryRow = QueryRow>(
 		sql: string,
@@ -49,7 +61,39 @@ export interface DatabaseDriver {
 	): DatabaseConnection | Promise<DatabaseConnection>;
 }
 
-export class DatabaseManager {
+export type DatabaseTransactionCallback<TResult> = (
+	transaction: DatabaseTransaction,
+) => TResult | Promise<TResult>;
+
+export class DatabaseTransaction implements DatabaseClient {
+	constructor(
+		private readonly connection: DatabaseConnection,
+		readonly connectionName: string,
+	) {}
+
+	async query<TRow extends QueryRow = QueryRow>(
+		sql: string,
+		bindings: QueryBindings = [],
+		connectionName?: string,
+	): Promise<QueryResult<TRow>> {
+		if (connectionName && connectionName !== this.connectionName) {
+			throw new Error(
+				`Database transaction for connection [${this.connectionName}] cannot query connection [${connectionName}]`,
+			);
+		}
+
+		return this.connection.query<TRow>(sql, bindings);
+	}
+
+	table<TRow extends QueryRow = QueryRow>(
+		tableName: string,
+		connectionName?: string,
+	): QueryBuilder<TRow> {
+		return new QueryBuilder<TRow>(this, tableName, connectionName);
+	}
+}
+
+export class DatabaseManager implements DatabaseClient {
 	private readonly configs = new Map<string, DatabaseConnectionConfig>();
 	private readonly drivers = new Map<string, DatabaseDriver>();
 	private readonly connections = new Map<string, DatabaseConnection>();
@@ -81,13 +125,7 @@ export class DatabaseManager {
 	async connection<TConnection extends DatabaseConnection = DatabaseConnection>(
 		name?: string,
 	): Promise<TConnection> {
-		const connectionName = name ?? this.getDefaultConnectionName();
-
-		if (!connectionName) {
-			throw new Error(
-				"No database connection name was provided and no default connection is configured",
-			);
-		}
+		const connectionName = this.resolveConnectionName(name);
 
 		const cachedConnection = this.connections.get(connectionName);
 		if (cachedConnection) {
@@ -129,6 +167,29 @@ export class DatabaseManager {
 		return new QueryBuilder<TRow>(this, tableName, connectionName);
 	}
 
+	async transaction<TResult>(
+		callback: DatabaseTransactionCallback<TResult>,
+		connectionName?: string,
+	): Promise<TResult> {
+		const resolvedConnectionName = this.resolveConnectionName(connectionName);
+		const connection = await this.connection(resolvedConnectionName);
+		const transaction = new DatabaseTransaction(
+			connection,
+			resolvedConnectionName,
+		);
+
+		await transaction.query("begin");
+
+		try {
+			const result = await callback(transaction);
+			await transaction.query("commit");
+			return result;
+		} catch (error) {
+			await transaction.query("rollback");
+			throw error;
+		}
+	}
+
 	async close(name?: string): Promise<void> {
 		const connectionName = name ?? this.getDefaultConnectionName();
 		if (!connectionName) {
@@ -162,6 +223,18 @@ export class DatabaseManager {
 		}
 
 		return undefined;
+	}
+
+	private resolveConnectionName(name?: string): string {
+		const connectionName = name ?? this.getDefaultConnectionName();
+
+		if (!connectionName) {
+			throw new Error(
+				"No database connection name was provided and no default connection is configured",
+			);
+		}
+
+		return connectionName;
 	}
 }
 

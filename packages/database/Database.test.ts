@@ -74,6 +74,115 @@ describe("DatabaseManager", () => {
 		]);
 	});
 
+	test("commits successful transactions on the selected connection", async () => {
+		const manager = new DatabaseManager({
+			default: "primary",
+			connections: {
+				primary: { driver: "memory" },
+			},
+		});
+		manager.extend("memory", new MemoryDatabaseDriver());
+
+		const connection = await manager.connection<MemoryDatabaseConnection>();
+
+		const result = await manager.transaction(async (transaction) => {
+			await transaction.query("insert into users (name) values (?)", ["Ada"]);
+			await transaction.table<UserRow>("users").insert({
+				id: 1,
+				name: "Ada",
+			});
+
+			return "ok";
+		});
+
+		expect(result).toBe("ok");
+		expect(connection.queries).toEqual([
+			{
+				sql: "begin",
+				bindings: [],
+			},
+			{
+				sql: "insert into users (name) values (?)",
+				bindings: ["Ada"],
+			},
+			{
+				sql: 'insert into "users" ("id", "name") values (?, ?)',
+				bindings: [1, "Ada"],
+			},
+			{
+				sql: "commit",
+				bindings: [],
+			},
+		]);
+	});
+
+	test("rolls back failed transactions and rethrows the failure", async () => {
+		const manager = new DatabaseManager({
+			default: "primary",
+			connections: {
+				primary: { driver: "memory" },
+			},
+		});
+		manager.extend("memory", new MemoryDatabaseDriver());
+
+		const connection = await manager.connection<MemoryDatabaseConnection>();
+
+		await expect(
+			manager.transaction(async (transaction) => {
+				await transaction.query("insert into users (name) values (?)", [
+					"Grace",
+				]);
+				throw new Error("transaction failed");
+			}),
+		).rejects.toThrow("transaction failed");
+
+		expect(connection.queries).toEqual([
+			{
+				sql: "begin",
+				bindings: [],
+			},
+			{
+				sql: "insert into users (name) values (?)",
+				bindings: ["Grace"],
+			},
+			{
+				sql: "rollback",
+				bindings: [],
+			},
+		]);
+	});
+
+	test("prevents transaction clients from querying another connection", async () => {
+		const manager = new DatabaseManager({
+			default: "primary",
+			connections: {
+				primary: { driver: "memory" },
+				analytics: { driver: "memory" },
+			},
+		});
+		manager.extend("memory", new MemoryDatabaseDriver());
+
+		const connection = await manager.connection<MemoryDatabaseConnection>();
+
+		await expect(
+			manager.transaction((transaction) =>
+				transaction.query("select 1", [], "analytics"),
+			),
+		).rejects.toThrow(
+			"Database transaction for connection [primary] cannot query connection [analytics]",
+		);
+		expect(connection.queries).toEqual([
+			{
+				sql: "begin",
+				bindings: [],
+			},
+			{
+				sql: "rollback",
+				bindings: [],
+			},
+		]);
+	});
+
 	test("resolves explicitly named connections", async () => {
 		const manager = new DatabaseManager({
 			connections: {
