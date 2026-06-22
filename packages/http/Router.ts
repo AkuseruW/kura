@@ -61,13 +61,46 @@ export type Route = {
 	handler: RouteHandler;
 	schema?: RouteSchemaOptions;
 	openapi?: RouteOpenApiOptions;
-	validation?: RouteValidationPlan;
+	validation: RouteValidationPlan;
 };
+
+type RoutePathPattern = {
+	readonly source: string;
+	readonly params: string[];
+};
+
+type DynamicRouteMatcher = {
+	readonly indexedRoutes: ReadonlyMap<
+		string,
+		readonly DynamicRouteMatcherEntry[]
+	>;
+	readonly fallbackRoutes: readonly DynamicRouteMatcherEntry[];
+	readonly cache: Map<string, DynamicRouteMatch | null>;
+};
+
+type DynamicRouteMatcherEntry = {
+	readonly route: Route;
+	readonly order: number;
+};
+
+type DynamicRouteMatch = {
+	readonly route: Route;
+	readonly params: Readonly<Record<string, string>>;
+};
+
+type LiteralSegment = {
+	readonly index: number;
+	readonly value: string;
+};
+
+const DYNAMIC_MATCH_CACHE_LIMIT = 1024;
 
 export class Router {
 	private routes: Route[] = [];
 	private exactRoutes: Map<string, Map<string, Route>> = new Map();
 	private dynamicRoutes: Map<string, Map<number, Route[]>> = new Map();
+	private dynamicMatchers: Map<string, Map<number, DynamicRouteMatcher>> =
+		new Map();
 	private namedRoutes: Map<string, string> = new Map();
 
 	private addRoute(
@@ -103,13 +136,11 @@ export class Router {
 	}
 
 	private pathToRegex(path: string): { pattern: RegExp; params: string[] } {
-		const params: string[] = [];
-		const escapedPath = escapeRegex(path);
-		const pattern = escapedPath.replace(/:(\w+)/g, (_, name) => {
-			params.push(name);
-			return "([^/]+)";
-		});
-		return { pattern: new RegExp(`^${pattern}$`), params };
+		const compiled = compileRoutePathPattern(path);
+		return {
+			pattern: new RegExp(`^${compiled.source}$`),
+			params: compiled.params,
+		};
 	}
 
 	get(path: string, handler: RouteHandler): RouteBuilder {
@@ -166,19 +197,37 @@ export class Router {
 			return { route: exactRoute, params: {} };
 		}
 
-		const routes =
-			this.dynamicRoutes.get(method)?.get(segmentCount(path)) ?? [];
+		const matcher = this.dynamicMatcher(method, segmentCount(path));
 
-		for (const route of routes) {
-			const match = path.match(route.pattern);
-			if (match) {
-				const params: Record<string, string> = {};
-				route.params.forEach((name, i) => {
-					params[name] = match[i + 1] ?? "";
-				});
-				return { route, params };
-			}
+		if (!matcher) {
+			return null;
 		}
+
+		const cachedMatch = readCachedDynamicMatch(matcher, path);
+		if (cachedMatch !== undefined) {
+			return cloneDynamicMatch(cachedMatch);
+		}
+
+		const candidates = collectDynamicCandidates(matcher, path);
+		for (const entry of candidates) {
+			const match = path.match(entry.route.pattern);
+			if (!match) {
+				continue;
+			}
+
+			const params: Record<string, string> = {};
+			entry.route.params.forEach((name, index) => {
+				params[name] = match[index + 1] ?? "";
+			});
+			const routeMatch = { route: entry.route, params };
+			writeCachedDynamicMatch(matcher, path, {
+				route: entry.route,
+				params: { ...params },
+			});
+			return routeMatch;
+		}
+
+		writeCachedDynamicMatch(matcher, path, null);
 		return null;
 	}
 
@@ -232,6 +281,31 @@ export class Router {
 		}
 
 		routes.push(route);
+		this.dynamicMatchers.get(route.method)?.delete(routeSegmentCount);
+	}
+
+	private dynamicMatcher(
+		method: string,
+		routeSegmentCount: number,
+	): DynamicRouteMatcher | null {
+		const cached = this.dynamicMatchers.get(method)?.get(routeSegmentCount);
+		if (cached) {
+			return cached;
+		}
+
+		const routes = this.dynamicRoutes.get(method)?.get(routeSegmentCount);
+		if (!routes || routes.length === 0) {
+			return null;
+		}
+
+		const matcher = compileDynamicRouteMatcher(routes);
+		const matchersBySegmentCount =
+			this.dynamicMatchers.get(method) ?? new Map();
+		if (!this.dynamicMatchers.has(method)) {
+			this.dynamicMatchers.set(method, matchersBySegmentCount);
+		}
+		matchersBySegmentCount.set(routeSegmentCount, matcher);
+		return matcher;
 	}
 }
 
@@ -459,4 +533,135 @@ function mergeRouteSchemas(
 
 function segmentCount(path: string): number {
 	return path.split("/").filter(Boolean).length;
+}
+
+function compileDynamicRouteMatcher(
+	routes: readonly Route[],
+): DynamicRouteMatcher {
+	const indexedRoutes = new Map<string, DynamicRouteMatcherEntry[]>();
+	const fallbackRoutes: DynamicRouteMatcherEntry[] = [];
+
+	for (const [order, route] of routes.entries()) {
+		const entry = {
+			route,
+			order,
+		};
+		const indexSegment = selectIndexSegment(literalSegments(route.path));
+
+		if (!indexSegment) {
+			fallbackRoutes.push(entry);
+			continue;
+		}
+
+		const key = segmentKey(indexSegment.index, indexSegment.value);
+		const bucket = indexedRoutes.get(key) ?? [];
+		if (!indexedRoutes.has(key)) {
+			indexedRoutes.set(key, bucket);
+		}
+		bucket.push(entry);
+	}
+
+	return {
+		indexedRoutes,
+		fallbackRoutes,
+		cache: new Map(),
+	};
+}
+
+function readCachedDynamicMatch(
+	matcher: DynamicRouteMatcher,
+	path: string,
+): DynamicRouteMatch | null | undefined {
+	if (!matcher.cache.has(path)) {
+		return undefined;
+	}
+
+	return matcher.cache.get(path) ?? null;
+}
+
+function writeCachedDynamicMatch(
+	matcher: DynamicRouteMatcher,
+	path: string,
+	match: DynamicRouteMatch | null,
+): void {
+	if (matcher.cache.size >= DYNAMIC_MATCH_CACHE_LIMIT) {
+		matcher.cache.clear();
+	}
+
+	matcher.cache.set(path, match);
+}
+
+function cloneDynamicMatch(
+	match: DynamicRouteMatch | null,
+): { route: Route; params: Record<string, string> } | null {
+	if (!match) {
+		return null;
+	}
+
+	return { route: match.route, params: { ...match.params } };
+}
+
+function collectDynamicCandidates(
+	matcher: DynamicRouteMatcher,
+	path: string,
+): readonly DynamicRouteMatcherEntry[] {
+	const candidates: DynamicRouteMatcherEntry[] = [];
+	const seen = new Set<Route>();
+
+	for (const entry of matcher.fallbackRoutes) {
+		candidates.push(entry);
+		seen.add(entry.route);
+	}
+
+	for (const [index, value] of pathSegments(path).entries()) {
+		const entries = matcher.indexedRoutes.get(segmentKey(index, value));
+		for (const entry of entries ?? []) {
+			if (seen.has(entry.route)) {
+				continue;
+			}
+
+			candidates.push(entry);
+			seen.add(entry.route);
+		}
+	}
+
+	return candidates.sort((left, right) => left.order - right.order);
+}
+
+function compileRoutePathPattern(path: string): RoutePathPattern {
+	const params: string[] = [];
+	const source = escapeRegex(path).replace(/:(\w+)/g, (_, name: string) => {
+		params.push(name);
+		return "([^/]+)";
+	});
+
+	return { source, params };
+}
+
+function literalSegments(path: string): readonly LiteralSegment[] {
+	return pathSegments(path).flatMap((segment, index) =>
+		/:\w+/.test(segment) ? [] : [{ index, value: segment }],
+	);
+}
+
+function selectIndexSegment(
+	segments: readonly LiteralSegment[],
+): LiteralSegment | null {
+	return (
+		segments.reduce<LiteralSegment | null>((selected, segment) => {
+			if (!selected || segment.value.length > selected.value.length) {
+				return segment;
+			}
+
+			return selected;
+		}, null) ?? null
+	);
+}
+
+function pathSegments(path: string): readonly string[] {
+	return path.split("/").filter(Boolean);
+}
+
+function segmentKey(index: number, value: string): string {
+	return `${index}:${value.length}:${value}`;
 }

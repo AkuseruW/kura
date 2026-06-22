@@ -44,7 +44,7 @@ export async function validateRouteRequest(
 	params: Record<string, string>,
 	url: URL,
 ): Promise<void> {
-	const schemas = route.validation ?? compileRouteValidationPlan(route);
+	const schemas = route.validation;
 	const validated: ValidatedRouteData = { ...(ctx.validated ?? {}) };
 
 	if (schemas.params) {

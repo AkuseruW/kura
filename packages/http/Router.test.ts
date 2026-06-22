@@ -75,6 +75,48 @@ describe("Router", () => {
 		expect(router.match("GET", "/users/1/settings")).not.toBeNull();
 	});
 
+	test("matches late dynamic routes from a compiled matcher", async () => {
+		const router = new Router();
+
+		for (let index = 0; index < 250; index += 1) {
+			router.get(`/tenants/:tenant/resource-${index}/items/:id`, (ctx) =>
+				Response.json({
+					id: ctx.param("id"),
+					resource: index,
+					tenant: ctx.param("tenant"),
+				}),
+			);
+		}
+
+		const match = router.match("GET", "/tenants/acme/resource-249/items/42");
+		const response = await match?.handler(
+			createContext(request, { params: match.params }),
+		);
+
+		expect(match?.params).toEqual({ tenant: "acme", id: "42" });
+		expect(await response?.json()).toEqual({
+			id: "42",
+			resource: 249,
+			tenant: "acme",
+		});
+		expect(
+			router.match("GET", "/tenants/acme/resource-missing/items/42"),
+		).toBeNull();
+	});
+
+	test("keeps cached dynamic route params isolated per match", () => {
+		const router = new Router();
+		router.get("/users/:id", () => new Response("ok"));
+
+		const first = router.match("GET", "/users/123");
+		if (first) {
+			first.params.id = "mutated";
+		}
+		const second = router.match("GET", "/users/123");
+
+		expect(second?.params).toEqual({ id: "123" });
+	});
+
 	test("builds named routes and fails when params are missing", () => {
 		const router = new Router();
 		router.get("/users/:id", () => new Response()).as("users.show");

@@ -202,6 +202,14 @@ const DEFAULT_OPENAPI_PATH = "/openapi.json";
 const DEFAULT_DOCS_PATH = "/docs";
 const DEFAULT_OPENAPI_VERSION = "3.1.2";
 const JSON_CONTENT_TYPE = "application/json";
+const schemaDescriptionCache = new WeakMap<
+	SchemaLike<unknown>,
+	SchemaDescription
+>();
+const openApiSchemaCache = new WeakMap<
+	SchemaLike<unknown>,
+	Partial<Record<OpenApiVersion, OpenApiSchemaObject | OpenApiReferenceObject>>
+>();
 
 export function createOpenApiDocument(
 	router: Router,
@@ -274,7 +282,7 @@ export function toOpenApiSchema(
 	specVersion: OpenApiVersion = DEFAULT_OPENAPI_VERSION,
 ): OpenApiSchemaObject | OpenApiReferenceObject {
 	if (isSchema(input)) {
-		return schemaDescriptionToOpenApi(input.describe(), specVersion);
+		return cachedOpenApiSchema(input, specVersion);
 	}
 
 	return input;
@@ -344,7 +352,7 @@ function createSchemaParameters(
 			: [];
 	}
 
-	const description = schema.describe();
+	const description = describeSchema(schema);
 	if (description.type !== "object" || !description.shape) {
 		return location === "path"
 			? pathParams.map((name) => createPathParameter(name))
@@ -468,6 +476,35 @@ function schemaDescriptionToOpenApi(
 	}
 
 	return addNullability(schema, specVersion);
+}
+
+function cachedOpenApiSchema(
+	schema: SchemaLike<unknown>,
+	specVersion: OpenApiVersion,
+): OpenApiSchemaObject | OpenApiReferenceObject {
+	const cached = openApiSchemaCache.get(schema)?.[specVersion];
+	if (cached) {
+		return cached;
+	}
+
+	const converted = schemaDescriptionToOpenApi(
+		describeSchema(schema),
+		specVersion,
+	);
+	const cache = openApiSchemaCache.get(schema) ?? {};
+	openApiSchemaCache.set(schema, { ...cache, [specVersion]: converted });
+	return converted;
+}
+
+function describeSchema(schema: SchemaLike<unknown>): SchemaDescription {
+	const cached = schemaDescriptionCache.get(schema);
+	if (cached) {
+		return cached;
+	}
+
+	const description = schema.describe();
+	schemaDescriptionCache.set(schema, description);
+	return description;
 }
 
 function schemaDescriptionToOpenApiWithoutNullability(
