@@ -6,6 +6,10 @@ import type {
 	InferEnvShape,
 } from "./EnvSchema";
 
+export type EnvLoadOptions = {
+	readonly override?: boolean;
+};
+
 export class Env<TEnvShape extends EnvShape = EnvShape> {
 	constructor(private readonly schema?: EnvSchema<TEnvShape>) {}
 
@@ -57,14 +61,21 @@ export class Env<TEnvShape extends EnvShape = EnvShape> {
 		return schema.parse(source);
 	}
 
-	async load(path: string): Promise<void> {
+	async load(path: string, options: EnvLoadOptions = {}): Promise<void> {
 		const file = Bun.file(path);
 		const content = await file.text();
+		const override = options.override ?? true;
 
 		for (const line of content.split("\n")) {
 			const [key, ...values] = line.split("=");
-			if (key && values.length) {
-				process.env[key.trim()] = values.join("=").trim();
+			const name = key?.trim();
+
+			if (!name || values.length === 0) {
+				continue;
+			}
+
+			if (override || process.env[name] === undefined) {
+				process.env[name] = values.join("=").trim();
 			}
 		}
 	}

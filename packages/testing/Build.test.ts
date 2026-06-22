@@ -256,12 +256,13 @@ describe("production build", () => {
 			const server = Bun.spawn({
 				cmd: [process.execPath, "bin/server.ts"],
 				cwd: join(appRoot, "demo"),
+				env: childEnv({ NODE_ENV: "production" }),
 				stderr: "pipe",
 				stdout: "pipe",
 			});
 
 			try {
-				await waitForHttp(`http://localhost:${port}/health`);
+				await waitForHttp(`http://localhost:${port}/api/health`);
 
 				const home = await fetch(`http://localhost:${port}/`);
 				expect(home.status).toBe(200);
@@ -276,6 +277,25 @@ describe("production build", () => {
 			} finally {
 				server.kill();
 				await server.exited.catch(() => undefined);
+			}
+
+			const preview = Bun.spawn({
+				cmd: [process.execPath, "kura", "preview", "--no-build"],
+				cwd: join(appRoot, "demo"),
+				env: childEnv({ NODE_ENV: "production" }),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			try {
+				await waitForHttp(`http://localhost:${port}/api/health`);
+
+				const health = await fetch(`http://localhost:${port}/api/health`);
+				expect(health.status).toBe(200);
+				expect(await health.json()).toEqual({ status: "up" });
+			} finally {
+				preview.kill();
+				await preview.exited.catch(() => undefined);
 			}
 
 			const localRunner = Bun.spawnSync({
@@ -388,6 +408,21 @@ function reservePort(): number {
 	}
 
 	return port;
+}
+
+function childEnv(overrides: Record<string, string>): Record<string, string> {
+	const env: Record<string, string> = {};
+
+	for (const [key, value] of Object.entries(Bun.env)) {
+		if (value !== undefined) {
+			env[key] = value;
+		}
+	}
+
+	return {
+		...env,
+		...overrides,
+	};
 }
 
 async function waitForHttp(url: string): Promise<void> {

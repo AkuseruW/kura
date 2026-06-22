@@ -43,7 +43,11 @@ export {
 	registerNewAppCommand,
 } from "./packages/console/NewApp";
 export {
+	createPreviewCommand,
 	createServeCommand,
+	type PreviewBuildRunner,
+	type PreviewConsoleOptions,
+	registerPreviewCommand,
 	registerServeCommand,
 	type ServeConsoleOptions,
 	type ServeEntryLoader,

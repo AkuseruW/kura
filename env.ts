@@ -1,4 +1,4 @@
-export { Env } from "./packages/core/Env";
+export { Env, type EnvLoadOptions } from "./packages/core/Env";
 export {
 	defineEnv,
 	EnvSchema,

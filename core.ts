@@ -7,7 +7,7 @@ export {
 export { BaseException } from "./packages/core/BaseException";
 export { Config, defineConfig } from "./packages/core/Config";
 export { Container } from "./packages/core/Container";
-export { Env } from "./packages/core/Env";
+export { Env, type EnvLoadOptions } from "./packages/core/Env";
 export {
 	defineEnv,
 	EnvSchema,
