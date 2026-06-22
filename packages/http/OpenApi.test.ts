@@ -124,6 +124,34 @@ describe("OpenAPI", () => {
 		});
 	});
 
+	test("caches schema descriptions across OpenAPI generations", () => {
+		const router = new Router();
+		let describeCalls = 0;
+		const schema = countedSchema(
+			k.object({
+				email: k.string().email(),
+				id: k.string(),
+			}),
+			() => {
+				describeCalls += 1;
+			},
+		);
+
+		router
+			.post("/users", () => Response.json({}))
+			.schema({
+				body: schema,
+				responses: {
+					201: schema,
+				},
+			});
+
+		createOpenApiDocument(router);
+		createOpenApiDocument(router);
+
+		expect(describeCalls).toBe(1);
+	});
+
 	test("supports OpenAPI 3.0 nullable schemas", () => {
 		const schema = k.object({
 			status: k.enum(["active", "disabled"]).nullable(),
@@ -279,5 +307,19 @@ function schemaLike<T>(schema: SchemaLike<T>): SchemaLike<T> {
 		parse: (value) => schema.parse(value),
 		parseAsync: (value, context) => schema.parseAsync(value, context),
 		describe: () => schema.describe(),
+	};
+}
+
+function countedSchema<T>(
+	schema: SchemaLike<T>,
+	onDescribe: () => void,
+): SchemaLike<T> {
+	return {
+		parse: (value) => schema.parse(value),
+		parseAsync: (value, context) => schema.parseAsync(value, context),
+		describe: () => {
+			onDescribe();
+			return schema.describe();
+		},
 	};
 }
