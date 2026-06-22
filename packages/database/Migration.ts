@@ -19,6 +19,14 @@ export type MigrationRunResult = {
 	readonly migrations: readonly string[];
 };
 
+export type MigrationStatusName = "applied" | "pending";
+
+export type MigrationStatus = {
+	readonly name: string;
+	readonly status: MigrationStatusName;
+	readonly batch: number | null;
+};
+
 export type MigrationRunnerOptions = {
 	readonly table?: string;
 	readonly connection?: string;
@@ -415,6 +423,28 @@ export class MigrationRunner {
 			batch: targetBatch,
 			migrations: rolledBack,
 		};
+	}
+
+	async status(
+		migrations: readonly MigrationDefinition[],
+	): Promise<readonly MigrationStatus[]> {
+		const definitions = normalizeMigrationDefinitions(migrations);
+		await this.ensureMigrationTable();
+
+		const applied = await this.loadAppliedMigrations();
+		const batchByName = new Map(
+			applied.map((migration) => [migration.name, migration.batch]),
+		);
+
+		return definitions.map((definition) => {
+			const batch = batchByName.get(definition.name) ?? null;
+
+			return {
+				name: definition.name,
+				status: batch === null ? "pending" : "applied",
+				batch,
+			};
+		});
 	}
 
 	private async ensureMigrationTable(): Promise<void> {

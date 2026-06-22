@@ -155,6 +155,85 @@ describe("SQLiteDatabaseDriver", () => {
 		await database.closeAll();
 	});
 
+	test("commits SQLite transactions", async () => {
+		const database = createDatabase(createFilename());
+		await database.query(
+			'create table "users" ("id" integer primary key autoincrement, "name" text not null)',
+		);
+
+		await database.transaction(async (transaction) => {
+			await transaction.table<SimpleUserRow>("users").insert({
+				name: "Ada",
+			});
+		});
+
+		const users = await database.table<SimpleUserRow>("users").all();
+
+		expect(users).toEqual([{ id: 1, name: "Ada" }]);
+
+		await database.closeAll();
+	});
+
+	test("rolls back SQLite transactions", async () => {
+		const database = createDatabase(createFilename());
+		await database.query(
+			'create table "users" ("id" integer primary key autoincrement, "name" text not null)',
+		);
+
+		await expect(
+			database.transaction(async (transaction) => {
+				await transaction.table<SimpleUserRow>("users").insert({
+					name: "Grace",
+				});
+				throw new Error("stop");
+			}),
+		).rejects.toThrow("stop");
+
+		const users = await database.table<SimpleUserRow>("users").all();
+
+		expect(users).toEqual([]);
+
+		await database.closeAll();
+	});
+
+	test("lets BaseModel operations use a transaction client", async () => {
+		class User extends BaseModel<UserRow> {
+			static override table = "users";
+			static override timestamps = false;
+
+			declare id?: number | bigint;
+			declare email: string;
+			declare name: string;
+			declare active: boolean | number;
+		}
+		const database = createDatabase(createFilename());
+		await database.query(
+			'create table "users" ("id" integer primary key autoincrement, "email" varchar(255) not null unique, "name" varchar(255) not null, "active" boolean not null)',
+		);
+
+		await database.transaction(async (transaction) => {
+			User.useDatabase(transaction);
+			await User.create({
+				email: "ada@kura.dev",
+				name: "Ada",
+				active: true,
+			});
+		});
+
+		const users = await database.table<UserRow>("users").all();
+
+		expect(users).toEqual([
+			{
+				id: 1,
+				email: "ada@kura.dev",
+				name: "Ada",
+				active: 1,
+			},
+		]);
+
+		await database.closeAll();
+	});
+
 	test("persists BaseModel create, find, save, and delete operations", async () => {
 		class User extends BaseModel<UserRow> {
 			static override table = "users";

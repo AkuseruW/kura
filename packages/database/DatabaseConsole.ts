@@ -15,6 +15,7 @@ import {
 	MigrationRunner,
 	type MigrationRunnerOptions,
 	type MigrationRunResult,
+	type MigrationStatus,
 } from "./Migration";
 
 export interface DatabaseConsoleOptions {
@@ -31,6 +32,7 @@ export function createDatabaseCommands(
 	return [
 		makeMigrationRunCommand(options),
 		makeMigrationRollbackCommand(options),
+		makeMigrationStatusCommand(options),
 		makeDatabaseSeedCommand(options),
 		makeDatabaseFreshCommand(options),
 	];
@@ -86,6 +88,21 @@ function makeMigrationRollbackCommand(
 				parseBatchOption(context.options),
 			);
 			context.output.write(formatMigrationRollbackResult(result));
+		},
+	);
+}
+
+function makeMigrationStatusCommand(options: DatabaseConsoleOptions): Command {
+	return defineCommand(
+		{
+			name: "migration:status",
+			description: "Show database migration status",
+			options: databaseCommandOptions(),
+		},
+		async (context) => {
+			const runner = makeMigrationRunner(options, context.options);
+			const result = await runner.status(options.migrations ?? []);
+			context.output.write(formatMigrationStatusResult(result));
 		},
 	);
 }
@@ -249,6 +266,24 @@ function formatMigrationRollbackResult(result: MigrationRunResult): string {
 	return `Rolled back ${formatCount(result.migrations.length, "migration")} from batch ${result.batch}: ${result.migrations.join(", ")}`;
 }
 
+function formatMigrationStatusResult(
+	result: readonly MigrationStatus[],
+): string {
+	if (result.length === 0) {
+		return "No migrations registered.";
+	}
+
+	return formatTable(
+		"Migration Status",
+		["Status", "Batch", "Migration"],
+		result.map((migration) => [
+			formatMigrationStatus(migration.status),
+			migration.batch === null ? "-" : String(migration.batch),
+			migration.name,
+		]),
+	);
+}
+
 function formatSeederRunResult(result: SeederRunResult): string {
 	if (result.seeders.length === 0) {
 		return "No seeders registered.";
@@ -271,4 +306,31 @@ function formatFreshResult(
 
 function formatCount(count: number, label: string): string {
 	return `${count} ${label}${count === 1 ? "" : "s"}`;
+}
+
+function formatMigrationStatus(status: MigrationStatus["status"]): string {
+	return status === "applied" ? "Applied" : "Pending";
+}
+
+function formatTable(
+	title: string,
+	headers: readonly string[],
+	rows: readonly (readonly string[])[],
+): string {
+	const widths = headers.map((header, index) =>
+		Math.max(header.length, ...rows.map((row) => row[index]?.length ?? 0)),
+	);
+	const formatRow = (columns: readonly string[]) =>
+		columns
+			.map((column, index) => column.padEnd(widths[index] ?? column.length))
+			.join("  ")
+			.trimEnd();
+
+	return [
+		title,
+		"",
+		formatRow(headers),
+		formatRow(widths.map((width) => "-".repeat(width))),
+		...rows.map(formatRow),
+	].join("\n");
 }

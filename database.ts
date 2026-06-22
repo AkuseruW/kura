@@ -32,11 +32,14 @@ export {
 	type RelationModelFactory,
 } from "./packages/database/BaseModel";
 export {
+	type DatabaseClient,
 	type DatabaseConnection,
 	type DatabaseConnectionConfig,
 	type DatabaseDriver,
 	DatabaseManager,
 	type DatabaseManagerOptions,
+	DatabaseTransaction,
+	type DatabaseTransactionCallback,
 	type ExecutedQuery,
 	MemoryDatabaseConnection,
 	MemoryDatabaseDriver,
@@ -77,6 +80,8 @@ export {
 	type MigrationRunnerOptions,
 	type MigrationRunResult,
 	type MigrationSource,
+	type MigrationStatus,
+	type MigrationStatusName,
 	SchemaBuilder,
 	TableBuilder,
 } from "./packages/database/Migration";

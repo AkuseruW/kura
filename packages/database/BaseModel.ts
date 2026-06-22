@@ -1,6 +1,6 @@
 // biome-ignore-all lint/complexity/noThisInStatic: Active Record static APIs resolve subclass constructors through this.
 import { BaseException } from "../core/BaseException";
-import type { DatabaseManager, QueryPrimitive } from "./Database";
+import type { DatabaseClient, QueryPrimitive } from "./Database";
 import { hydrateModel } from "./ModelHydration";
 import {
 	getModelHookDefinitions as getStoredModelHookDefinitions,
@@ -322,7 +322,7 @@ export abstract class BaseModel<
 > {
 	static table = "";
 	static primaryKey = "id";
-	static database?: DatabaseManager;
+	static database?: DatabaseClient;
 	static connection?: string;
 	static timestamps = true;
 	static createdAtColumn = "createdAt";
@@ -341,7 +341,7 @@ export abstract class BaseModel<
 		TAttributes extends ModelAttributes,
 		TModel extends BaseModel<TAttributes>,
 		TModelClass extends ModelClass<TModel, TAttributes>,
-	>(this: TModelClass, database: DatabaseManager): TModelClass {
+	>(this: TModelClass, database: DatabaseClient): TModelClass {
 		this.database = database;
 		return this;
 	}

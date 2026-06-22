@@ -1,5 +1,5 @@
 import type { BaseModel } from "./BaseModel";
-import type { DatabaseManager, QueryRow } from "./Database";
+import type { DatabaseClient, QueryRow } from "./Database";
 import type { PaginatedResult } from "./QueryBuilder";
 
 export type ModelAttributes = QueryRow;
@@ -12,7 +12,7 @@ export type ModelClass<
 	readonly name: string;
 	table?: string;
 	primaryKey?: string;
-	database?: DatabaseManager;
+	database?: DatabaseClient;
 	connection?: string;
 	timestamps?: boolean;
 	createdAtColumn?: string;
