@@ -99,7 +99,7 @@ describe("Factory", () => {
 		});
 		expect(connection.queries).toEqual([
 			{
-				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?)',
+				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?) returning "id"',
 				bindings: ["user1@kura.dev", "User 1", true],
 			},
 		]);
@@ -175,11 +175,11 @@ describe("Factory", () => {
 		expect(users.every((user) => user.isPersisted())).toBe(true);
 		expect(connection.queries).toEqual([
 			{
-				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?)',
+				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?) returning "id"',
 				bindings: ["user1@kura.dev", "User 1", true],
 			},
 			{
-				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?)',
+				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?) returning "id"',
 				bindings: ["user2@kura.dev", "User 2", true],
 			},
 		]);
@@ -261,11 +261,11 @@ describe("SeederRunner", () => {
 		});
 		expect(connection.queries).toEqual([
 			{
-				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?)',
+				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?) returning "id"',
 				bindings: ["user1@kura.dev", "User 1", true],
 			},
 			{
-				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?)',
+				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?) returning "id"',
 				bindings: ["user2@kura.dev", "User 2", true],
 			},
 		]);

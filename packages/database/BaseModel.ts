@@ -662,14 +662,21 @@ export abstract class BaseModel<
 			throw new Error(`Model [${model.name}] has no attributes to insert`);
 		}
 
-		const result = await createQueryBuilder(model).insert(values);
 		const primaryKey = resolvePrimaryKey(model);
+		const result = await createQueryBuilder(model)
+			.returning(primaryKey as QueryColumn<TAttributes>)
+			.insert(values);
+		const returnedPrimaryKey = result.rows[0]?.[primaryKey];
 
-		if (
-			result.insertId !== undefined &&
-			this.getAttributeByName(primaryKey) === undefined
-		) {
-			this.setAttributeByName(primaryKey, result.insertId);
+		if (this.getAttributeByName(primaryKey) === undefined) {
+			if (result.insertId !== undefined) {
+				this.setAttributeByName(primaryKey, result.insertId);
+			} else if (
+				isQueryPrimitive(returnedPrimaryKey) &&
+				returnedPrimaryKey !== null
+			) {
+				this.setAttributeByName(primaryKey, returnedPrimaryKey);
+			}
 		}
 
 		this[markPersisted]();

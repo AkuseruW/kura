@@ -348,11 +348,98 @@ describe("QueryBuilder", () => {
 		]);
 	});
 
+	test("compiles returning clauses for mutations", async () => {
+		const manager = createDatabase();
+		const connection = await memoryConnection(manager);
+		connection.queueResult<UserRow>({
+			rows: [
+				{
+					id: 7,
+					name: "Ada",
+					email: "ada@example.com",
+					age: 36,
+					active: true,
+					created_at: "2026-01-01",
+					deleted_at: null,
+				},
+			],
+			affectedRows: 1,
+		});
+		connection.queueResult<UserRow>({
+			rows: [
+				{
+					id: 7,
+					name: "Ada Lovelace",
+					email: "ada@example.com",
+					age: 36,
+					active: false,
+					created_at: "2026-01-01",
+					deleted_at: null,
+				},
+			],
+			affectedRows: 1,
+		});
+		connection.queueResult<UserRow>({
+			rows: [
+				{
+					id: 7,
+					name: "Ada Lovelace",
+					email: "ada@example.com",
+					age: 36,
+					active: false,
+					created_at: "2026-01-01",
+					deleted_at: null,
+				},
+			],
+			affectedRows: 1,
+		});
+
+		const inserted = await manager
+			.table<UserRow>("users")
+			.returning("id")
+			.insert({
+				name: "Ada",
+				email: "ada@example.com",
+				active: true,
+			});
+		const updated = await manager
+			.table<UserRow>("users")
+			.where("id", 7)
+			.returning("id", "name")
+			.update({ name: "Ada Lovelace", active: false });
+		const deleted = await manager
+			.table<UserRow>("users")
+			.where("id", 7)
+			.returning("*")
+			.delete();
+
+		expect(inserted.rows[0]?.id).toBe(7);
+		expect(updated.rows[0]?.name).toBe("Ada Lovelace");
+		expect(deleted.rows[0]?.id).toBe(7);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'insert into "users" ("name", "email", "active") values (?, ?, ?) returning "id"',
+				bindings: ["Ada", "ada@example.com", true],
+			},
+			{
+				sql: 'update "users" set "name" = ?, "active" = ? where "id" = ? returning "id", "name"',
+				bindings: ["Ada Lovelace", false, 7],
+			},
+			{
+				sql: 'delete from "users" where "id" = ? returning *',
+				bindings: [7],
+			},
+		]);
+	});
+
 	test("rejects invalid query inputs", () => {
 		const manager = createDatabase();
 
 		expect(() => manager.table<UserRow>("users").select()).toThrow(
 			"select() requires at least one column",
+		);
+		expect(() => manager.table<UserRow>("users").returning()).toThrow(
+			"returning() requires at least one column",
 		);
 		expect(() => manager.table<UserRow>("users").limit(-1)).toThrow(
 			"limit() must be a non-negative integer",
