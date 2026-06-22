@@ -36,15 +36,13 @@ describe("production build", () => {
 			) as {
 				readonly name: string;
 				readonly bin: Record<string, string>;
-				readonly dependencies: Record<string, string>;
+				readonly dependencies?: Record<string, string>;
 			};
 			expect(createPackageManifest.name).toBe("create-kura-app");
 			expect(createPackageManifest.bin["create-kura-app"]).toBe(
 				"dist/index.js",
 			);
-			expect(createPackageManifest.dependencies["@akuseru_w/kura"]).toBe(
-				"^0.1.10",
-			);
+			expect(createPackageManifest.dependencies).toBeUndefined();
 
 			const build = Bun.spawnSync({
 				cmd: [process.execPath, "run", "build"],

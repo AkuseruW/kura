@@ -14,7 +14,7 @@ export async function resolveDefaultPackageVersion(
 			: await findLocalKuraPackageRoot(localRoot);
 
 	if (localPackageRoot === undefined) {
-		return `npm:${runtimePackageName}@^${await resolveRuntimeVersion()}`;
+		return `npm:${runtimePackageName}@${await resolveRuntimeVersion()}`;
 	}
 
 	const dependencyPath = normalizeDependencyPath(

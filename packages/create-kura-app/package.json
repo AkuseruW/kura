@@ -31,8 +31,5 @@
 	},
 	"engines": {
 		"bun": ">=1.3.0"
-	},
-	"dependencies": {
-		"@akuseru_w/kura": "^0.1.10"
 	}
 }
