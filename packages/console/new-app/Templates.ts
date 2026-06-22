@@ -29,6 +29,8 @@ import {
 	makeCacheConfig,
 	makeConsoleEntrypoint,
 	makeDatabaseConfig,
+	makeDatabaseConnection,
+	makeDatabaseMigrations,
 	makeEncryptionConfig,
 	makeEnv,
 	makeEnvExample,
@@ -214,6 +216,7 @@ export { router };
 		...makeOptionalModuleFiles(choices),
 		...makeScaffoldDirectories(choices),
 		...makeDatabaseMetadataFiles(choices),
+		...makeDatabaseRuntimeFiles(choices),
 		{
 			path: "tests/bootstrap.ts",
 			content: `export const runnerHooks = {
@@ -229,6 +232,25 @@ export { router };
 		{
 			path: "DEPLOYMENT.md",
 			content: makeDeploymentGuide(appName, choices),
+		},
+	];
+}
+
+function makeDatabaseRuntimeFiles(
+	choices: NewAppChoices,
+): readonly NewAppFile[] {
+	if (!usesDatabaseFiles(choices)) {
+		return [];
+	}
+
+	return [
+		{
+			path: "database/connection.ts",
+			content: makeDatabaseConnection(),
+		},
+		{
+			path: "database/migrations.ts",
+			content: makeDatabaseMigrations(choices),
 		},
 	];
 }
