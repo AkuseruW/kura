@@ -116,6 +116,29 @@ describe("PostgresDatabaseDriver", () => {
 		]);
 	});
 
+	test("reads insert ids from returning rows", async () => {
+		const client = new FakePostgresClient().queueRows([
+			{ id: 7, email: "ada@kura.dev" },
+		]);
+		const manager = createManager(client);
+
+		const result = await manager
+			.table<UserRow>("users")
+			.returning("id")
+			.insert({
+				email: "ada@kura.dev",
+			});
+
+		expect(result.insertId).toBe(7);
+		expect(result.rows).toEqual([{ id: 7, email: "ada@kura.dev" }]);
+		expect(client.queries).toEqual([
+			{
+				sql: 'insert into "users" ("email") values ($1) returning "id"',
+				bindings: ["ada@kura.dev"],
+			},
+		]);
+	});
+
 	test("does not rewrite placeholders inside comments or dollar-quoted blocks", async () => {
 		const client = new FakePostgresClient();
 		const manager = createManager(client);

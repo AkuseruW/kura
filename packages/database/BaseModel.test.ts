@@ -365,7 +365,7 @@ describe("BaseModel", () => {
 		expect(user.getOriginal("email")).toBe("ada@kura.dev");
 		expect(connection.queries).toHaveLength(1);
 		expect(connection.queries[0]?.sql).toBe(
-			'insert into "users" ("email", "name", "active", "createdAt", "updatedAt") values (?, ?, ?, ?, ?)',
+			'insert into "users" ("email", "name", "active", "createdAt", "updatedAt") values (?, ?, ?, ?, ?) returning "id"',
 		);
 		expect(connection.queries[0]?.bindings.slice(0, 3)).toEqual([
 			"ada@kura.dev",
@@ -374,6 +374,47 @@ describe("BaseModel", () => {
 		]);
 		expect(connection.queries[0]?.bindings[3]).toBeInstanceOf(Date);
 		expect(connection.queries[0]?.bindings[4]).toBeInstanceOf(Date);
+	});
+
+	test("hydrates primary keys from returned insert rows", async () => {
+		class User extends BaseModel<UserAttributes> {
+			static override table = "users";
+			static override timestamps = false;
+
+			declare id: number;
+			declare email: string;
+			declare name: string;
+			declare active: boolean;
+		}
+		const database = createDatabase();
+		User.useDatabase(database);
+		const connection = await memoryConnection(database);
+		connection.queueResult<UserAttributes>({
+			rows: [
+				{
+					id: 42,
+					email: "ada@kura.dev",
+					name: "Ada",
+					active: true,
+				},
+			],
+			affectedRows: 1,
+		});
+
+		const user = await User.create({
+			email: "ada@kura.dev",
+			name: "Ada",
+			active: true,
+		});
+
+		expect(user.id).toBe(42);
+		expect(user.isPersisted()).toBe(true);
+		expect(connection.queries).toEqual([
+			{
+				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?) returning "id"',
+				bindings: ["ada@kura.dev", "Ada", true],
+			},
+		]);
 	});
 
 	test("runs create and save hooks around inserts", async () => {
@@ -434,7 +475,7 @@ describe("BaseModel", () => {
 		]);
 		expect(connection.queries).toEqual([
 			{
-				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?)',
+				sql: 'insert into "users" ("email", "name", "active") values (?, ?, ?) returning "id"',
 				bindings: ["ada@kura.dev", "Ada", true],
 			},
 		]);

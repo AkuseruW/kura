@@ -110,6 +110,7 @@ const queryOperators = new Set<QueryOperator>([
 
 export class QueryBuilder<TRow extends QueryRow = QueryRow> {
 	private selectedColumns: QueryColumn<TRow>[] = ["*"];
+	private returningColumns: QueryColumn<TRow>[] = [];
 	private readonly whereConditions: WhereCondition<TRow>[] = [];
 	private readonly orderClauses: OrderClause<TRow>[] = [];
 	private limitValue?: number;
@@ -126,6 +127,15 @@ export class QueryBuilder<TRow extends QueryRow = QueryRow> {
 		}
 
 		this.selectedColumns = [...columns];
+		return this;
+	}
+
+	returning(...columns: QueryColumn<TRow>[]): this {
+		if (columns.length === 0) {
+			throw new Error("returning() requires at least one column");
+		}
+
+		this.returningColumns = [...columns];
 		return this;
 	}
 
@@ -324,9 +334,17 @@ export class QueryBuilder<TRow extends QueryRow = QueryRow> {
 			.map((entry) => escapeIdentifier(entry.column))
 			.join(", ");
 		const placeholders = entries.map(() => "?").join(", ");
+		const segments = [
+			`insert into ${escapeIdentifier(this.tableName)} (${columns}) values (${placeholders})`,
+		];
+		const returning = this.compileReturning();
+
+		if (returning) {
+			segments.push(returning);
+		}
 
 		return {
-			sql: `insert into ${escapeIdentifier(this.tableName)} (${columns}) values (${placeholders})`,
+			sql: segments.join(" "),
 			bindings: entries.map((entry) => entry.value),
 		};
 	}
@@ -348,6 +366,11 @@ export class QueryBuilder<TRow extends QueryRow = QueryRow> {
 			segments.push(`where ${where.sql}`);
 		}
 
+		const returning = this.compileReturning();
+		if (returning) {
+			segments.push(returning);
+		}
+
 		return {
 			sql: segments.join(" "),
 			bindings,
@@ -362,6 +385,11 @@ export class QueryBuilder<TRow extends QueryRow = QueryRow> {
 			segments.push(`where ${where.sql}`);
 		}
 
+		const returning = this.compileReturning();
+		if (returning) {
+			segments.push(returning);
+		}
+
 		return {
 			sql: segments.join(" "),
 			bindings: where.bindings,
@@ -370,6 +398,14 @@ export class QueryBuilder<TRow extends QueryRow = QueryRow> {
 
 	private compileColumns(columns: readonly QueryColumn<TRow>[]): string {
 		return columns.map((column) => escapeIdentifier(column)).join(", ");
+	}
+
+	private compileReturning(): string | null {
+		if (this.returningColumns.length === 0) {
+			return null;
+		}
+
+		return `returning ${this.compileColumns(this.returningColumns)}`;
 	}
 
 	private compileWhereConditions(): WhereCompileResult {
