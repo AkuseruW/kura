@@ -73,7 +73,7 @@ const databasePresetChoices = [
 	{
 		value: "postgres",
 		label: "Postgres",
-		description: "Config-only: DATABASE_URL connection; add a driver",
+		description: "Runtime-ready: DATABASE_URL connection",
 	},
 	{
 		value: "mysql",
