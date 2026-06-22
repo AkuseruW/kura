@@ -86,6 +86,26 @@ describe("generator console commands", () => {
 		).toContain("export class AdminUserController extends BaseController");
 	});
 
+	test("prints generator command help when the name is missing", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerGeneratorCommands(console, { root, now: fixedNow });
+
+		const exitCode = await console.run(["make:controller"]);
+
+		expect(exitCode).toBe(1);
+		expect(output.errorText()).toContain(
+			"Command [make:controller] requires <name>.",
+		);
+		expect(output.errorText()).toContain("Usage:");
+		expect(output.errorText()).toContain(
+			"kura make:controller <name> [options]",
+		);
+		expect(output.errorText()).toContain("Example:");
+		expect(output.errorText()).toContain("kura make:controller User");
+	});
+
 	test("generates module-aware files for modular architecture", async () => {
 		const root = await makeRoot();
 		const output = new MemoryConsoleOutput();

@@ -68,7 +68,59 @@ describe("ConsoleKernel", () => {
 		const exitCode = await kernel.run(["missing"]);
 
 		expect(exitCode).toBe(1);
-		expect(output.errorText()).toBe("Command [missing] was not found");
+		expect(output.errorText()).toContain("Command [missing] was not found");
+		expect(output.errorText()).toContain("Run `kura` to list commands.");
+	});
+
+	test("lists namespaced commands for unknown names", async () => {
+		const output = new MemoryConsoleOutput();
+		const kernel = new ConsoleKernel(output);
+
+		kernel.register(
+			defineCommand({ name: "make:controller" }, () => undefined),
+		);
+		kernel.register(defineCommand({ name: "make:model" }, () => undefined));
+		kernel.register(defineCommand({ name: "route:list" }, () => undefined));
+
+		const exitCode = await kernel.run(["make:dev"]);
+
+		expect(exitCode).toBe(1);
+		expect(output.errorText()).toContain("Command [make:dev] was not found");
+		expect(output.errorText()).toContain("Available make commands:");
+		expect(output.errorText()).toContain("make:controller");
+		expect(output.errorText()).toContain("make:model");
+		expect(output.errorText()).not.toContain("route:list");
+	});
+
+	test("prints command help when a required argument is missing", async () => {
+		const output = new MemoryConsoleOutput();
+		const kernel = new ConsoleKernel(output);
+		let handled = false;
+
+		kernel.register(
+			defineCommand(
+				{
+					name: "make:user",
+					description: "Create a user",
+					arguments: [{ name: "name", required: true }],
+				},
+				() => {
+					handled = true;
+				},
+			),
+		);
+
+		const exitCode = await kernel.run(["make:user"]);
+
+		expect(exitCode).toBe(1);
+		expect(handled).toBe(false);
+		expect(output.errorText()).toContain(
+			"Command [make:user] requires <name>.",
+		);
+		expect(output.errorText()).toContain("Usage:");
+		expect(output.errorText()).toContain("kura make:user <name>");
+		expect(output.errorText()).toContain("Example:");
+		expect(output.errorText()).toContain("kura make:user User");
 	});
 
 	test("can rethrow command errors for embedding", async () => {

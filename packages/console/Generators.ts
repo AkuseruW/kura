@@ -78,7 +78,7 @@ function makeGeneratorCommand(
 			const rawName = context.args[0];
 
 			if (!rawName) {
-				throw new Error(`Command [${definition.commandName}] requires a name`);
+				throw new Error(`Command [${definition.commandName}] requires <name>.`);
 			}
 
 			const root = resolveRoot(options, context.options);
