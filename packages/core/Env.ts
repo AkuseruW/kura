@@ -1,4 +1,14 @@
-export class Env {
+import type {
+	EnvSchema,
+	EnvShape,
+	EnvSource,
+	EnvValidationResult,
+	InferEnvShape,
+} from "./EnvSchema";
+
+export class Env<TEnvShape extends EnvShape = EnvShape> {
+	constructor(private readonly schema?: EnvSchema<TEnvShape>) {}
+
 	get<T>(key: string, defaultValue: T): T {
 		return (process.env[key] as unknown as T) ?? defaultValue;
 	}
@@ -19,6 +29,32 @@ export class Env {
 			throw new Error(`Missing environment variable: ${key}`);
 		}
 		return value;
+	}
+
+	validate<TShape extends EnvShape = TEnvShape>(
+		schema = this.schema as EnvSchema<TShape> | undefined,
+		source: EnvSource = process.env,
+	): EnvValidationResult<InferEnvShape<TShape>> {
+		if (!schema) {
+			return {
+				valid: true,
+				values: {} as InferEnvShape<TShape>,
+				issues: [],
+			};
+		}
+
+		return schema.validate(source);
+	}
+
+	validated<TShape extends EnvShape = TEnvShape>(
+		schema = this.schema as EnvSchema<TShape> | undefined,
+		source: EnvSource = process.env,
+	): InferEnvShape<TShape> {
+		if (!schema) {
+			return {} as InferEnvShape<TShape>;
+		}
+
+		return schema.parse(source);
 	}
 
 	async load(path: string): Promise<void> {

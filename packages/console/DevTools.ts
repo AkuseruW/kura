@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Config } from "../core/Config";
 import { Config as ConfigStore } from "../core/Config";
+import type { EnvSchema, EnvShape } from "../core/EnvSchema";
 import type { RegisteredRoute, Router } from "../http/Router";
 import type { BunStaticRouteMap } from "../http/Server";
 import {
@@ -25,6 +26,9 @@ export type DevToolConsoleOptions = {
 		| BunStaticRouteMap
 		| Promise<BunStaticRouteMap>;
 	readonly loadConfig?: () => Config | Promise<Config>;
+	readonly loadEnvSchema?: () =>
+		| EnvSchema<EnvShape>
+		| Promise<EnvSchema<EnvShape>>;
 };
 
 type DoctorStatus = "error" | "ok" | "warn";
@@ -122,8 +126,8 @@ function createEnvCommand(options: DevToolConsoleOptions): Command {
 				},
 			],
 		},
-		(ctx) => {
-			const entries = readEnvEntries(options, ctx.options);
+		async (ctx) => {
+			const entries = await readEnvEntries(options, ctx.options);
 
 			if (isEnabled(ctx.options, "json")) {
 				ctx.output.write(formatJson(Object.fromEntries(entries)));
@@ -194,6 +198,7 @@ function createDoctorCommand(options: DevToolConsoleOptions): Command {
 		{
 			name: "doctor",
 			description: "Check project setup and common DX issues",
+			aliases: ["deploy:doctor"],
 			options: [
 				{
 					name: "json",
@@ -264,17 +269,49 @@ async function resolveConfig(
 	return config;
 }
 
-function readEnvEntries(
+async function resolveEnvSchema(
+	options: DevToolConsoleOptions,
+): Promise<EnvSchema<EnvShape> | undefined> {
+	if (!options.loadEnvSchema) {
+		return undefined;
+	}
+
+	return options.loadEnvSchema();
+}
+
+async function readEnvEntries(
 	options: DevToolConsoleOptions,
 	consoleOptions: ConsoleOptions,
-): readonly (readonly [string, string])[] {
+): Promise<readonly (readonly [string, string])[]> {
+	if (!isEnabled(consoleOptions, "all")) {
+		const schema = await resolveEnvSchema(options);
+
+		if (schema) {
+			const descriptions = schema.describe();
+
+			return schema.keys().map((key) => {
+				const value = process.env[key];
+
+				return [
+					key,
+					value === undefined || value.length === 0
+						? "<missing>"
+						: redactEnvValue(key, value, descriptions[key]?.secret ?? false),
+				] as const;
+			});
+		}
+	}
+
 	const keys = isEnabled(consoleOptions, "all")
 		? Object.keys(process.env).sort()
 		: [...(options.envKeys ?? defaultEnvKeys)];
 
 	return keys
 		.filter((key) => process.env[key] !== undefined)
-		.map((key) => [key, redactEnvValue(key, process.env[key] ?? "")] as const);
+		.map(
+			(key) =>
+				[key, redactEnvValue(key, process.env[key] ?? "", false)] as const,
+		);
 }
 
 async function runDoctorChecks(
@@ -305,6 +342,9 @@ async function runDoctorChecks(
 		status: process.env.APP_KEY ? "ok" : "error",
 		message: process.env.APP_KEY ? "APP_KEY is loaded" : "APP_KEY is missing",
 	});
+
+	checks.push(...(await runEnvSchemaChecks(options)));
+
 	checks.push({
 		name: "config",
 		status: configExists ? "ok" : "error",
@@ -353,6 +393,38 @@ async function runDoctorChecks(
 	}
 
 	return checks;
+}
+
+async function runEnvSchemaChecks(
+	options: DevToolConsoleOptions,
+): Promise<readonly DoctorCheck[]> {
+	try {
+		const schema = await resolveEnvSchema(options);
+
+		if (!schema) {
+			return [];
+		}
+
+		const result = schema.validate(process.env);
+
+		return [
+			{
+				name: "env-schema",
+				status: result.valid ? "ok" : "error",
+				message: result.valid
+					? `${schema.keys().length} environment keys validated`
+					: summarizeEnvIssues(result.issues),
+			},
+		];
+	} catch (error) {
+		return [
+			{
+				name: "env-schema",
+				status: "error",
+				message: errorMessage(error),
+			},
+		];
+	}
 }
 
 async function runFeatureSupportChecks(
@@ -486,8 +558,8 @@ function formatStatus(status: DoctorStatus): string {
 	return "ERROR";
 }
 
-function redactEnvValue(key: string, value: string): string {
-	return shouldRedact(key) ? redact(value) : value;
+function redactEnvValue(key: string, value: string, secret: boolean): string {
+	return secret || shouldRedact(key) ? redact(value) : value;
 }
 
 function shouldRedact(key: string): boolean {
@@ -504,6 +576,14 @@ function redact(value: string): string {
 	}
 
 	return `${value.slice(0, 2)}${"*".repeat(Math.min(8, value.length - 4))}${value.slice(-2)}`;
+}
+
+function summarizeEnvIssues(
+	issues: readonly { readonly key: string }[],
+): string {
+	const keys = issues.map((issue) => issue.key).join(", ");
+
+	return `invalid or missing environment variables: ${keys}`;
 }
 
 function formatConfigRoot(value: unknown): string {

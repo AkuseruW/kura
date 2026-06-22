@@ -21,6 +21,7 @@ export function makePackageJson(
 			start: "bun bin/console.ts serve --host 0.0.0.0",
 			routes: "bun bin/console.ts routes",
 			doctor: "bun bin/console.ts doctor",
+			"deploy:doctor": "bun bin/console.ts deploy:doctor",
 			env: "bun bin/console.ts env",
 			config: "bun bin/console.ts config",
 			test: "bun bin/test.ts",
@@ -148,7 +149,7 @@ export function makeConsoleEntrypoint(choices: NewAppChoices): string {
 \tregisterServeCommand,
 } from "kura/console";
 
-await import("#start/env");
+const startEnv = await import("#start/env");
 
 const appConsole = createConsole();
 
@@ -164,6 +165,7 @@ ${databaseRegistration}registerDevToolCommands(appConsole, {
 \t\tconst routes = await import("#start/routes");
 \t\treturn routes.router;
 \t}${devToolStaticRoutes},
+\tloadEnvSchema: () => startEnv.envSchema,
 });
 
 const exitCode = await appConsole.run(Bun.argv.slice(2));
@@ -314,6 +316,8 @@ export const development = (
 export { router };
 export default router;
 ${staticRouteExports}
+env.validated();
+
 export const handler = createHandler();
 
 function createHandler() {
@@ -360,6 +364,33 @@ export function makeEnv(choices: NewAppChoices): string {
 	return makeEnvFile(choices, "local-development-key");
 }
 
+export function makeStartEnv(choices: NewAppChoices): string {
+	return `import { basename, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineEnv, Env, envVar } from "kura/env";
+
+const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const appRoot =
+\tbasename(runtimeRoot) === "build" ? resolve(runtimeRoot, "..") : runtimeRoot;
+
+export const envSchema = defineEnv({
+${makeEnvSchemaEntries(choices)}
+});
+
+const env = new Env(envSchema);
+
+await env.load(resolve(appRoot, ".env")).catch(() => undefined);
+
+if (Bun.env.NODE_ENV === "test") {
+\tawait env.load(resolve(appRoot, ".env.test")).catch(() => undefined);
+}
+
+export const envValidation = env.validate();
+
+export default env;
+`;
+}
+
 function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 	const lines = [
 		`APP_NAME=${choices.preset === "api" ? "Kura API" : "Kura"}`,
@@ -369,7 +400,7 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 		"NODE_ENV=development",
 		"LOG_LEVEL=info",
 		`APP_KEY=${appKey}`,
-		`APP_URL=http://\${HOST}:\${PORT}`,
+		"APP_URL=http://localhost:3333",
 	];
 
 	if (choices.auth !== "none") {
@@ -395,7 +426,9 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 		lines.push(
 			`DB_CONNECTION=${choices.database === "none" ? "memory" : choices.database}`,
 		);
-		lines.push("DATABASE_URL=");
+		if (choices.database === "postgres" || choices.database === "mysql") {
+			lines.push("DATABASE_URL=");
+		}
 	}
 
 	if (choices.cache === "redis" || choices.queue === "redis") {
@@ -403,6 +436,92 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 	}
 
 	return `${lines.join("\n")}\n`;
+}
+
+function makeEnvSchemaEntries(choices: NewAppChoices): string {
+	const entries = [
+		[
+			"APP_NAME",
+			`envVar.string().default(${JSON.stringify(
+				choices.preset === "api" ? "Kura API" : "Kura",
+			)})`,
+		],
+		["TZ", 'envVar.string().default("UTC")'],
+		["PORT", "envVar.number().default(3333)"],
+		["HOST", 'envVar.string().default("localhost")'],
+		[
+			"NODE_ENV",
+			'envVar.enum(["development", "test", "production"]).default("development")',
+		],
+		[
+			"LOG_LEVEL",
+			'envVar.enum(["trace", "debug", "info", "warn", "error", "silent"]).default("info")',
+		],
+		["APP_KEY", "envVar.secret()"],
+		["APP_URL", 'envVar.url().default("http://localhost:3333")'],
+	];
+
+	if (choices.auth !== "none") {
+		entries.push(
+			[
+				"HASH_DRIVER",
+				'envVar.enum(["bcrypt", "argon2id", "argon2i"]).default("bcrypt")',
+			],
+			[
+				"AUTH_GUARD",
+				`envVar.enum(["web", "api", "none"]).default(${JSON.stringify(
+					choices.auth === "session" ? "web" : "api",
+				)})`,
+			],
+		);
+	}
+
+	if (choices.auth === "session") {
+		entries.push(
+			[
+				"SESSION_DRIVER",
+				'envVar.enum(["cookie", "memory", "database"]).default("cookie")',
+			],
+			["SESSION_COOKIE_NAME", 'envVar.string().default("kura-session")'],
+		);
+	}
+
+	if (choices.cache !== "memory") {
+		entries.push([
+			"CACHE_STORE",
+			`envVar.enum(["memory", "file", "redis"]).default(${JSON.stringify(
+				choices.cache,
+			)})`,
+		]);
+	}
+
+	if (choices.queue !== "none") {
+		entries.push([
+			"QUEUE_CONNECTION",
+			`envVar.enum(["none", "memory", "sqlite", "redis"]).default(${JSON.stringify(
+				choices.queue,
+			)})`,
+		]);
+	}
+
+	if (usesDatabaseFiles(choices)) {
+		entries.push([
+			"DB_CONNECTION",
+			`envVar.enum(["memory", "sqlite", "postgres", "mysql"]).default(${JSON.stringify(
+				choices.database === "none" ? "memory" : choices.database,
+			)})`,
+		]);
+	}
+
+	if (choices.database === "postgres" || choices.database === "mysql") {
+		entries.push(["DATABASE_URL", "envVar.url().secret()"]);
+	}
+
+	if (choices.cache === "redis" || choices.queue === "redis") {
+		entries.push(["REDIS_URL", "envVar.url().secret()"]);
+	}
+
+	return entries.map(([key, value]) => `\t${key}: ${value},`).join("\n");
 }
 
 export function makeKuraConfig(): string {

@@ -262,6 +262,7 @@ describe("new app command", () => {
 			scripts: {
 				build: string;
 				config: string;
+				"deploy:doctor": string;
 				dev: string;
 				doctor: string;
 				env: string;
@@ -275,6 +276,9 @@ describe("new app command", () => {
 		expect(packageJson.scripts.dev).toBe("bun bin/console.ts serve --watch");
 		expect(packageJson.scripts.routes).toBe("bun bin/console.ts routes");
 		expect(packageJson.scripts.doctor).toBe("bun bin/console.ts doctor");
+		expect(packageJson.scripts["deploy:doctor"]).toBe(
+			"bun bin/console.ts deploy:doctor",
+		);
 		expect(packageJson.scripts.env).toBe("bun bin/console.ts env");
 		expect(packageJson.scripts.config).toBe("bun bin/console.ts config");
 		expect(packageJson.scripts.test).toBe("bun bin/test.ts");
@@ -298,6 +302,7 @@ describe("new app command", () => {
 			"demo-api/bin/console.ts",
 		);
 		expect(consoleEntrypoint).toContain('await import("#start/env")');
+		expect(consoleEntrypoint).toContain("loadEnvSchema");
 		expect(consoleEntrypoint).toContain('entry: "bin/server.ts"');
 		expect(consoleEntrypoint).toContain("registerDevToolCommands");
 		expect(consoleEntrypoint).toContain('from "kura/console"');
@@ -329,12 +334,18 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
 			"return pipeline.toHandler(dispatchRouter)",
 		);
-		expect(await readGenerated(root, "demo-api/start/env.ts")).toContain(
-			"new Env()",
-		);
-		expect(await readGenerated(root, "demo-api/start/env.ts")).toContain(
-			'from "kura/env"',
-		);
+		const startEnv = await readGenerated(root, "demo-api/start/env.ts");
+		expect(startEnv).toContain("defineEnv");
+		expect(startEnv).toContain("envVar.secret()");
+		expect(startEnv).toContain("new Env(envSchema)");
+		expect(startEnv).toContain("export const envValidation");
+		expect(startEnv).toContain("HASH_DRIVER");
+		expect(startEnv).toContain("AUTH_GUARD");
+		expect(startEnv).toContain("CACHE_STORE");
+		expect(startEnv).toContain("QUEUE_CONNECTION");
+		expect(startEnv).toContain("DB_CONNECTION");
+		expect(startEnv).not.toContain("DATABASE_URL");
+		expect(startEnv).toContain('from "kura/env"');
 		const kernel = await readGenerated(root, "demo-api/start/kernel.ts");
 		expect(kernel).toContain("defineHttpKernel");
 		expect(kernel).toContain("export const kernel =");
