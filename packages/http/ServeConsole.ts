@@ -1,4 +1,5 @@
 import { watch } from "node:fs";
+import { access } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -41,6 +42,16 @@ export interface ServeConsoleOptions {
 	readonly color?: boolean;
 	readonly errorHandler?: HttpErrorHandlerInput;
 }
+
+export interface PreviewConsoleOptions extends ServeConsoleOptions {
+	readonly buildCommand?: readonly string[];
+	readonly buildRunner?: PreviewBuildRunner;
+}
+
+export type PreviewBuildRunner = (options: {
+	readonly command: readonly string[];
+	readonly root: string;
+}) => Promise<void> | void;
 
 export type ServeEntryLoader = (
 	entry: string,
@@ -167,11 +178,153 @@ export function createServeCommand(options: ServeConsoleOptions = {}): Command {
 	);
 }
 
+export function createPreviewCommand(
+	options: PreviewConsoleOptions = {},
+): Command {
+	const defaultPort = options.port ?? readEnvPort() ?? 3333;
+
+	return defineCommand(
+		{
+			name: "preview",
+			description: "Start the production preview server",
+			options: [
+				{
+					name: "host",
+					value: "string",
+					default: options.host ?? "127.0.0.1",
+					description: "Host to bind",
+				},
+				{
+					name: "port",
+					alias: "p",
+					value: "string",
+					default: String(defaultPort),
+					description: "Port to bind",
+				},
+				{
+					name: "entry",
+					alias: "e",
+					value: "string",
+					default: options.entry ?? "build/server.js",
+					description: "Production server entry module",
+				},
+				{
+					name: "root",
+					alias: "r",
+					value: "string",
+					default: options.root ?? process.cwd(),
+					description: "Project root directory",
+				},
+				{
+					name: "build",
+					default: true,
+					description:
+						"Build the application when the preview entry is missing",
+				},
+				{
+					name: "request-log",
+					default: true,
+					description: "Log HTTP requests",
+				},
+			],
+		},
+		async (context) => {
+			const config = resolveServeConfig(
+				{
+					...options,
+					environment: "production",
+				},
+				context.options,
+			);
+			const shouldBuild = context.options.build !== false;
+			const buildCommand = options.buildCommand ?? [
+				process.execPath,
+				"run",
+				"build",
+			];
+			const buildRunner = options.buildRunner ?? runPreviewBuild;
+
+			if (!(await pathExists(config.entry))) {
+				if (!shouldBuild) {
+					throw new Error(
+						`Production preview entry [${displayPath(
+							config.root,
+							config.entry,
+						)}] was not found. Run bun run build before preview.`,
+					);
+				}
+
+				context.output.write(
+					`Production build not found. Running ${formatCommand(buildCommand)}...`,
+				);
+				await buildRunner({
+					command: buildCommand,
+					root: config.root,
+				});
+			}
+
+			if (!(await pathExists(config.entry))) {
+				throw new Error(
+					`Production preview entry [${displayPath(
+						config.root,
+						config.entry,
+					)}] was not created by ${formatCommand(buildCommand)}.`,
+				);
+			}
+
+			const startedAt = config.clock();
+			const previousNodeEnv = Bun.env.NODE_ENV;
+			const previousCwd = process.cwd();
+			const previewRuntimeRoot = resolvePreviewRuntimeRoot(
+				config.root,
+				config.entry,
+			);
+			const previewConfig = {
+				...config,
+				banner: "Kura production preview started",
+			};
+			Bun.env.NODE_ENV = "production";
+			process.chdir(previewRuntimeRoot);
+
+			try {
+				const runtime = await startDevServer(
+					previewConfig,
+					context.output.write.bind(context.output),
+				);
+				const duration = elapsedMilliseconds(startedAt, config.clock());
+
+				context.output.write(
+					formatServerStarted(previewConfig, runtime, duration),
+				);
+
+				if (options.keepAlive === false) {
+					runtime.server.stop();
+					return;
+				}
+
+				await waitForShutdown(runtime);
+			} finally {
+				process.chdir(previousCwd);
+				restoreNodeEnv(previousNodeEnv);
+			}
+		},
+	);
+}
+
 export function registerServeCommand(
 	console: ConsoleKernel,
 	options: ServeConsoleOptions = {},
 ): ConsoleKernel {
 	console.register(createServeCommand(options));
+
+	return console;
+}
+
+export function registerPreviewCommand(
+	console: ConsoleKernel,
+	options: PreviewConsoleOptions = {},
+): ConsoleKernel {
+	console.register(createPreviewCommand(options));
 
 	return console;
 }
@@ -195,6 +348,7 @@ type ServeConfig = {
 	readonly loader: ServeEntryLoader;
 	readonly serverFactory: ServeServerFactory;
 	readonly watcherFactory: ServeWatcherFactory;
+	readonly banner: string;
 };
 
 type ServeRuntime = {
@@ -302,6 +456,7 @@ function resolveServeConfig(
 		loader: options.loader ?? loadServeEntry,
 		serverFactory: options.serverFactory ?? createBunServer,
 		watcherFactory: options.watcherFactory ?? createNodeWatcher,
+		banner: "Kura server started",
 	};
 }
 
@@ -527,6 +682,55 @@ function waitForShutdown(runtime: ServeRuntime): Promise<void> {
 	});
 }
 
+async function pathExists(path: string): Promise<boolean> {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function runPreviewBuild(options: {
+	readonly command: readonly string[];
+	readonly root: string;
+}): void {
+	const result = Bun.spawnSync({
+		cmd: [...options.command],
+		cwd: options.root,
+		stderr: "pipe",
+		stdout: "pipe",
+	});
+
+	if (result.exitCode === 0) {
+		return;
+	}
+
+	const stderr = result.stderr.toString().trim();
+	const stdout = result.stdout.toString().trim();
+	const details = stderr || stdout;
+
+	throw new Error(
+		details ? `Production build failed: ${details}` : "Production build failed",
+	);
+}
+
+function formatCommand(command: readonly string[]): string {
+	const [runtime, ...args] = command;
+	const commandName = runtime === process.execPath ? "bun" : (runtime ?? "bun");
+
+	return [commandName, ...args].join(" ");
+}
+
+function restoreNodeEnv(value: string | undefined): void {
+	if (value === undefined) {
+		delete Bun.env.NODE_ENV;
+		return;
+	}
+
+	Bun.env.NODE_ENV = value;
+}
+
 function resolveRoot(root: string | undefined): string {
 	const value = root ?? process.cwd();
 
@@ -535,6 +739,26 @@ function resolveRoot(root: string | undefined): string {
 
 function resolveEntry(root: string, entry: string): string {
 	return isAbsolute(entry) ? entry : resolve(root, entry);
+}
+
+function resolvePreviewRuntimeRoot(root: string, entry: string): string {
+	const relativeEntry = relative(root, entry);
+
+	if (
+		relativeEntry === "" ||
+		relativeEntry.startsWith("..") ||
+		isAbsolute(relativeEntry)
+	) {
+		return root;
+	}
+
+	const [directory] = relativeEntry.split(/[\\/]/);
+
+	if (directory === "build" || directory === "dist") {
+		return resolve(root, directory);
+	}
+
+	return root;
 }
 
 function parsePort(value: string | undefined): number {
@@ -617,7 +841,7 @@ function formatServerStarted(
 ): string {
 	const theme = makeConsoleTheme(config.color);
 	const lines = [
-		theme.success("Kura server started"),
+		theme.success(config.banner),
 		"",
 		`  ${theme.heading("Server")}`,
 		formatServerRow(theme, "URL", runtime.server.url.href),

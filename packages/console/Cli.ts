@@ -1,4 +1,6 @@
 import {
+	type PreviewConsoleOptions,
+	registerPreviewCommand,
 	registerServeCommand,
 	type ServeConsoleOptions,
 } from "../http/ServeConsole";
@@ -17,6 +19,7 @@ export interface KuraCliOptions {
 	readonly newApp?: NewAppConsoleOptions;
 	readonly generators?: GeneratorConsoleOptions;
 	readonly serve?: ServeConsoleOptions;
+	readonly preview?: PreviewConsoleOptions;
 	readonly devTools?: DevToolConsoleOptions;
 }
 
@@ -26,6 +29,7 @@ export function createKuraConsole(options: KuraCliOptions = {}): ConsoleKernel {
 	registerNewAppCommand(console, options.newApp);
 	registerGeneratorCommands(console, options.generators);
 	registerServeCommand(console, options.serve);
+	registerPreviewCommand(console, options.preview);
 	registerDevToolCommands(console, options.devTools);
 
 	return console;

@@ -1,9 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ConsoleKernel, MemoryConsoleOutput } from "../console/Console";
 import { createContext } from "./Context";
 import { Router } from "./Router";
 import {
+	createPreviewCommand,
 	createServeCommand,
+	registerPreviewCommand,
 	registerServeCommand,
 	type ServeServerFactory,
 	type ServeServerStartOptions,
@@ -11,6 +16,8 @@ import {
 	type ServeWatcherChange,
 	type ServeWatcherFactory,
 } from "./ServeConsole";
+
+const roots: string[] = [];
 
 function fakeServerFactory() {
 	const starts: ServeServerStartOptions[] = [];
@@ -63,6 +70,7 @@ function testContext(url: string, init?: RequestInit) {
 
 function serverStartedOutput(options: {
 	readonly url: string;
+	readonly banner?: string;
 	readonly entry?: string;
 	readonly root?: string;
 	readonly mode?: string;
@@ -71,7 +79,7 @@ function serverStartedOutput(options: {
 	readonly keepAlive?: boolean;
 }): string {
 	const lines = [
-		"Kura server started",
+		options.banner ?? "Kura server started",
 		"",
 		"  Server",
 		`  URL     ${options.url}`,
@@ -94,6 +102,18 @@ function serverStartedOutput(options: {
 	return lines.join("\n");
 }
 
+afterEach(async () => {
+	for (const root of roots.splice(0)) {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+async function makeRoot(): Promise<string> {
+	const root = await mkdtemp(join(tmpdir(), "kura-preview-"));
+	roots.push(root);
+	return root;
+}
+
 describe("serve console command", () => {
 	test("registers the serve command", () => {
 		const console = new ConsoleKernel(new MemoryConsoleOutput());
@@ -105,6 +125,18 @@ describe("serve console command", () => {
 		});
 
 		expect(console.list().map((command) => command.name)).toEqual(["serve"]);
+	});
+
+	test("registers the preview command", () => {
+		const console = new ConsoleKernel(new MemoryConsoleOutput());
+
+		registerPreviewCommand(console, {
+			handler: () => new Response("ok"),
+			serverFactory: fakeServerFactory().factory,
+			keepAlive: false,
+		});
+
+		expect(console.list().map((command) => command.name)).toEqual(["preview"]);
 	});
 
 	test("starts a development server with configured host and port", async () => {
@@ -311,6 +343,111 @@ describe("serve console command", () => {
 			testContext("http://localhost"),
 		);
 		expect(await response?.text()).toBe("loaded");
+	});
+
+	test("starts a production preview from a built entry module", async () => {
+		const root = await makeRoot();
+		await mkdir(join(root, "build"), { recursive: true });
+		await writeFile(join(root, "build/server.js"), "");
+		const previousNodeEnv = Bun.env.NODE_ENV;
+		const previousCwd = process.cwd();
+		const previewCwd = await realpath(join(root, "build"));
+		Bun.env.NODE_ENV = "development";
+		const output = new MemoryConsoleOutput();
+		const fake = fakeServerFactory();
+		const loadedEntries: string[] = [];
+		const console = new ConsoleKernel(output);
+		console.register(
+			createPreviewCommand({
+				root,
+				loader: async (entry): Promise<ServeTarget> => {
+					loadedEntries.push(entry);
+					expect(Bun.env.NODE_ENV).toBe("production");
+					expect(await realpath(process.cwd())).toBe(previewCwd);
+					return {
+						handler: () => new Response("preview"),
+					};
+				},
+				serverFactory: fake.factory,
+				keepAlive: false,
+				clock: fakeClock(0, 42),
+				color: false,
+			}),
+		);
+
+		try {
+			expect(await console.run(["preview"])).toBe(0);
+		} finally {
+			if (previousNodeEnv === undefined) {
+				delete Bun.env.NODE_ENV;
+			} else {
+				Bun.env.NODE_ENV = previousNodeEnv;
+			}
+		}
+
+		expect(loadedEntries).toEqual([join(root, "build/server.js")]);
+		expect(await realpath(process.cwd())).toBe(await realpath(previousCwd));
+		expect(output.text()).toBe(
+			serverStartedOutput({
+				banner: "Kura production preview started",
+				url: "http://127.0.0.1:3333/",
+				entry: "build/server.js",
+				root,
+				mode: "production",
+				keepAlive: false,
+			}),
+		);
+		expect(Bun.env.NODE_ENV).toBe(previousNodeEnv);
+		const response = await fake.starts[0]?.handler(
+			testContext("http://localhost"),
+		);
+		expect(await response?.text()).toBe("preview");
+	});
+
+	test("builds before preview when the production entry is missing", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const fake = fakeServerFactory();
+		const buildCommands: string[][] = [];
+		const console = new ConsoleKernel(output);
+		registerPreviewCommand(console, {
+			root,
+			buildRunner: async ({ command, root: buildRoot }) => {
+				buildCommands.push([...command]);
+				await mkdir(join(buildRoot, "build"), { recursive: true });
+				await writeFile(join(buildRoot, "build/server.js"), "");
+			},
+			loader: async (): Promise<ServeTarget> => () => new Response("built"),
+			serverFactory: fake.factory,
+			keepAlive: false,
+			clock: fakeClock(0, 42),
+			color: false,
+		});
+
+		expect(await console.run(["preview"])).toBe(0);
+
+		expect(buildCommands).toEqual([[process.execPath, "run", "build"]]);
+		expect(output.text()).toContain(
+			"Production build not found. Running bun run build...",
+		);
+		expect(output.text()).toContain("Kura production preview started");
+	});
+
+	test("fails preview clearly when build is disabled and the entry is missing", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerPreviewCommand(console, {
+			root,
+			serverFactory: fakeServerFactory().factory,
+			keepAlive: false,
+		});
+
+		expect(await console.run(["preview", "--no-build"])).toBe(1);
+
+		expect(output.errorText()).toBe(
+			"Production preview entry [build/server.js] was not found. Run bun run build before preview.",
+		);
 	});
 
 	test("loads Bun static routes and development options from an entry module", async () => {

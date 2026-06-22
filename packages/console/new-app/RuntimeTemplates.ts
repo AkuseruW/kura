@@ -19,6 +19,7 @@ export function makePackageJson(
 			kura: "bun bin/console.ts",
 			dev: "bun bin/console.ts serve --watch",
 			start: "bun bin/console.ts serve --host 0.0.0.0",
+			preview: "bun bin/console.ts preview",
 			routes: "bun bin/console.ts routes",
 			doctor: "bun bin/console.ts doctor",
 			"deploy:doctor": "bun bin/console.ts deploy:doctor",
@@ -64,6 +65,10 @@ function makeBuildScript(choices: NewAppChoices): string {
 	const rootOption = choices.preset === "full" ? " --root ." : "";
 
 	return `bun build bin/server.ts --target=bun --production --outdir=build --packages=external${rootOption}`;
+}
+
+function makePreviewEntry(choices: NewAppChoices): string {
+	return choices.preset === "full" ? "build/bin/server.js" : "build/server.js";
 }
 
 function makeRouteImportTarget(choices: NewAppChoices): string {
@@ -146,6 +151,7 @@ export function makeConsoleEntrypoint(choices: NewAppChoices): string {
 \tcreateConsole,
 \tregisterDevToolCommands,
 \tregisterGeneratorCommands,
+\tregisterPreviewCommand,
 \tregisterServeCommand,
 } from "kura/console";
 
@@ -158,6 +164,9 @@ registerGeneratorCommands(appConsole, {
 });
 registerServeCommand(appConsole, {
 \tentry: "bin/server.ts",
+});
+registerPreviewCommand(appConsole, {
+\tentry: "${makePreviewEntry(choices)}",
 });
 ${databaseRegistration}registerDevToolCommands(appConsole, {
 \troot: process.cwd(),
@@ -379,7 +388,7 @@ ${makeEnvSchemaEntries(choices)}
 
 const env = new Env(envSchema);
 
-await env.load(resolve(appRoot, ".env")).catch(() => undefined);
+await env.load(resolve(appRoot, ".env"), { override: false }).catch(() => undefined);
 
 if (Bun.env.NODE_ENV === "test") {
 \tawait env.load(resolve(appRoot, ".env.test")).catch(() => undefined);

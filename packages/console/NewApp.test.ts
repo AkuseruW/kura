@@ -267,6 +267,7 @@ describe("new app command", () => {
 				doctor: string;
 				env: string;
 				kura: string;
+				preview: string;
 				routes: string;
 				test: string;
 			};
@@ -274,6 +275,7 @@ describe("new app command", () => {
 		expect(packageJson.dependencies.kura).toBe("file:../kura");
 		expect(packageJson.scripts.kura).toBe("bun bin/console.ts");
 		expect(packageJson.scripts.dev).toBe("bun bin/console.ts serve --watch");
+		expect(packageJson.scripts.preview).toBe("bun bin/console.ts preview");
 		expect(packageJson.scripts.routes).toBe("bun bin/console.ts routes");
 		expect(packageJson.scripts.doctor).toBe("bun bin/console.ts doctor");
 		expect(packageJson.scripts["deploy:doctor"]).toBe(
@@ -307,6 +309,8 @@ describe("new app command", () => {
 		expect(consoleEntrypoint).toContain("registerDevToolCommands");
 		expect(consoleEntrypoint).toContain('from "kura/console"');
 		expect(consoleEntrypoint).toContain('await import("#start/routes")');
+		expect(consoleEntrypoint).toContain("registerPreviewCommand");
+		expect(consoleEntrypoint).toContain('entry: "build/server.js"');
 		expect(consoleEntrypoint).toContain('from "kura/database"');
 		expect(consoleEntrypoint).toContain("new DatabaseManager(databaseConfig)");
 		expect(consoleEntrypoint).toContain(
@@ -791,6 +795,11 @@ describe("new app command", () => {
 			await readGenerated(root, "demo-full/package.json"),
 		) as { scripts: { build: string } };
 		expect(packageJson.scripts.build).toContain("--root .");
+		const consoleEntrypoint = await readGenerated(
+			root,
+			"demo-full/bin/console.ts",
+		);
+		expect(consoleEntrypoint).toContain('entry: "build/bin/server.js"');
 
 		const sourceHtml = await readGenerated(
 			root,
