@@ -243,7 +243,7 @@ describe("new app command", () => {
 		expect(output.text()).toContain("Database sqlite");
 		expect(output.text()).toContain("Modules  mail, storage");
 		expect(output.text()).toContain("Feature Status");
-		expect(output.text()).toMatch(/Database\s+config-only/);
+		expect(output.text()).toMatch(/Database\s+runtime-ready/);
 		expect(output.text()).toMatch(/Auth\s+starter/);
 		expect(output.text()).toMatch(/Cache\s+runtime-ready/);
 		expect(output.text()).toMatch(/Queue\s+runtime-ready/);
@@ -306,6 +306,9 @@ describe("new app command", () => {
 		expect(consoleEntrypoint).toContain("new DatabaseManager(databaseConfig)");
 		expect(consoleEntrypoint).toContain(
 			'database.extend("memory", new MemoryDatabaseDriver())',
+		);
+		expect(consoleEntrypoint).toContain(
+			'database.extend("sqlite", new SQLiteDatabaseDriver())',
 		);
 		expect(consoleEntrypoint).toContain("registerDatabaseCommands(appConsole");
 		expect(consoleEntrypoint).toContain("CreateUsers");
@@ -493,7 +496,7 @@ describe("new app command", () => {
 		const readme = await readGenerated(root, "demo-api/README.md");
 		expect(readme).toContain("HTTP kernel");
 		expect(readme).toContain("## Feature Status");
-		expect(readme).toContain("- Database (config-only): SQLite");
+		expect(readme).toContain("- Database (runtime-ready): SQLite");
 		expect(readme).toContain("- Auth (starter): Access token");
 		expect(readme).toContain("- Mail (starter): Config and mailable class");
 		expect(readme).toContain("- Storage (starter): Local storage service");
@@ -516,7 +519,9 @@ describe("new app command", () => {
 			"demo-api/config/database.ts",
 		);
 		expect(databaseConfig).toContain("const databaseConfig = defineConfig");
-		expect(databaseConfig).toContain("Support level: config-only");
+		expect(databaseConfig).toContain(
+			"Support level: runtime-ready for memory/sqlite",
+		);
 		expect(databaseConfig).toContain('env.get("DB_CONNECTION", "sqlite")');
 		expect(databaseConfig).toContain("connections: {");
 		expect(
@@ -1357,6 +1362,7 @@ describe("new app command", () => {
 			"Select names or numbers, comma separated [none]",
 		);
 		expect(messages[3]).toContain("Database\n\n  1. None");
+		expect(messages[3]).toContain("Runtime-ready: local file database");
 		expect(messages[3]).toContain("Config-only: DATABASE_URL connection");
 		expect(messages[8]).toContain("Create project");
 		expect(output.text()).toContain("fake install");

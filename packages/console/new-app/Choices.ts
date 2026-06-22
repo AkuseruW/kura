@@ -68,7 +68,7 @@ const databasePresetChoices = [
 	{
 		value: "sqlite",
 		label: "SQLite",
-		description: "Config-only: local file connection; add a driver",
+		description: "Runtime-ready: local file database",
 	},
 	{
 		value: "postgres",

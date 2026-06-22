@@ -186,7 +186,7 @@ describe("production build", () => {
 						"import { AccessTokenManager } from 'kura/auth';",
 						"import { defineConfig } from 'kura/config';",
 						"import { Application } from 'kura/core';",
-						"import { BaseModel } from 'kura/database';",
+						"import { BaseModel, SQLiteDatabaseDriver } from 'kura/database';",
 						"import { Env } from 'kura/env';",
 						"import { Event } from 'kura/events';",
 						"import { Hash } from 'kura/hash';",
@@ -198,7 +198,7 @@ describe("production build", () => {
 						"import { FakeQueueDriver } from 'kura/testing';",
 						"import { k } from 'kura/validation';",
 						"import { view } from 'kura/view';",
-						"console.log(typeof AccessTokenManager, typeof defineConfig, typeof Application, typeof BaseModel, typeof Env, typeof Event, typeof Hash, typeof Router, typeof registerOpenApiRoutes, typeof QueueManager, typeof RedisQueueDriver, typeof SQLiteQueueDriver, typeof FakeQueueDriver, typeof k.object, typeof view);",
+						"console.log(typeof AccessTokenManager, typeof defineConfig, typeof Application, typeof BaseModel, typeof SQLiteDatabaseDriver, typeof Env, typeof Event, typeof Hash, typeof Router, typeof registerOpenApiRoutes, typeof QueueManager, typeof RedisQueueDriver, typeof SQLiteQueueDriver, typeof FakeQueueDriver, typeof k.object, typeof view);",
 					].join(" "),
 				],
 				cwd: join(appRoot, "demo"),
@@ -208,7 +208,7 @@ describe("production build", () => {
 
 			expect(importSubpaths.exitCode).toBe(0);
 			expect(importSubpaths.stdout.toString()).toContain(
-				"function function function function function function function function function function function function function function function",
+				"function function function function function function function function function function function function function function function function",
 			);
 
 			const appTypecheck = Bun.spawnSync({

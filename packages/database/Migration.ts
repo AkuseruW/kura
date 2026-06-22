@@ -479,17 +479,14 @@ function compileSchemaOperation(
 }
 
 function compileCreateTable(operation: CreateTableOperation): CompiledQuery {
-	const bindings: QueryPrimitive[] = [];
 	const tablePrefix = operation.ifNotExists
 		? "create table if not exists"
 		: "create table";
-	const columns = operation.columns.map((column) =>
-		compileColumn(column, bindings),
-	);
+	const columns = operation.columns.map((column) => compileColumn(column));
 
 	return {
 		sql: `${tablePrefix} ${escapeIdentifier(operation.table)} (${columns.join(", ")})`,
-		bindings,
+		bindings: [],
 	};
 }
 
@@ -504,10 +501,9 @@ function compileAlterTableChange(
 		};
 	}
 
-	const bindings: QueryPrimitive[] = [];
 	return {
-		sql: `alter table ${escapeIdentifier(tableName)} add column ${compileColumn(change.column, bindings)}`,
-		bindings,
+		sql: `alter table ${escapeIdentifier(tableName)} add column ${compileColumn(change.column)}`,
+		bindings: [],
 	};
 }
 
@@ -520,10 +516,7 @@ function compileDropTable(operation: DropTableOperation): CompiledQuery {
 	};
 }
 
-function compileColumn(
-	column: ColumnDefinition,
-	bindings: QueryPrimitive[],
-): string {
+function compileColumn(column: ColumnDefinition): string {
 	const segments = [escapeIdentifier(column.name), compileColumnType(column)];
 
 	if (column.primary) {
@@ -543,11 +536,44 @@ function compileColumn(
 	}
 
 	if (column.hasDefault) {
-		segments.push("default ?");
-		bindings.push(column.defaultValue);
+		segments.push(`default ${compileDefaultValue(column.defaultValue)}`);
 	}
 
 	return segments.join(" ");
+}
+
+function compileDefaultValue(value: QueryPrimitive): string {
+	if (value === null) {
+		return "null";
+	}
+
+	if (typeof value === "string") {
+		return `'${value.replaceAll("'", "''")}'`;
+	}
+
+	if (typeof value === "boolean") {
+		return value ? "true" : "false";
+	}
+
+	if (typeof value === "bigint") {
+		return value.toString();
+	}
+
+	if (typeof value === "number") {
+		if (!Number.isFinite(value)) {
+			throw new Error("Default number values must be finite");
+		}
+
+		return String(value);
+	}
+
+	if (value instanceof Date) {
+		return `'${value.toISOString()}'`;
+	}
+
+	return `x'${Array.from(value, (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("")}'`;
 }
 
 function compileColumnType(column: ColumnDefinition): string {

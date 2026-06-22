@@ -86,6 +86,14 @@ function databaseSupportRow(database: string): FeatureSupportRow | undefined {
 		return undefined;
 	}
 
+	if (database === "sqlite") {
+		return {
+			name: "Database",
+			status: "runtime-ready",
+			message: "SQLite config, migrations, and local persistence are ready.",
+		};
+	}
+
 	return {
 		name: "Database",
 		status: "config-only",
