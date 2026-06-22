@@ -40,6 +40,7 @@ import {
 	makeServerEntrypoint,
 	makeSessionConfig,
 	makeShieldConfig,
+	makeStartEnv,
 	makeStaticConfig,
 	makeTsConfig,
 } from "./RuntimeTemplates";
@@ -171,23 +172,7 @@ export { router };
 		},
 		{
 			path: "start/env.ts",
-			content: `import { basename, dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { Env } from "kura/env";
-
-const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const appRoot =
-\tbasename(runtimeRoot) === "build" ? resolve(runtimeRoot, "..") : runtimeRoot;
-const env = new Env();
-
-await env.load(resolve(appRoot, ".env")).catch(() => undefined);
-
-if (Bun.env.NODE_ENV === "test") {
-\tawait env.load(resolve(appRoot, ".env.test")).catch(() => undefined);
-}
-
-export default env;
-`,
+			content: makeStartEnv(choices),
 		},
 		{
 			path: "start/kernel.ts",

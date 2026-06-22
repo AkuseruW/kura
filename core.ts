@@ -8,6 +8,20 @@ export { BaseException } from "./packages/core/BaseException";
 export { Config, defineConfig } from "./packages/core/Config";
 export { Container } from "./packages/core/Container";
 export { Env } from "./packages/core/Env";
+export {
+	defineEnv,
+	EnvSchema,
+	type EnvShape,
+	type EnvSource,
+	EnvValidationException,
+	type EnvValidationIssue,
+	type EnvValidationResult,
+	type EnvVariableDescription,
+	envVar,
+	formatEnvValidationIssues,
+	type InferEnv,
+	type InferEnvVariable,
+} from "./packages/core/EnvSchema";
 export { Emitter, Event, type Listener } from "./packages/core/Event";
 export {
 	Hash,

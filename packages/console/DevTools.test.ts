@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Config } from "../core/Config";
+import { defineEnv, envVar } from "../core/EnvSchema";
 import { Router } from "../http/Router";
 import { ConsoleKernel, MemoryConsoleOutput } from "./Console";
 import { registerDevToolCommands } from "./DevTools";
@@ -104,6 +105,30 @@ describe("dev tool console commands", () => {
 		expect(output.text()).toContain("lo********ey");
 	});
 
+	test("prints schema environment values and redacts schema secrets", async () => {
+		setEnv("APP_KEY", "local-development-key");
+		setEnv("PORT", "3333");
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, {
+			loadEnvSchema: () =>
+				defineEnv({
+					APP_KEY: envVar.secret(),
+					DATABASE_URL: envVar.url().secret().optional(),
+					PORT: envVar.number().default(3333),
+				}),
+		});
+
+		expect(await console.run(["env"])).toBe(0);
+
+		expect(output.text()).toContain("APP_KEY");
+		expect(output.text()).toContain("lo********ey");
+		expect(output.text()).toContain("DATABASE_URL");
+		expect(output.text()).toContain("<missing>");
+		expect(output.text()).toContain("PORT");
+		expect(output.text()).toContain("3333");
+	});
+
 	test("prints config roots and dot-notation values", async () => {
 		const output = new MemoryConsoleOutput();
 		const console = new ConsoleKernel(output);
@@ -149,6 +174,36 @@ describe("dev tool console commands", () => {
 		expect(output.text()).toContain("Kura doctor");
 		expect(output.text()).toContain("OK");
 		expect(output.text()).toContain("1 route registered");
+	});
+
+	test("checks environment schema health for doctor and deploy doctor", async () => {
+		const root = await makeRoot();
+		await writeFile(join(root, "package.json"), "{}");
+		await writeFile(join(root, ".env"), "APP_KEY=local-development-key");
+		await writeFile(join(root, "tsconfig.json"), "{}");
+		await mkdir(join(root, "config"));
+		await mkdir(join(root, "node_modules"));
+		setEnv("APP_KEY", "local-development-key");
+		setEnv("APP_URL", "not-a-url");
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, {
+			root,
+			loadEnvSchema: () =>
+				defineEnv({
+					APP_KEY: envVar.secret(),
+					APP_URL: envVar.url(),
+				}),
+		});
+
+		expect(await console.run(["doctor"])).toBe(1);
+		expect(await console.run(["deploy:doctor"])).toBe(1);
+
+		expect(output.text()).toContain("env-schema");
+		expect(output.text()).toContain(
+			"invalid or missing environment variables: APP_URL",
+		);
+		expect(output.text()).not.toContain("local-development-key");
 	});
 
 	test("warns about scaffold-only generated features", async () => {
