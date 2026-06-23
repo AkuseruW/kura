@@ -5,6 +5,7 @@ import {
 	BodyLimit,
 	BodyParser,
 	Cors,
+	CsrfProtection,
 	MiddlewarePipeline,
 	RequestBodyLimitException,
 	RequestId,
@@ -456,6 +457,104 @@ describe("built-in middlewares", () => {
 		expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
 			"https://app.example.com",
 		);
+	});
+
+	test("sets a CSRF cookie for safe requests", async () => {
+		const ctx = createContext(new Request("http://localhost/form"));
+		const response = await CsrfProtection()(
+			ctx,
+			async () => new Response("ok"),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Set-Cookie")).toContain("kura-csrf-token=");
+		expect(response.headers.get("Set-Cookie")).toContain("SameSite=Lax");
+		expect(response.headers.get("Set-Cookie")).not.toContain("HttpOnly");
+		expect(ctx.getState<string>("csrfToken")).toBeDefined();
+	});
+
+	test("accepts matching CSRF header tokens", async () => {
+		const token = "token-1";
+		const response = await CsrfProtection()(
+			createContext(
+				new Request("http://localhost/profile", {
+					headers: {
+						cookie: `kura-csrf-token=${token}`,
+						"x-csrf-token": token,
+					},
+					method: "POST",
+				}),
+			),
+			async () => Response.json({ ok: true }),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ ok: true });
+	});
+
+	test("accepts matching CSRF form tokens after body parsing", async () => {
+		const token = "token-2";
+		const handler = new MiddlewarePipeline()
+			.use(BodyParser)
+			.use(CsrfProtection())
+			.toHandler(() => Response.json({ ok: true }));
+		const response = await handler(
+			createContext(
+				new Request("http://localhost/profile", {
+					body: `_csrf=${token}`,
+					headers: {
+						"content-type": "application/x-www-form-urlencoded",
+						cookie: `kura-csrf-token=${token}`,
+					},
+					method: "POST",
+				}),
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ ok: true });
+	});
+
+	test("rejects missing or mismatched CSRF tokens", async () => {
+		const middleware = CsrfProtection();
+
+		await expect(
+			middleware(
+				createContext(
+					new Request("http://localhost/profile", { method: "POST" }),
+				),
+				async () => new Response("ok"),
+			),
+		).rejects.toThrow("Invalid CSRF token");
+
+		await expect(
+			middleware(
+				createContext(
+					new Request("http://localhost/profile", {
+						headers: {
+							cookie: "kura-csrf-token=token",
+							"x-csrf-token": "other",
+						},
+						method: "POST",
+					}),
+				),
+				async () => new Response("ok"),
+			),
+		).rejects.toThrow("Invalid CSRF token");
+	});
+
+	test("skips CSRF protection for configured route exceptions", async () => {
+		const response = await CsrfProtection({
+			except: ["/auth/login"],
+		})(
+			createContext(
+				new Request("http://localhost/auth/login", { method: "POST" }),
+			),
+			async () => new Response("ok"),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("ok");
 	});
 
 	test("handles generated app preflights before API route dispatch", async () => {

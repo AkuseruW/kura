@@ -19,6 +19,14 @@ export {
 	resolveController,
 } from "./packages/http/Controller";
 export {
+	type CookieOptions,
+	type CookieSameSite,
+	clearCookie,
+	parseCookies,
+	readCookie,
+	serializeCookie,
+} from "./packages/http/Cookie";
+export {
 	BadRequestException,
 	ConflictException,
 	createHttpErrorHandler,
@@ -57,6 +65,9 @@ export {
 	Cors,
 	type CorsOptions,
 	type CorsOrigin,
+	type CsrfExceptRoute,
+	CsrfProtection,
+	type CsrfProtectionOptions,
 	type Middleware,
 	MiddlewarePipeline,
 	RequestBodyLimitException,

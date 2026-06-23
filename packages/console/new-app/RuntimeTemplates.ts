@@ -475,6 +475,11 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 
 	if (choices.auth === "session") {
 		lines.push("SESSION_DRIVER=database");
+		lines.push("SESSION_COOKIE_NAME=kura-session");
+		lines.push("SESSION_TTL_SECONDS=7200");
+		if (choices.preset !== "api") {
+			lines.push("CSRF_COOKIE_NAME=kura-csrf-token");
+		}
 	}
 
 	if (choices.cache !== "memory") {
@@ -548,7 +553,15 @@ function makeEnvSchemaEntries(choices: NewAppChoices): string {
 				'envVar.enum(["cookie", "memory", "database"]).default("database")',
 			],
 			["SESSION_COOKIE_NAME", 'envVar.string().default("kura-session")'],
+			["SESSION_TTL_SECONDS", "envVar.number().default(7200)"],
 		);
+
+		if (choices.preset !== "api") {
+			entries.push([
+				"CSRF_COOKIE_NAME",
+				'envVar.string().default("kura-csrf-token")',
+			]);
+		}
 	}
 
 	if (choices.cache !== "memory") {

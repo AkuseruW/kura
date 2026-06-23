@@ -58,6 +58,10 @@ export {
 	type PolicyResult,
 } from "./packages/auth/Policy";
 export {
+	SessionCookie,
+	type SessionCookieOptions,
+} from "./packages/auth/SessionCookie";
+export {
 	SessionGuard,
 	type SessionGuardOptions,
 	type SessionResolver,

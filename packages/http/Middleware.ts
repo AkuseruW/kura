@@ -1,5 +1,8 @@
+import { timingSafeEqual } from "node:crypto";
 import { BaseException } from "../core/BaseException";
 import { parseRequestBody, requestMayHaveBody } from "./Body";
+import { readCookie, serializeCookie } from "./Cookie";
+import { ForbiddenException } from "./ErrorHandler";
 import { applyMiddlewares } from "./MiddlewareStack";
 import type { Context } from "./Server";
 
@@ -41,6 +44,23 @@ export type BodyLimitOptions = {
 
 export type RequestTimeoutOptions = {
 	readonly ms: number;
+};
+
+export type CsrfExceptRoute =
+	| string
+	| RegExp
+	| ((ctx: Context) => boolean | Promise<boolean>);
+
+export type CsrfProtectionOptions = {
+	readonly cookieName?: string;
+	readonly except?: readonly CsrfExceptRoute[];
+	readonly fieldNames?: readonly string[];
+	readonly headerName?: string;
+	readonly methods?: readonly string[];
+	readonly path?: string;
+	readonly sameSite?: "lax" | "strict" | "none";
+	readonly secure?: boolean;
+	readonly tokenLength?: number;
 };
 
 export class RequestBodyLimitException extends BaseException {
@@ -117,6 +137,66 @@ export const BodyParser: Middleware = async (ctx, next) => {
 	return next();
 };
 
+export const CsrfProtection = (
+	options: CsrfProtectionOptions = {},
+): Middleware => {
+	const cookieName = options.cookieName ?? "kura-csrf-token";
+	const headerName = (options.headerName ?? "x-csrf-token").toLowerCase();
+	const fieldNames = options.fieldNames ?? ["_csrf", "csrfToken"];
+	const methods = new Set(
+		(options.methods ?? ["POST", "PUT", "PATCH", "DELETE"]).map((method) =>
+			method.toUpperCase(),
+		),
+	);
+	const tokenLength = positiveInteger("tokenLength", options.tokenLength ?? 32);
+
+	return async (ctx, next) => {
+		if (await shouldSkipCsrf(ctx, options.except ?? [])) {
+			return next();
+		}
+
+		const existingToken = readCookie(
+			ctx.request.headers.get("cookie"),
+			cookieName,
+		);
+		const csrfToken = existingToken ?? createCsrfToken(tokenLength);
+		ctx.setState("csrfToken", csrfToken);
+
+		if (methods.has(ctx.request.method.toUpperCase())) {
+			const submittedToken = readSubmittedCsrfToken(ctx, {
+				fieldNames,
+				headerName,
+			});
+
+			if (
+				!existingToken ||
+				!submittedToken ||
+				!timingSafeStringEqual(existingToken, submittedToken)
+			) {
+				throw new ForbiddenException("Invalid CSRF token", {
+					code: "E_INVALID_CSRF_TOKEN",
+				});
+			}
+		}
+
+		const response = await next();
+
+		if (!existingToken) {
+			response.headers.append(
+				"Set-Cookie",
+				serializeCookie(cookieName, csrfToken, {
+					httpOnly: false,
+					path: options.path ?? "/",
+					sameSite: options.sameSite ?? "lax",
+					secure: options.secure ?? false,
+				}),
+			);
+		}
+
+		return response;
+	};
+};
+
 export type CorsOrigin =
 	| string
 	| readonly string[]
@@ -188,6 +268,80 @@ export const Cors = (options: CorsOptions = {}): Middleware => {
 		return response;
 	};
 };
+
+async function shouldSkipCsrf(
+	ctx: Context,
+	except: readonly CsrfExceptRoute[],
+): Promise<boolean> {
+	if (except.length === 0) {
+		return false;
+	}
+
+	const pathname = new URL(ctx.request.url).pathname;
+
+	for (const entry of except) {
+		if (typeof entry === "string" && entry === pathname) {
+			return true;
+		}
+
+		if (entry instanceof RegExp && entry.test(pathname)) {
+			return true;
+		}
+
+		if (typeof entry === "function" && (await entry(ctx))) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function readSubmittedCsrfToken(
+	ctx: Context,
+	options: {
+		readonly fieldNames: readonly string[];
+		readonly headerName: string;
+	},
+): string | null {
+	const headerToken = ctx.request.headers.get(options.headerName);
+
+	if (headerToken) {
+		return headerToken;
+	}
+
+	for (const fieldName of options.fieldNames) {
+		const value = ctx.input(fieldName);
+		if (typeof value === "string" && value.length > 0) {
+			return value;
+		}
+	}
+
+	return null;
+}
+
+function createCsrfToken(byteLength: number): string {
+	const bytes = new Uint8Array(byteLength);
+	crypto.getRandomValues(bytes);
+	return base64UrlEncode(bytes);
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+	return btoa(String.fromCharCode(...bytes))
+		.replaceAll("+", "-")
+		.replaceAll("/", "_")
+		.replace(/=+$/, "");
+}
+
+function timingSafeStringEqual(left: string, right: string): boolean {
+	const leftBytes = new TextEncoder().encode(left);
+	const rightBytes = new TextEncoder().encode(right);
+
+	if (leftBytes.byteLength !== rightBytes.byteLength) {
+		return false;
+	}
+
+	return timingSafeEqual(leftBytes, rightBytes);
+}
 
 function isCorsPreflight(request: Request): boolean {
 	return (

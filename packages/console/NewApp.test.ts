@@ -428,6 +428,7 @@ describe("new app command", () => {
 		expect(authRoutes).toContain('description: "Validation error"');
 		expect(authRoutes).toContain("body: authErrorResponseSchema");
 		expect(authRoutes).toContain(".middleware(middleware.auth)");
+		expect(authRoutes).not.toContain("X-CSRF-Token");
 		const openApiRoutes = await readGenerated(
 			root,
 			"demo-api/routes/openapi.ts",
@@ -1244,6 +1245,18 @@ describe("new app command", () => {
 		expect(await readGenerated(root, "demo-web/routes/auth.ts")).toContain(
 			"body: authLoginRequestSchema",
 		);
+		expect(await readGenerated(root, "demo-web/routes/auth.ts")).toContain(
+			"csrfHeaderParameter",
+		);
+		expect(await readGenerated(root, "demo-web/routes/auth.ts")).toContain(
+			'name: "X-CSRF-Token"',
+		);
+		expect(await readGenerated(root, "demo-web/start/kernel.ts")).toContain(
+			"CsrfProtection",
+		);
+		expect(await readGenerated(root, "demo-web/start/kernel.ts")).toContain(
+			"csrf: csrfProtection",
+		);
 		expect(
 			await readGenerated(root, "demo-web/app/validators/auth.ts"),
 		).toContain('import { k } from "kura/validation"');
@@ -1258,6 +1271,15 @@ describe("new app command", () => {
 		).toContain('from "kura/hash"');
 		expect(
 			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
+		).toContain('import { SessionCookie } from "kura/auth"');
+		expect(
+			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
+		).toContain("await this.rotateSession(ctx)");
+		expect(
+			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
+		).toContain("sessionCookie.clear()");
+		expect(
+			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
 		).toContain('database.table<SessionRow>("sessions")');
 		expect(
 			await readGenerated(root, "demo-web/app/services/auth_service.ts"),
@@ -1270,6 +1292,15 @@ describe("new app command", () => {
 		).toContain('schema.createTable("sessions"');
 		expect(await readGenerated(root, "demo-web/config/shield.ts")).toContain(
 			"enabled: true",
+		);
+		expect(await readGenerated(root, "demo-web/.env.example")).toContain(
+			"SESSION_COOKIE_NAME=kura-session",
+		);
+		expect(await readGenerated(root, "demo-web/.env.example")).toContain(
+			"SESSION_TTL_SECONDS=7200",
+		);
+		expect(await readGenerated(root, "demo-web/.env.example")).toContain(
+			"CSRF_COOKIE_NAME=kura-csrf-token",
 		);
 		expect(await readGenerated(root, "demo-web/.env.example")).toContain(
 			"REDIS_URL=",

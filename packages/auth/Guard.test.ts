@@ -21,6 +21,7 @@ import {
 	type JwtHeader,
 	type JwtSecret,
 } from "./JwtGuard";
+import { SessionCookie } from "./SessionCookie";
 import { SessionGuard } from "./SessionGuard";
 
 const request = new Request("http://localhost/profile");
@@ -166,6 +167,31 @@ describe("SessionGuard", () => {
 				),
 			),
 		).resolves.toBe(false);
+	});
+});
+
+describe("SessionCookie", () => {
+	test("reads, serializes, and clears secure session cookies", () => {
+		const cookie = new SessionCookie({
+			maxAge: 7200,
+			name: "app-session",
+			secure: true,
+		});
+		const header = cookie.serialize("session-1");
+
+		expect(header).toBe(
+			"app-session=session-1; Max-Age=7200; Path=/; HttpOnly; Secure; SameSite=Lax",
+		);
+		expect(
+			cookie.read(
+				new Request("http://localhost", {
+					headers: { cookie: "app-session=session-1" },
+				}),
+			),
+		).toBe("session-1");
+		expect(cookie.clear()).toBe(
+			"app-session=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; HttpOnly; Secure; SameSite=Lax",
+		);
 	});
 });
 
