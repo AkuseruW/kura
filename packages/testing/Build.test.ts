@@ -21,6 +21,7 @@ describe("production build", () => {
 				await readFile(join(root, "package.json"), "utf8"),
 			) as {
 				readonly name: string;
+				readonly version: string;
 				readonly bin: Record<string, string>;
 				readonly files: readonly string[];
 			};
@@ -344,6 +345,31 @@ describe("production build", () => {
 			expect(createPackage.exitCode).toBe(0);
 			expect(createPackage.stdout.toString()).toContain(
 				"new - Create a new Kura application",
+			);
+
+			const createPackageNewApp = Bun.spawnSync({
+				cmd: [
+					process.execPath,
+					"packages/create-kura-app/dist/index.js",
+					"created-by-package",
+					"--yes",
+					"--root",
+					appRoot,
+				],
+				cwd: root,
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(createPackageNewApp.exitCode).toBe(0);
+			const packageCreatedManifest = JSON.parse(
+				await readFile(
+					join(appRoot, "created-by-package/package.json"),
+					"utf8",
+				),
+			) as { dependencies: { kura: string } };
+			expect(packageCreatedManifest.dependencies.kura).toBe(
+				`npm:@akuseru_w/kura@${runtimePackage.version}`,
 			);
 
 			const routes = Bun.spawnSync({
