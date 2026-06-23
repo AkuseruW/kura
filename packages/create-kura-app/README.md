@@ -122,6 +122,15 @@ bun run build
 bun run typecheck
 ```
 
+After installing the framework globally, the shorter `kura` command delegates
+to the generated app console.
+
+```sh
+bun install -g @akuseru_w/kura
+kura serve
+kura routes
+```
+
 ## Requirements
 
 - Bun 1.3 or newer

@@ -334,6 +334,15 @@ bun kura make:controller Home
 bun kura serve --watch
 ```
 
+If the framework is installed globally, the `kura` binary delegates to the
+application console when it is run inside a generated project.
+
+```sh
+bun install -g @akuseru_w/kura
+kura serve
+kura routes
+```
+
 Common package scripts are also generated.
 
 ```sh

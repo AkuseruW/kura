@@ -162,6 +162,29 @@ describe("production build", () => {
 
 			expect(install.exitCode).toBe(0);
 
+			const localConsoleRoutes = Bun.spawnSync({
+				cmd: [process.execPath, join(root, "dist/bin/kura.js"), "routes"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(localConsoleRoutes.exitCode).toBe(0);
+			expect(localConsoleRoutes.stdout.toString()).toContain("GET");
+			expect(localConsoleRoutes.stdout.toString()).toContain("/health");
+
+			const globalNewHelp = Bun.spawnSync({
+				cmd: [process.execPath, join(root, "dist/bin/kura.js"), "help", "new"],
+				cwd: join(appRoot, "demo"),
+				stderr: "pipe",
+				stdout: "pipe",
+			});
+
+			expect(globalNewHelp.exitCode).toBe(0);
+			expect(globalNewHelp.stdout.toString()).toContain(
+				"new - Create a new Kura application",
+			);
+
 			const importRuntime = Bun.spawnSync({
 				cmd: [
 					process.execPath,
