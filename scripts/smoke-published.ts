@@ -11,8 +11,9 @@ type SpawnResult = {
 const runtimePackageName = "@akuseru_w/kura";
 const createPackageName = "create-kura-app";
 const appName = "kura-smoke";
+const repoRoot = process.cwd();
 const expectedVersion =
-	Bun.env.KURA_SMOKE_VERSION ?? (await readPackageVersion());
+	Bun.env.KURA_SMOKE_VERSION ?? (await readPackageVersion(repoRoot));
 const root = await mkdtemp(join(tmpdir(), "kura-published-smoke-"));
 const appRoot = join(root, appName);
 const port = reservePort();
@@ -22,14 +23,14 @@ try {
 	await assertLatestVersion(createPackageName, expectedVersion);
 
 	if (Bun.env.KURA_SMOKE_CLEAR_CACHE !== "false") {
-		run([process.execPath, "pm", "cache", "rm"], { cwd: root });
+		run([process.execPath, "pm", "cache", "rm"], { cwd: repoRoot });
 	}
 
 	run(
 		[
 			process.execPath,
 			"create",
-			"kura-app",
+			`kura-app@${expectedVersion}`,
 			appName,
 			"--yes",
 			"--preset",
@@ -58,12 +59,19 @@ try {
 			cwd: appRoot,
 		},
 	);
-	run(["kura", "routes"], { cwd: appRoot, mustContain: ["/health", "/docs"] });
+	run(["kura", "help", "serve"], {
+		cwd: appRoot,
+		mustContain: ["Start the development HTTP server"],
+	});
+	run([process.execPath, "bin/console.ts", "routes"], {
+		cwd: appRoot,
+		mustContain: ["/health", "/docs"],
+	});
 	run([process.execPath, "run", "typecheck"], { cwd: appRoot });
 	run([process.execPath, "run", "build"], { cwd: appRoot });
 
 	const server = Bun.spawn({
-		cmd: ["kura", "serve", "--port", String(port)],
+		cmd: [process.execPath, "bin/console.ts", "serve", "--port", String(port)],
 		cwd: appRoot,
 		env: Bun.env,
 		stderr: "pipe",
@@ -88,8 +96,10 @@ try {
 	}
 }
 
-async function readPackageVersion(): Promise<string> {
-	const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
+async function readPackageVersion(path: string): Promise<string> {
+	const packageJson = JSON.parse(
+		await readFile(join(path, "package.json"), "utf8"),
+	) as {
 		readonly version?: string;
 	};
 
