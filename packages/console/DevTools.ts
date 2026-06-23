@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Config } from "../core/Config";
 import { Config as ConfigStore } from "../core/Config";
@@ -40,12 +40,26 @@ type DoctorCheck = {
 	readonly message: string;
 };
 
+type DoctorFixStatus = "apply" | "skip" | "suggest";
+
+type DoctorFix = {
+	readonly name: string;
+	readonly status: DoctorFixStatus;
+	readonly path?: string;
+	readonly message: string;
+	apply?(): Promise<void>;
+};
+
 type DeploymentTarget = "docker" | "railway" | "render" | "vercel";
 
 type DeploymentPackageJson = {
 	readonly dependencies: Readonly<Record<string, string>>;
 	readonly optionalDependencies: Readonly<Record<string, string>>;
 	readonly scripts: Readonly<Record<string, string>>;
+};
+
+type WritablePackageJson = Record<string, unknown> & {
+	scripts?: Record<string, string>;
 };
 
 const defaultEnvKeys = [
@@ -72,6 +86,23 @@ const defaultEnvKeys = [
 	"RATE_LIMIT_MAX",
 	"RATE_LIMIT_WINDOW_SECONDS",
 ] as const;
+
+const expectedPackageScripts = {
+	kura: "bun bin/console.ts",
+	dev: "bun bin/console.ts serve --watch",
+	start: "bun bin/console.ts serve --host 0.0.0.0",
+	preview: "bun bin/console.ts preview",
+	routes: "bun bin/console.ts routes",
+	client: "bun bin/console.ts client:generate",
+	doctor: "bun bin/console.ts doctor",
+	"deploy:doctor": "bun bin/console.ts deploy:doctor",
+	env: "bun bin/console.ts env",
+	config: "bun bin/console.ts config",
+	test: "bun bin/test.ts",
+	typecheck: "tsc --noEmit",
+	build:
+		"bun build bin/server.ts --target=bun --production --outdir=build --packages=external",
+} as const;
 
 export function createDevToolCommands(
 	options: DevToolConsoleOptions = {},
@@ -276,13 +307,47 @@ function createDoctorCommand(options: DevToolConsoleOptions): Command {
 					default: "docker",
 					description: "Deployment target: docker, railway, render, or vercel",
 				},
+				{
+					name: "fix",
+					description: "Apply safe deterministic fixes",
+				},
+				{
+					name: "dry-run",
+					description: "Print planned fixes without writing files",
+				},
 			],
 		},
 		async (ctx) => {
 			const root = resolveRoot(options, ctx.options);
+			const shouldFix = isEnabled(ctx.options, "fix");
+			const dryRun = isEnabled(ctx.options, "dry-run");
+			const deployment = ctx.parsed.commandName === "deploy:doctor";
+			const target = parseDeploymentTarget(
+				readStringOption(ctx.options, "target"),
+			);
+			const fixes =
+				shouldFix || dryRun
+					? await planDoctorFixes(root, options, {
+							deployment,
+							target,
+						})
+					: [];
+
+			if (fixes.length > 0 && !isEnabled(ctx.options, "json")) {
+				ctx.output.write(formatDoctorFixes(fixes, dryRun));
+			}
+
+			if (shouldFix && !dryRun) {
+				for (const fix of fixes) {
+					if (fix.status === "apply") {
+						await fix.apply?.();
+					}
+				}
+			}
+
 			const checks = await runDoctorChecks(root, options, {
-				deployment: ctx.parsed.commandName === "deploy:doctor",
-				target: parseDeploymentTarget(readStringOption(ctx.options, "target")),
+				deployment,
+				target,
 			});
 
 			if (isEnabled(ctx.options, "json")) {
@@ -392,7 +457,9 @@ async function runDoctorChecks(
 ): Promise<readonly DoctorCheck[]> {
 	const checks: DoctorCheck[] = [];
 	const packageExists = await exists(resolve(root, "package.json"));
-	const envExists = await exists(resolve(root, options.envFile ?? ".env"));
+	const envPath = resolve(root, options.envFile ?? ".env");
+	const envFile = parseEnvText(await readOptionalText(envPath));
+	const envExists = await exists(envPath);
 	const configExists = await exists(
 		resolve(root, options.configDirectory ?? "config"),
 	);
@@ -411,11 +478,14 @@ async function runDoctorChecks(
 	});
 	checks.push({
 		name: "app-key",
-		status: process.env.APP_KEY ? "ok" : "error",
-		message: process.env.APP_KEY ? "APP_KEY is loaded" : "APP_KEY is missing",
+		status: process.env.APP_KEY || envFile.APP_KEY ? "ok" : "error",
+		message:
+			process.env.APP_KEY || envFile.APP_KEY
+				? "APP_KEY is loaded"
+				: "APP_KEY is missing",
 	});
 
-	checks.push(...(await runEnvSchemaChecks(options)));
+	checks.push(...(await runEnvSchemaChecks(root, options)));
 
 	checks.push({
 		name: "config",
@@ -471,7 +541,354 @@ async function runDoctorChecks(
 	return checks;
 }
 
+async function planDoctorFixes(
+	root: string,
+	options: DevToolConsoleOptions,
+	mode: {
+		readonly deployment: boolean;
+		readonly target?: DeploymentTarget;
+	},
+): Promise<readonly DoctorFix[]> {
+	const fixes = await Promise.all([
+		planEnvFileFix(root, options),
+		planPackageJsonFix(root, mode),
+		planEnvExampleSchemaFix(root, options),
+		planConsoleFeatureCommandFix(root),
+	]);
+
+	return fixes.filter((fix): fix is DoctorFix => fix !== undefined);
+}
+
+async function planEnvFileFix(
+	root: string,
+	options: DevToolConsoleOptions,
+): Promise<DoctorFix | undefined> {
+	const envFileName = options.envFile ?? ".env";
+	const envPath = resolve(root, envFileName);
+	const examplePath = resolve(root, `${envFileName}.example`);
+
+	if (await exists(envPath)) {
+		return {
+			name: "env:create",
+			status: "skip",
+			path: envFileName,
+			message: `${envFileName} already exists`,
+		};
+	}
+
+	const example = await readOptionalText(examplePath);
+	if (example === undefined) {
+		return {
+			name: "env:create",
+			status: "suggest",
+			path: envFileName,
+			message: `${envFileName} is missing and ${envFileName}.example was not found`,
+		};
+	}
+
+	return {
+		name: "env:create",
+		status: "apply",
+		path: envFileName,
+		message: `create ${envFileName} from ${envFileName}.example`,
+		apply: async () => {
+			await writeFile(envPath, example, { flag: "wx" });
+		},
+	};
+}
+
+async function planPackageJsonFix(
+	root: string,
+	mode: {
+		readonly deployment: boolean;
+		readonly target?: DeploymentTarget;
+	},
+): Promise<DoctorFix | undefined> {
+	const path = resolve(root, "package.json");
+	const packageJson = await readWritablePackageJson(path);
+
+	if (!packageJson) {
+		return {
+			name: "package:scripts",
+			status: "suggest",
+			path: "package.json",
+			message: "package.json is missing or could not be parsed",
+		};
+	}
+
+	if (!(await looksLikeKuraApp(root, packageJson))) {
+		return undefined;
+	}
+
+	const currentScripts = isRecord(packageJson.scripts)
+		? readStringRecord(packageJson.scripts)
+		: {};
+	const nextScripts = { ...currentScripts };
+	const changes: string[] = [];
+
+	for (const [name, script] of Object.entries(expectedPackageScripts)) {
+		if (currentScripts[name] !== undefined) {
+			continue;
+		}
+
+		if (!(await packageScriptCanBeAdded(root, name))) {
+			continue;
+		}
+
+		nextScripts[name] = script;
+		changes.push(name);
+	}
+
+	if (mode.deployment && currentScripts.start) {
+		const fixedStart = fixStartHostScript(currentScripts.start);
+		if (fixedStart !== currentScripts.start) {
+			nextScripts.start = fixedStart;
+			changes.push("start host");
+		}
+	}
+
+	if (changes.length === 0) {
+		return {
+			name: "package:scripts",
+			status: "skip",
+			path: "package.json",
+			message: "package scripts are already up to date",
+		};
+	}
+
+	const nextPackageJson: WritablePackageJson = {
+		...packageJson,
+		scripts: sortRecord(nextScripts),
+	};
+	const next = `${JSON.stringify(nextPackageJson, null, "\t")}\n`;
+
+	return {
+		name: "package:scripts",
+		status: "apply",
+		path: "package.json",
+		message: `update package scripts: ${changes.join(", ")}`,
+		apply: async () => {
+			await writeFile(path, next);
+		},
+	};
+}
+
+async function planEnvExampleSchemaFix(
+	root: string,
+	options: DevToolConsoleOptions,
+): Promise<DoctorFix | undefined> {
+	const schema = await resolveEnvSchema(options);
+	if (!schema) {
+		return undefined;
+	}
+
+	const envFileName = `${options.envFile ?? ".env"}.example`;
+	const path = resolve(root, envFileName);
+	const current = await readOptionalText(path);
+
+	if (current === undefined) {
+		return {
+			name: "env-example:schema",
+			status: "suggest",
+			path: envFileName,
+			message: `${envFileName} is missing`,
+		};
+	}
+
+	const currentEntries = parseEnvText(current);
+	const missingKeys = schema
+		.keys()
+		.filter((key) => currentEntries[key] === undefined);
+
+	if (missingKeys.length === 0) {
+		return {
+			name: "env-example:schema",
+			status: "skip",
+			path: envFileName,
+			message: `${envFileName} contains all schema keys`,
+		};
+	}
+
+	const separator = current.endsWith("\n") ? "" : "\n";
+	const next = `${current}${separator}${missingKeys.map((key) => `${key}=`).join("\n")}\n`;
+
+	return {
+		name: "env-example:schema",
+		status: "apply",
+		path: envFileName,
+		message: `add missing schema keys: ${missingKeys.join(", ")}`,
+		apply: async () => {
+			await writeFile(path, next);
+		},
+	};
+}
+
+async function planConsoleFeatureCommandFix(
+	root: string,
+): Promise<DoctorFix | undefined> {
+	const path = resolve(root, "bin/console.ts");
+	const current = await readOptionalText(path);
+
+	if (current === undefined) {
+		return undefined;
+	}
+
+	if (current.includes("registerFeatureCommands")) {
+		return {
+			name: "console:features",
+			status: "skip",
+			path: "bin/console.ts",
+			message: "feature commands are already registered",
+		};
+	}
+
+	const next = patchConsoleFeatureCommand(current);
+
+	if (next === current) {
+		return {
+			name: "console:features",
+			status: "suggest",
+			path: "bin/console.ts",
+			message: "feature commands could not be inserted automatically",
+		};
+	}
+
+	return {
+		name: "console:features",
+		status: "apply",
+		path: "bin/console.ts",
+		message: "register feature installer commands",
+		apply: async () => {
+			await writeFile(path, next);
+		},
+	};
+}
+
+async function readWritablePackageJson(
+	path: string,
+): Promise<WritablePackageJson | undefined> {
+	try {
+		const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
+		return isRecord(parsed) ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+async function looksLikeKuraApp(
+	root: string,
+	packageJson: WritablePackageJson,
+): Promise<boolean> {
+	const dependencies = readStringRecord(packageJson.dependencies);
+	const devDependencies = readStringRecord(packageJson.devDependencies);
+
+	return (
+		dependencies.kura !== undefined ||
+		devDependencies.kura !== undefined ||
+		(await exists(resolve(root, "bin/console.ts")))
+	);
+}
+
+async function packageScriptCanBeAdded(
+	root: string,
+	name: string,
+): Promise<boolean> {
+	if (
+		[
+			"kura",
+			"dev",
+			"start",
+			"preview",
+			"routes",
+			"client",
+			"doctor",
+			"deploy:doctor",
+			"env",
+			"config",
+		].includes(name)
+	) {
+		return exists(resolve(root, "bin/console.ts"));
+	}
+
+	if (name === "test") {
+		return exists(resolve(root, "bin/test.ts"));
+	}
+
+	if (name === "build") {
+		return exists(resolve(root, "bin/server.ts"));
+	}
+
+	if (name === "typecheck") {
+		return exists(resolve(root, "tsconfig.json"));
+	}
+
+	return true;
+}
+
+function fixStartHostScript(script: string): string {
+	if (!script.includes("serve") || script.includes("0.0.0.0")) {
+		return script;
+	}
+
+	if (/--host\s+\S+/.test(script)) {
+		return script.replace(/--host\s+\S+/, "--host 0.0.0.0");
+	}
+
+	return `${script} --host 0.0.0.0`;
+}
+
+function patchConsoleFeatureCommand(source: string): string {
+	let next = source;
+
+	next = addKuraConsoleImport(next, "registerFeatureCommands");
+	next = next.replace(
+		/registerGeneratorCommands\(appConsole,[\s\S]*?\}\);\n/,
+		(match) =>
+			`${match}registerFeatureCommands(appConsole, {\n\troot: process.cwd(),\n});\n`,
+	);
+
+	return next;
+}
+
+function addKuraConsoleImport(source: string, name: string): string {
+	return source.replace(
+		/import\s+\{([\s\S]*?)\}\s+from\s+"kura\/console";/,
+		(match, imports: string) => {
+			const current = imports
+				.split(",")
+				.map((entry) => entry.trim())
+				.filter((entry) => entry.length > 0);
+
+			if (current.includes(name)) {
+				return match;
+			}
+
+			const insertAt = current.indexOf("registerGeneratorCommands");
+			const next =
+				insertAt === -1
+					? [...current, name]
+					: [...current.slice(0, insertAt), name, ...current.slice(insertAt)];
+
+			if (imports.includes("\n")) {
+				const indent = imports.match(/\n(\s*)\S/)?.[1] ?? "\t";
+				return `import {\n${next.map((entry) => `${indent}${entry},`).join("\n")}\n} from "kura/console";`;
+			}
+
+			return `import { ${next.join(", ")} } from "kura/console";`;
+		},
+	);
+}
+
+function sortRecord(
+	record: Readonly<Record<string, string>>,
+): Record<string, string> {
+	return Object.fromEntries(
+		Object.entries(record).sort(([left], [right]) => left.localeCompare(right)),
+	);
+}
+
 async function runEnvSchemaChecks(
+	root: string,
 	options: DevToolConsoleOptions,
 ): Promise<readonly DoctorCheck[]> {
 	try {
@@ -481,7 +898,11 @@ async function runEnvSchemaChecks(
 			return [];
 		}
 
-		const result = schema.validate(process.env);
+		const envFile = parseEnvText(
+			await readOptionalText(resolve(root, options.envFile ?? ".env")),
+		);
+		const runtimeEnv = readStringRecord(process.env);
+		const result = schema.validate({ ...envFile, ...runtimeEnv });
 
 		return [
 			{
@@ -508,7 +929,9 @@ async function runFeatureSupportChecks(
 	options: DevToolConsoleOptions,
 ): Promise<readonly DoctorCheck[]> {
 	try {
-		const config = await resolveConfig(options, { root });
+		const config = await withEnvFileDefaults(root, options, () =>
+			resolveConfig(options, { root }),
+		);
 		const choices = readFeatureSupportChoices(config.get("app.starter"));
 
 		if (!choices) {
@@ -716,7 +1139,9 @@ async function runDeploymentFeatureChecks(
 	options: DevToolConsoleOptions,
 ): Promise<readonly DoctorCheck[]> {
 	try {
-		const config = await resolveConfig(options, { root });
+		const config = await withEnvFileDefaults(root, options, () =>
+			resolveConfig(options, { root }),
+		);
 		const choices = readFeatureSupportChoices(config.get("app.starter"));
 
 		if (!choices) {
@@ -827,6 +1252,32 @@ function parseEnvText(
 	return Object.fromEntries(entries);
 }
 
+async function withEnvFileDefaults<T>(
+	root: string,
+	options: DevToolConsoleOptions,
+	task: () => T | Promise<T>,
+): Promise<T> {
+	const envFile = parseEnvText(
+		await readOptionalText(resolve(root, options.envFile ?? ".env")),
+	);
+	const inserted: string[] = [];
+
+	for (const [key, value] of Object.entries(envFile)) {
+		if (process.env[key] === undefined) {
+			process.env[key] = value;
+			inserted.push(key);
+		}
+	}
+
+	try {
+		return await task();
+	} finally {
+		for (const key of inserted) {
+			delete process.env[key];
+		}
+	}
+}
+
 function readStringRecord(value: unknown): Readonly<Record<string, string>> {
 	if (!isRecord(value)) {
 		return {};
@@ -935,6 +1386,23 @@ function formatDoctor(checks: readonly DoctorCheck[]): string {
 	return formatTable("Kura doctor", ["Status", "Check", "Message"], rows);
 }
 
+function formatDoctorFixes(
+	fixes: readonly DoctorFix[],
+	dryRun: boolean,
+): string {
+	const rows = fixes.map((fix) => [
+		formatFixStatus(fix.status),
+		fix.name,
+		fix.path ?? "-",
+		fix.message,
+	]);
+	const title = dryRun
+		? "Kura doctor fix plan (dry run)"
+		: "Kura doctor fix plan";
+
+	return formatTable(title, ["Action", "Fix", "Path", "Message"], rows);
+}
+
 function formatKeyValues(
 	title: string,
 	entries: readonly (readonly [string, string])[],
@@ -980,6 +1448,18 @@ function formatStatus(status: DoctorStatus): string {
 	}
 
 	return "ERROR";
+}
+
+function formatFixStatus(status: DoctorFixStatus): string {
+	if (status === "apply") {
+		return "APPLY";
+	}
+
+	if (status === "skip") {
+		return "SKIP";
+	}
+
+	return "SUGGEST";
 }
 
 function redactEnvValue(key: string, value: string, secret: boolean): string {
