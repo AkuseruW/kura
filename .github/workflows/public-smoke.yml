@@ -1,0 +1,75 @@
+name: Public package smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published package version to test, or latest"
+        required: false
+        default: "latest"
+  workflow_run:
+    workflows:
+      - Publish npm packages
+    types:
+      - completed
+  schedule:
+    - cron: "17 4 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.preset }} / ${{ matrix.architecture }} / ${{ matrix.setup.name }}
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        preset:
+          - api
+          - web
+          - full
+        architecture:
+          - standard
+          - modular
+          - domain
+        setup:
+          - name: minimal
+            database: none
+            auth: none
+          - name: sqlite
+            database: sqlite
+            auth: none
+          - name: session
+            database: sqlite
+            auth: session
+          - name: access-token
+            database: sqlite
+            auth: access-token
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Smoke published app
+        env:
+          KURA_SMOKE_VERSION: ${{ github.event.inputs.version || 'latest' }}
+          KURA_SMOKE_PRESET: ${{ matrix.preset }}
+          KURA_SMOKE_ARCHITECTURE: ${{ matrix.architecture }}
+          KURA_SMOKE_DATABASE: ${{ matrix.setup.database }}
+          KURA_SMOKE_AUTH: ${{ matrix.setup.auth }}
+        run: bun run scripts/smoke-published.ts

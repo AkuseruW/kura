@@ -8,12 +8,37 @@ type SpawnResult = {
 	readonly stderr: string;
 };
 
+const appPresets = ["api", "web", "full"] as const;
+const architecturePresets = ["standard", "modular", "domain"] as const;
+const databasePresets = ["none", "sqlite", "postgres", "mysql"] as const;
+const authPresets = ["none", "session", "access-token"] as const;
+
+type AppPreset = (typeof appPresets)[number];
+type ArchitecturePreset = (typeof architecturePresets)[number];
+type DatabasePreset = (typeof databasePresets)[number];
+type AuthPreset = (typeof authPresets)[number];
+
+type SmokeOptions = {
+	readonly preset: AppPreset;
+	readonly architecture: ArchitecturePreset;
+	readonly database: DatabasePreset;
+	readonly auth: AuthPreset;
+};
+
 const runtimePackageName = "@akuseru_w/kura";
 const createPackageName = "create-kura-app";
-const appName = "kura-smoke";
 const repoRoot = process.cwd();
-const expectedVersion =
-	Bun.env.KURA_SMOKE_VERSION ?? (await readPackageVersion(repoRoot));
+const smokeOptions = readSmokeOptions();
+const expectedVersion = await resolveExpectedVersion(
+	Bun.env.KURA_SMOKE_VERSION ?? (await readPackageVersion(repoRoot)),
+);
+const appName = [
+	"kura-smoke",
+	smokeOptions.preset,
+	smokeOptions.architecture,
+	smokeOptions.database,
+	smokeOptions.auth,
+].join("-");
 const root = await mkdtemp(join(tmpdir(), "kura-published-smoke-"));
 const appRoot = join(root, appName);
 const port = reservePort();
@@ -34,13 +59,13 @@ try {
 			appName,
 			"--yes",
 			"--preset",
-			"api",
+			smokeOptions.preset,
 			"--architecture",
-			"domain",
+			smokeOptions.architecture,
 			"--database",
-			"sqlite",
+			smokeOptions.database,
 			"--auth",
-			"access-token",
+			smokeOptions.auth,
 			"--install",
 		],
 		{ cwd: root },
@@ -48,24 +73,13 @@ try {
 
 	await assertGeneratedRuntimeDependency(appRoot, expectedVersion);
 
-	run(
-		[
-			process.execPath,
-			"install",
-			"-g",
-			`${runtimePackageName}@${expectedVersion}`,
-		],
-		{
-			cwd: appRoot,
-		},
-	);
-	run(["kura", "help", "serve"], {
+	run([process.execPath, "node_modules/.bin/kura", "help", "serve"], {
 		cwd: appRoot,
 		mustContain: ["Start the development HTTP server"],
 	});
 	run([process.execPath, "bin/console.ts", "routes"], {
 		cwd: appRoot,
-		mustContain: ["/health", "/docs"],
+		mustContain: expectedRoutePaths(smokeOptions),
 	});
 	run([process.execPath, "run", "typecheck"], { cwd: appRoot });
 	run([process.execPath, "run", "build"], { cwd: appRoot });
@@ -81,19 +95,63 @@ try {
 	try {
 		await waitForHttp(`http://127.0.0.1:${port}/health`);
 		await assertHttp(`http://127.0.0.1:${port}/health`, 200);
-		await assertHttp(`http://127.0.0.1:${port}/docs`, 200);
-		await assertHttp(`http://127.0.0.1:${port}/openapi.json`, 200);
+
+		if (exposesOpenApi(smokeOptions)) {
+			await assertHttp(`http://127.0.0.1:${port}/docs`, 200);
+			await assertHttp(`http://127.0.0.1:${port}/openapi.json`, 200);
+		}
 	} finally {
 		server.kill();
 		await server.exited.catch(() => undefined);
 	}
 
-	console.log(`Published package smoke passed for ${expectedVersion}.`);
+	console.log(
+		[
+			`Published package smoke passed for ${expectedVersion}.`,
+			`Preset: ${smokeOptions.preset}`,
+			`Architecture: ${smokeOptions.architecture}`,
+			`Database: ${smokeOptions.database}`,
+			`Auth: ${smokeOptions.auth}`,
+		].join("\n"),
+	);
 	console.log(`Generated app: ${appRoot}`);
 } finally {
 	if (Bun.env.KURA_SMOKE_KEEP !== "true") {
 		await rm(root, { force: true, recursive: true });
 	}
+}
+
+function readSmokeOptions(): SmokeOptions {
+	return {
+		preset: readEnvChoice("KURA_SMOKE_PRESET", appPresets, "api"),
+		architecture: readEnvChoice(
+			"KURA_SMOKE_ARCHITECTURE",
+			architecturePresets,
+			"domain",
+		),
+		database: readEnvChoice("KURA_SMOKE_DATABASE", databasePresets, "sqlite"),
+		auth: readEnvChoice("KURA_SMOKE_AUTH", authPresets, "access-token"),
+	};
+}
+
+function readEnvChoice<TChoice extends string>(
+	name: string,
+	choices: readonly TChoice[],
+	defaultValue: TChoice,
+): TChoice {
+	const value = Bun.env[name] ?? defaultValue;
+
+	if (choices.includes(value as TChoice)) {
+		return value as TChoice;
+	}
+
+	throw new Error(
+		`${name} must be one of: ${choices.join(", ")}. Received [${value}].`,
+	);
+}
+
+async function resolveExpectedVersion(version: string): Promise<string> {
+	return version === "latest" ? readLatestVersion(runtimePackageName) : version;
 }
 
 async function readPackageVersion(path: string): Promise<string> {
@@ -108,6 +166,14 @@ async function readPackageVersion(path: string): Promise<string> {
 	}
 
 	return packageJson.version;
+}
+
+async function readLatestVersion(packageName: string): Promise<string> {
+	const result = run(["npm", "view", packageName, "version"], {
+		cwd: process.cwd(),
+	});
+
+	return result.stdout.trim();
 }
 
 async function assertLatestVersion(
@@ -141,6 +207,14 @@ async function assertGeneratedRuntimeDependency(
 			`Generated app dependency is ${actual}, expected ${expected}.`,
 		);
 	}
+}
+
+function expectedRoutePaths(options: SmokeOptions): readonly string[] {
+	return exposesOpenApi(options) ? ["/health", "/docs"] : ["/health"];
+}
+
+function exposesOpenApi(options: SmokeOptions): boolean {
+	return options.preset !== "web";
 }
 
 function run(
