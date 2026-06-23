@@ -18,7 +18,7 @@ afterEach(async () => {
 describe("create-kura-app package version", () => {
 	test("uses the create package version as the runtime dependency version", async () => {
 		expect(await resolveBundledRuntimePackageVersion()).toBe(
-			"npm:@akuseru_w/kura@0.1.12",
+			"npm:@akuseru_w/kura@0.1.13",
 		);
 	});
 
