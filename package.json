@@ -138,6 +138,7 @@
 		"build": "bun run scripts/build.ts",
 		"lint": "biome check .",
 		"format": "biome format . --write",
+		"smoke:published": "bun run scripts/smoke-published.ts",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
 	},
