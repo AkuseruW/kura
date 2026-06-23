@@ -210,6 +210,169 @@ describe("dev tool console commands", () => {
 		expect(output.text()).toContain("1 route registered");
 	});
 
+	test("prints doctor fix plans without writing during dry runs", async () => {
+		const root = await makeRoot();
+		await writeFile(join(root, "package.json"), "{}");
+		await writeFile(
+			join(root, ".env.example"),
+			"APP_KEY=local-development-key\n",
+		);
+		await writeFile(join(root, "tsconfig.json"), "{}");
+		await mkdir(join(root, "config"));
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, { root });
+
+		expect(await console.run(["doctor", "--fix", "--dry-run"])).toBe(1);
+
+		expect(output.text()).toContain("Kura doctor fix plan (dry run)");
+		expect(output.text()).toContain("env:create");
+		expect(output.text()).toContain("create .env from .env.example");
+		await expect(readFile(join(root, ".env"), "utf8")).rejects.toThrow();
+	});
+
+	test("applies safe doctor fixes for missing env files", async () => {
+		const root = await makeRoot();
+		await writeFile(join(root, "package.json"), "{}");
+		await writeFile(
+			join(root, ".env.example"),
+			"APP_KEY=local-development-key\n",
+		);
+		await writeFile(join(root, "tsconfig.json"), "{}");
+		await mkdir(join(root, "config"));
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, { root });
+
+		expect(await console.run(["doctor", "--fix"])).toBe(0);
+
+		expect(output.text()).toContain("Kura doctor fix plan");
+		expect(await readFile(join(root, ".env"), "utf8")).toBe(
+			"APP_KEY=local-development-key\n",
+		);
+		expect(output.text()).toContain("APP_KEY is loaded");
+	});
+
+	test("uses env file defaults when inspecting generated feature status", async () => {
+		const root = await makeRoot();
+		await writeFile(join(root, "package.json"), "{}");
+		await writeFile(join(root, ".env"), "APP_KEY=local-development-key\n");
+		await writeFile(join(root, "tsconfig.json"), "{}");
+		await mkdir(join(root, "config"));
+		unsetEnv("APP_KEY");
+		let configSawAppKey = false;
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, {
+			root,
+			loadConfig: () => {
+				configSawAppKey = process.env.APP_KEY === "local-development-key";
+				return new Config({
+					app: {
+						starter: {
+							auth: "none",
+							cache: "memory",
+							database: "none",
+							modules: [],
+							queue: "none",
+						},
+					},
+				});
+			},
+		});
+
+		expect(await console.run(["doctor"])).toBe(0);
+
+		expect(configSawAppKey).toBe(true);
+		expect(process.env.APP_KEY).toBeUndefined();
+		expect(output.text()).not.toContain("feature-status");
+	});
+
+	test("fixes package scripts and generated console command registration", async () => {
+		const root = await makeRoot();
+		await writeFile(
+			join(root, "package.json"),
+			JSON.stringify({
+				dependencies: {
+					kura: "^0.1.0",
+				},
+				scripts: {
+					dev: "bun bin/console.ts serve --watch",
+				},
+			}),
+		);
+		await writeFile(join(root, ".env"), "APP_KEY=local-development-key\n");
+		await writeFile(join(root, "tsconfig.json"), "{}");
+		await mkdir(join(root, "config"));
+		await mkdir(join(root, "bin"));
+		await writeFile(
+			join(root, "bin/console.ts"),
+			[
+				'import { createConsole, registerDevToolCommands, registerGeneratorCommands } from "kura/console";',
+				"const appConsole = createConsole();",
+				'registerGeneratorCommands(appConsole, { architecture: "standard" });',
+				"registerDevToolCommands(appConsole, { root: process.cwd() });",
+				"",
+			].join("\n"),
+		);
+		await writeFile(join(root, "bin/server.ts"), "export {};\n");
+		await writeFile(join(root, "bin/test.ts"), "export {};\n");
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, { root });
+
+		expect(await console.run(["doctor", "--fix"])).toBe(0);
+
+		const packageJson = JSON.parse(
+			await readFile(join(root, "package.json"), "utf8"),
+		) as { readonly scripts: Record<string, string> };
+		expect(packageJson.scripts.kura).toBe("bun bin/console.ts");
+		expect(packageJson.scripts.build).toContain("--target=bun");
+		expect(packageJson.scripts.dev).toBe("bun bin/console.ts serve --watch");
+		const consoleEntrypoint = await readFile(
+			join(root, "bin/console.ts"),
+			"utf8",
+		);
+		expect(consoleEntrypoint).toContain(
+			'import { createConsole, registerDevToolCommands, registerFeatureCommands, registerGeneratorCommands } from "kura/console";',
+		);
+		expect(consoleEntrypoint).toContain("registerFeatureCommands(appConsole");
+	});
+
+	test("fixes deployment start host when safe", async () => {
+		const root = await makeRoot();
+		await writeFile(
+			join(root, "package.json"),
+			JSON.stringify({
+				dependencies: {
+					kura: "^0.1.0",
+				},
+				scripts: {
+					build: "bun build bin/server.ts --target=bun --production",
+					preview: "bun bin/console.ts preview",
+					start: "bun bin/console.ts serve",
+				},
+			}),
+		);
+		await writeFile(join(root, ".env"), "APP_KEY=local-development-key\n");
+		await writeFile(join(root, "tsconfig.json"), "{}");
+		await mkdir(join(root, "config"));
+		await mkdir(join(root, "bin"));
+		await writeFile(join(root, "bin/console.ts"), "export {};\n");
+		await writeFile(join(root, "bin/server.ts"), "export {};\n");
+		const console = new ConsoleKernel(new MemoryConsoleOutput());
+		registerDevToolCommands(console, { root });
+
+		expect(await console.run(["deploy:doctor", "--fix"])).toBe(0);
+
+		const packageJson = JSON.parse(
+			await readFile(join(root, "package.json"), "utf8"),
+		) as { readonly scripts: Record<string, string> };
+		expect(packageJson.scripts.start).toBe(
+			"bun bin/console.ts serve --host 0.0.0.0",
+		);
+	});
+
 	test("checks environment schema health for doctor and deploy doctor", async () => {
 		const root = await makeRoot();
 		await writeFile(join(root, "package.json"), "{}");
@@ -488,4 +651,11 @@ function setEnv(key: string, value: string): void {
 		previousEnv.set(key, process.env[key]);
 	}
 	process.env[key] = value;
+}
+
+function unsetEnv(key: string): void {
+	if (!previousEnv.has(key)) {
+		previousEnv.set(key, process.env[key]);
+	}
+	delete process.env[key];
 }
