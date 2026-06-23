@@ -441,12 +441,31 @@ function dockerImageName(appName: string): string {
 }
 
 function makeKernel(choices: NewAppChoices): string {
-	const namedMiddleware =
-		choices.auth !== "none" ? "\tauth: authMiddleware,\n" : "";
+	const usesCsrf = choices.auth === "session" && choices.preset !== "api";
+	const namedMiddleware = [
+		choices.auth !== "none" ? "\tauth: authMiddleware," : "",
+		usesCsrf ? "\tcsrf: csrfProtection," : "",
+	]
+		.filter(Boolean)
+		.join("\n");
+	const csrfImport = usesCsrf ? ", CsrfProtection" : "";
+	const csrfSetup = usesCsrf
+		? `const csrfProtection = CsrfProtection({
+\tcookieName: env.get("CSRF_COOKIE_NAME", "kura-csrf-token"),
+\tsecure: env.get<string>("NODE_ENV", "development") === "production",
+});
+
+`
+		: "";
+	const csrfMiddleware = usesCsrf ? "\tcsrfProtection,\n" : "";
 	const imports = [
-		'import { BodyLimit, BodyParser, Cors, defineHttpKernel, type Middleware, RequestId, RequestTimeout } from "kura/http";',
+		`import { BodyLimit, BodyParser, Cors${csrfImport}, defineHttpKernel, type Middleware, RequestId, RequestTimeout } from "kura/http";`,
 		'import handleException from "#exceptions/handler";',
 	];
+
+	if (usesCsrf) {
+		imports.push('import env from "#start/env";');
+	}
 
 	if (choices.auth !== "none") {
 		imports.push(
@@ -473,7 +492,7 @@ ${imports.join("\n")}
 
 const errorHandler = handleException;
 
-/**
+${csrfSetup}/**
  * Server middleware runs for every request, including unmatched URLs.
  */
 const server = [
@@ -482,7 +501,7 @@ const server = [
 \tRequestTimeout({ ms: 30_000 }),
 \tBodyLimit({ maxBytes: 1_048_576 }),
 \tBodyParser,
-];
+${csrfMiddleware}];
 
 /**
  * Router middleware runs only after a route has matched.
@@ -493,7 +512,8 @@ const router: readonly Middleware[] = [];
  * Named middleware is assigned directly to routes or route groups.
  */
 export const middleware = {
-${namedMiddleware}};
+${namedMiddleware}
+};
 
 export const kernel = defineHttpKernel({
 \terrorHandler,
@@ -1243,10 +1263,28 @@ function makeAuthRoutes(choices: NewAppChoices): string {
 		choices.auth === "access-token"
 			? "\t\t\t\t\tsecurity: [{ bearerAuth: [] }],\n"
 			: "";
+	const usesCsrf = choices.auth === "session" && choices.preset !== "api";
+	const csrfOpenApiParameter = usesCsrf
+		? "\t\t\t\tparameters: [csrfHeaderParameter],\n"
+		: "";
+	const nestedCsrfOpenApiParameter = usesCsrf
+		? "\t\t\t\t\tparameters: [csrfHeaderParameter],\n"
+		: "";
+	const csrfHeaderParameter = usesCsrf
+		? `
+const csrfHeaderParameter = {
+\tname: "X-CSRF-Token",
+\tin: "header",
+\trequired: true,
+\tschema: { type: "string" },
+} as const;
+`
+		: "";
 
 	return `${imports.join("\n")}
 
 const authController = new AuthController();
+${csrfHeaderParameter}
 
 export function registerAuthRoutes(router: Router): void {
 \trouter.group().prefix("/auth").as("auth.").routes((auth) => {
@@ -1259,7 +1297,7 @@ export function registerAuthRoutes(router: Router): void {
 \t\t\t.openapi({
 \t\t\t\ttags: ["Auth"],
 \t\t\t\tsummary: "Login",
-\t\t\t\tbody: authLoginRequestSchema,
+${csrfOpenApiParameter}\t\t\t\tbody: authLoginRequestSchema,
 \t\t\t\tresponses: {
 \t\t\t\t\t200: authLoginResponseSchema,
 \t\t\t\t\t401: {
@@ -1281,7 +1319,7 @@ export function registerAuthRoutes(router: Router): void {
 \t\t\t.openapi({
 \t\t\t\ttags: ["Auth"],
 \t\t\t\tsummary: "Register",
-\t\t\t\tbody: authRegisterRequestSchema,
+${csrfOpenApiParameter}\t\t\t\tbody: authRegisterRequestSchema,
 \t\t\t\tresponses: {
 \t\t\t\t\t201: authLoginResponseSchema,
 \t\t\t\t\t409: {
@@ -1322,7 +1360,7 @@ ${accessTokenSecurity}\t\t\t\t\tresponses: {
 \t\t\t\t.openapi({
 \t\t\t\t\ttags: ["Auth"],
 \t\t\t\t\tsummary: "Logout",
-${accessTokenSecurity}\t\t\t\t\tresponses: {
+${nestedCsrfOpenApiParameter}${accessTokenSecurity}\t\t\t\t\tresponses: {
 \t\t\t\t\t\t200: okResponseSchema,
 \t\t\t\t\t\t401: {
 \t\t\t\t\t\t\tdescription: "Unauthenticated",

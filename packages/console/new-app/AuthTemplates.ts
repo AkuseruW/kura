@@ -36,7 +36,7 @@ export class AuthController {
 			});
 		}
 
-		const result = await authService.login(input.email, input.password);
+		const result = await authService.login(ctx, input.email, input.password);
 
 		if (!result) {
 			return KuraResponse.error({
@@ -58,7 +58,7 @@ export class AuthController {
 			});
 		}
 
-		const result = await authService.register(input.email, input.password);
+		const result = await authService.register(ctx, input.email, input.password);
 
 		if (!result) {
 			return KuraResponse.error({
@@ -155,6 +155,7 @@ class AuthService {
 	});
 
 	async register(
+		_ctx: Context,
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
@@ -168,6 +169,7 @@ class AuthService {
 	}
 
 	async login(
+		_ctx: Context,
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
@@ -335,6 +337,7 @@ class AuthService {
 	});
 
 	async register(
+		_ctx: Context,
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
@@ -351,6 +354,7 @@ class AuthService {
 	}
 
 	async login(
+		_ctx: Context,
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
@@ -477,6 +481,8 @@ function makeModelSessionAuthService(choices: NewAppChoices): string {
 	const userImport = moduleImport(choices, "auth", "user", "#models/user");
 
 	return `import { database } from "#database/connection";
+import env from "#start/env";
+import { SessionCookie } from "kura/auth";
 import type { QueryRow } from "kura/database";
 import { Hash } from "kura/hash";
 import type { Context } from "kura/http";
@@ -504,8 +510,13 @@ type AuthServiceResult = {
 	readonly headers?: Record<string, string>;
 };
 
-const SESSION_COOKIE_NAME = "kura-session";
-const SESSION_TTL_SECONDS = 60 * 60 * 2;
+const SESSION_TTL_SECONDS =
+	env.number("SESSION_TTL_SECONDS", 60 * 60 * 2) ?? 60 * 60 * 2;
+const sessionCookie = new SessionCookie({
+	maxAge: SESSION_TTL_SECONDS,
+	name: env.get("SESSION_COOKIE_NAME", "kura-session"),
+	secure: env.get<string>("NODE_ENV", "development") === "production",
+});
 
 type SessionRow = QueryRow & {
 	readonly id: string;
@@ -518,6 +529,7 @@ type SessionRow = QueryRow & {
 
 class AuthService {
 	async register(
+		ctx: Context,
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
@@ -527,10 +539,11 @@ class AuthService {
 
 		const user = await this.createUser(email, password);
 
-		return this.createLoginResult(user);
+		return this.createLoginResult(ctx, user);
 	}
 
 	async login(
+		ctx: Context,
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
@@ -547,11 +560,11 @@ class AuthService {
 			return null;
 		}
 
-		return this.createLoginResult(user);
+		return this.createLoginResult(ctx, user);
 	}
 
 	async authenticate(ctx: Context): Promise<PublicUser | null> {
-		const sessionId = readSessionCookie(ctx.request);
+		const sessionId = sessionCookie.read(ctx.request);
 		const session = sessionId ? await this.findSession(sessionId) : null;
 
 		if (!session || session.expiresAt.getTime() <= Date.now()) {
@@ -579,7 +592,7 @@ class AuthService {
 	}
 
 	async logout(ctx: Context): Promise<AuthServiceResult | null> {
-		const sessionId = readSessionCookie(ctx.request);
+		const sessionId = sessionCookie.read(ctx.request);
 
 		if (!sessionId || !(await this.findSession(sessionId))) {
 			return null;
@@ -590,12 +603,16 @@ class AuthService {
 		return {
 			body: { ok: true },
 			headers: {
-				"Set-Cookie": serializeSessionCookie("", 0),
+				"Set-Cookie": sessionCookie.clear(),
 			},
 		};
 	}
 
-	private async createLoginResult(user: AuthUser): Promise<AuthServiceResult> {
+	private async createLoginResult(
+		ctx: Context,
+		user: AuthUser,
+	): Promise<AuthServiceResult> {
+		await this.rotateSession(ctx);
 		const session = await this.createSession(user.id);
 
 		return {
@@ -606,9 +623,17 @@ class AuthService {
 				user: publicUser(user),
 			},
 			headers: {
-				"Set-Cookie": serializeSessionCookie(session.id, SESSION_TTL_SECONDS),
+				"Set-Cookie": sessionCookie.serialize(session.id),
 			},
 		};
+	}
+
+	private async rotateSession(ctx: Context): Promise<void> {
+		const sessionId = sessionCookie.read(ctx.request);
+
+		if (sessionId) {
+			await this.deleteSession(sessionId);
+		}
 	}
 
 	private async findUserById(id: number): Promise<AuthUser | null> {
@@ -703,6 +728,8 @@ function toAuthUser(user: User): AuthUser {
 
 function makeDomainSessionAuthService(): string {
 	return `import { database } from "#database/connection";
+import env from "#start/env";
+import { SessionCookie } from "kura/auth";
 import type { QueryRow } from "kura/database";
 import { Hash } from "kura/hash";
 import type { Context } from "kura/http";
@@ -732,8 +759,13 @@ type AuthServiceResult = {
 	readonly headers?: Record<string, string>;
 };
 
-const SESSION_COOKIE_NAME = "kura-session";
-const SESSION_TTL_SECONDS = 60 * 60 * 2;
+const SESSION_TTL_SECONDS =
+	env.number("SESSION_TTL_SECONDS", 60 * 60 * 2) ?? 60 * 60 * 2;
+const sessionCookie = new SessionCookie({
+	maxAge: SESSION_TTL_SECONDS,
+	name: env.get("SESSION_COOKIE_NAME", "kura-session"),
+	secure: env.get<string>("NODE_ENV", "development") === "production",
+});
 const users = new SqlUserRepository();
 const registerUser = new RegisterUser(users);
 
@@ -748,6 +780,7 @@ type SessionRow = QueryRow & {
 
 class AuthService {
 	async register(
+		ctx: Context,
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
@@ -760,10 +793,11 @@ class AuthService {
 			passwordHash: await Hash.make(password),
 		});
 
-		return this.createLoginResult(toAuthUser(user));
+		return this.createLoginResult(ctx, toAuthUser(user));
 	}
 
 	async login(
+		ctx: Context,
 		email: string,
 		password: string,
 	): Promise<AuthServiceResult | null> {
@@ -780,11 +814,11 @@ class AuthService {
 			return null;
 		}
 
-		return this.createLoginResult(user);
+		return this.createLoginResult(ctx, user);
 	}
 
 	async authenticate(ctx: Context): Promise<PublicUser | null> {
-		const sessionId = readSessionCookie(ctx.request);
+		const sessionId = sessionCookie.read(ctx.request);
 		const session = sessionId ? await this.findSession(sessionId) : null;
 
 		if (!session || session.expiresAt.getTime() <= Date.now()) {
@@ -812,7 +846,7 @@ class AuthService {
 	}
 
 	async logout(ctx: Context): Promise<AuthServiceResult | null> {
-		const sessionId = readSessionCookie(ctx.request);
+		const sessionId = sessionCookie.read(ctx.request);
 
 		if (!sessionId || !(await this.findSession(sessionId))) {
 			return null;
@@ -823,12 +857,16 @@ class AuthService {
 		return {
 			body: { ok: true },
 			headers: {
-				"Set-Cookie": serializeSessionCookie("", 0),
+				"Set-Cookie": sessionCookie.clear(),
 			},
 		};
 	}
 
-	private async createLoginResult(user: AuthUser): Promise<AuthServiceResult> {
+	private async createLoginResult(
+		ctx: Context,
+		user: AuthUser,
+	): Promise<AuthServiceResult> {
+		await this.rotateSession(ctx);
 		const session = await this.createSession(user.id);
 
 		return {
@@ -839,9 +877,17 @@ class AuthService {
 				user: publicUser(user),
 			},
 			headers: {
-				"Set-Cookie": serializeSessionCookie(session.id, SESSION_TTL_SECONDS),
+				"Set-Cookie": sessionCookie.serialize(session.id),
 			},
 		};
+	}
+
+	private async rotateSession(ctx: Context): Promise<void> {
+		const sessionId = sessionCookie.read(ctx.request);
+
+		if (sessionId) {
+			await this.deleteSession(sessionId);
+		}
 	}
 
 	private async findUserById(id: number): Promise<AuthUser | null> {
@@ -919,40 +965,7 @@ function toAuthUser(user: User): AuthUser {
 }
 
 function sessionHelpers(): string {
-	return `function readSessionCookie(request: Request): string | null {
-	const cookieHeader = request.headers.get("cookie");
-
-	if (!cookieHeader) {
-		return null;
-	}
-
-	for (const cookie of cookieHeader.split(";")) {
-		const [name, value] = cookie.trim().split("=");
-
-		if (name === SESSION_COOKIE_NAME && value) {
-			return decodeURIComponent(value);
-		}
-	}
-
-	return null;
-}
-
-function serializeSessionCookie(sessionId: string, maxAge: number): string {
-	const secure = Bun.env.NODE_ENV === "production" ? "; Secure" : "";
-
-	return [
-		SESSION_COOKIE_NAME + "=" + encodeURIComponent(sessionId),
-		"HttpOnly",
-		"SameSite=Lax",
-		"Path=/",
-		"Max-Age=" + String(maxAge),
-		secure,
-	]
-		.filter(Boolean)
-		.join("; ");
-}
-
-function publicUser(user: AuthUser): PublicUser {
+	return `function publicUser(user: AuthUser): PublicUser {
 	return {
 		id: user.id,
 		email: user.email,
