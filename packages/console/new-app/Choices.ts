@@ -5,6 +5,7 @@ import type {
 	AuthPreset,
 	CachePreset,
 	DatabasePreset,
+	FeaturePreset,
 	ModulePreset,
 	NewAppChoices,
 	NewAppConsoleOptions,
@@ -12,16 +13,6 @@ import type {
 	NewAppPromptChoice,
 	QueuePreset,
 } from "./Types";
-
-type FeaturePreset =
-	| "auth"
-	| "cache"
-	| "database"
-	| "i18n"
-	| "mail"
-	| "queue"
-	| "storage"
-	| "websockets";
 
 const appPresetChoices = [
 	{

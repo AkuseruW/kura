@@ -151,6 +151,7 @@ export function makeConsoleEntrypoint(choices: NewAppChoices): string {
 	return `${databaseImports}import {
 \tcreateConsole,
 \tregisterDevToolCommands,
+\tregisterFeatureCommands,
 \tregisterGeneratorCommands,
 \tregisterPreviewCommand,
 \tregisterServeCommand,
@@ -162,6 +163,9 @@ const appConsole = createConsole();
 
 registerGeneratorCommands(appConsole, {
 \tarchitecture: "${choices.architecture}",
+});
+registerFeatureCommands(appConsole, {
+\troot: process.cwd(),
 });
 registerServeCommand(appConsole, {
 \tentry: "bin/server.ts",

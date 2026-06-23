@@ -10,6 +10,10 @@ import {
 	registerDevToolCommands,
 } from "./DevTools";
 import {
+	type FeatureConsoleOptions,
+	registerFeatureCommands,
+} from "./FeatureInstaller";
+import {
 	type GeneratorConsoleOptions,
 	registerGeneratorCommands,
 } from "./Generators";
@@ -21,12 +25,14 @@ export interface KuraCliOptions {
 	readonly serve?: ServeConsoleOptions;
 	readonly preview?: PreviewConsoleOptions;
 	readonly devTools?: DevToolConsoleOptions;
+	readonly features?: FeatureConsoleOptions;
 }
 
 export function createKuraConsole(options: KuraCliOptions = {}): ConsoleKernel {
 	const console = createConsole();
 
 	registerNewAppCommand(console, options.newApp);
+	registerFeatureCommands(console, options.features);
 	registerGeneratorCommands(console, options.generators);
 	registerServeCommand(console, options.serve);
 	registerPreviewCommand(console, options.preview);
