@@ -100,7 +100,7 @@ Available options:
 --preset api|web|full
 --architecture standard|modular|domain
 --database none|sqlite|postgres|mysql
---auth none|session|jwt
+--auth none|session|access-token
 --cache memory|file|redis
 --queue none|memory|sqlite|redis
 --module mail,storage,i18n,websockets
