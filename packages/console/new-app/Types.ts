@@ -6,6 +6,16 @@ export type CachePreset = "memory" | "file" | "redis";
 export type QueuePreset = "none" | "memory" | "sqlite" | "redis";
 export type PackageManager = "bun";
 export type ModulePreset = "mail" | "storage" | "i18n" | "websockets";
+export type FeaturePreset =
+	| "auth"
+	| "cache"
+	| "database"
+	| "i18n"
+	| "mail"
+	| "openapi"
+	| "queue"
+	| "storage"
+	| "websockets";
 
 export type NewAppPromptChoice<TValue extends string = string> = {
 	readonly value: TValue;

@@ -31,6 +31,11 @@ export {
 	registerDevToolCommands,
 } from "./packages/console/DevTools";
 export {
+	createFeatureCommands,
+	type FeatureConsoleOptions,
+	registerFeatureCommands,
+} from "./packages/console/FeatureInstaller";
+export {
 	createGeneratorCommands,
 	type GeneratorConsoleOptions,
 	registerGeneratorCommands,

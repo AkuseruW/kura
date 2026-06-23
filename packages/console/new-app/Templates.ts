@@ -66,7 +66,7 @@ import {
 	userRepositoryPath,
 	usesDatabaseFiles,
 } from "./ScaffoldPaths";
-import type { NewAppChoices, NewAppFile } from "./Types";
+import type { FeaturePreset, NewAppChoices, NewAppFile } from "./Types";
 
 export function makeNewAppFiles(options: {
 	readonly appName: string;
@@ -258,6 +258,120 @@ function makeDatabaseRuntimeFiles(
 			content: makeDatabaseMigrations(choices),
 		},
 	];
+}
+
+export function makeNewAppFeatureFiles(options: {
+	readonly choices: NewAppChoices;
+	readonly features: readonly FeaturePreset[];
+}): readonly NewAppFile[] {
+	const { choices } = options;
+	const features = new Set(options.features);
+	const files: NewAppFile[] = [];
+
+	if (features.has("database") || features.has("auth")) {
+		files.push(
+			...makeFeatureConfigFiles(choices).filter((file) =>
+				databaseOrAuthConfigPaths.has(file.path),
+			),
+			...makeDatabaseMetadataFiles(choices),
+			...makeDatabaseRuntimeFiles(choices),
+		);
+	}
+
+	if (features.has("auth")) {
+		files.push(
+			...makeAuthFiles(choices),
+			...makeRouteSupportFiles(choices).filter((file) =>
+				authSupportPaths(choices).has(file.path),
+			),
+			...makeRouteFiles(choices).filter(
+				(file) => file.path === routeFilePath(choices, "auth"),
+			),
+		);
+	}
+
+	if (features.has("cache")) {
+		files.push(
+			...makeFeatureConfigFiles(choices).filter(
+				(file) => file.path === "config/cache.ts",
+			),
+			...makeScaffoldDirectories(choices).filter(
+				(file) => file.path === "tmp/cache",
+			),
+		);
+	}
+
+	if (features.has("queue")) {
+		files.push(
+			...makeFeatureConfigFiles(choices).filter(
+				(file) => file.path === "config/queue.ts",
+			),
+		);
+	}
+
+	if (features.has("openapi")) {
+		files.push(
+			...makeRouteSupportFiles(choices).filter((file) =>
+				openApiSupportPaths(choices).has(file.path),
+			),
+			...makeRouteFiles(choices).filter(
+				(file) =>
+					file.path === routeFilePath(choices, "api") ||
+					file.path === "routes/openapi.ts",
+			),
+		);
+	}
+
+	const requestedModules = choices.modules.filter((moduleName) =>
+		features.has(moduleName),
+	);
+	if (requestedModules.length > 0) {
+		const moduleChoices = { ...choices, modules: requestedModules };
+		files.push(
+			...makeOptionalModuleFiles(moduleChoices),
+			...makeScaffoldDirectories(moduleChoices),
+		);
+	}
+
+	return uniqueFilesByPath(files);
+}
+
+const databaseOrAuthConfigPaths = new Set([
+	"config/auth.ts",
+	"config/database.ts",
+	"config/encryption.ts",
+	"config/hash.ts",
+	"config/session.ts",
+]);
+
+function authSupportPaths(choices: NewAppChoices): Set<string> {
+	return new Set([
+		openApiSchemaPath(choices, "auth"),
+		authValidatorPath(choices),
+		authMiddlewarePath(choices),
+	]);
+}
+
+function openApiSupportPaths(choices: NewAppChoices): Set<string> {
+	return new Set([openApiSchemaPath(choices, "api")]);
+}
+
+function uniqueFilesByPath(
+	files: readonly NewAppFile[],
+): readonly NewAppFile[] {
+	const usedPaths = new Set<string>();
+	const unique: NewAppFile[] = [];
+
+	for (const file of files) {
+		if (usedPaths.has(file.path)) {
+			continue;
+		}
+
+		usedPaths.add(file.path);
+		unique.push(file);
+	}
+
+	return unique;
 }
 
 function makeDockerIgnore(): string {
