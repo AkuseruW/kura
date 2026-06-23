@@ -64,18 +64,65 @@ export default storageConfig;
 }
 
 export function makeStorageService(): string {
-	return `import { join } from "node:path";
+	return `import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import type { UploadedFile } from "kura/http";
+
+type StorageValue = string | Uint8Array | ArrayBuffer | Blob;
 
 export class StorageService {
-\tconstructor(private readonly root = "storage/app") {}
+\tprivate readonly rootPath: string;
+
+\tconstructor(root = "storage/app") {
+\t\tthis.rootPath = resolve(root);
+\t}
 
 \tpath(key: string): string {
-\t\treturn join(this.root, key);
+\t\tconst normalizedKey = key.trim();
+\t\tif (!normalizedKey) {
+\t\t\tthrow new Error("Storage key cannot be empty");
+\t\t}
+
+\t\tconst path = resolve(this.rootPath, normalizedKey);
+\t\tconst relativePath = relative(this.rootPath, path);
+\t\tif (
+\t\t\trelativePath === ".." ||
+\t\t\trelativePath.startsWith(".." + sep) ||
+\t\t\tisAbsolute(relativePath)
+\t\t) {
+\t\t\tthrow new Error("Storage key escapes storage root");
+\t\t}
+
+\t\treturn path;
 \t}
 
 \tfile(key: string): Bun.BunFile {
 \t\treturn Bun.file(this.path(key));
 \t}
+
+\tasync put(key: string, value: StorageValue): Promise<string> {
+\t\tconst path = this.path(key);
+\t\tawait mkdir(dirname(path), { recursive: true });
+\t\tawait writeFile(path, await toWritableValue(value));
+\t\treturn path;
+\t}
+
+\tasync putFile(key: string, file: UploadedFile | File): Promise<string> {
+\t\tconst nativeFile = file instanceof File ? file : file.toFile();
+\t\treturn this.put(key, nativeFile);
+\t}
+}
+
+async function toWritableValue(value: StorageValue): Promise<string | Uint8Array> {
+\tif (typeof value === "string" || value instanceof Uint8Array) {
+\t\treturn value;
+\t}
+
+\tif (value instanceof ArrayBuffer) {
+\t\treturn new Uint8Array(value);
+\t}
+
+\treturn new Uint8Array(await value.arrayBuffer());
 }
 `;
 }

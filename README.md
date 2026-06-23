@@ -173,6 +173,48 @@ router.post("/users", (ctx) => {
 });
 ```
 
+## File Uploads
+
+Multipart requests use the same route schema flow as JSON requests. Declare file
+fields with `k.file()` or repeated file fields with `k.files()`, then read the
+wrapped upload from the context when you need metadata or storage helpers.
+
+```ts
+import { Router } from "kura/http";
+import { k } from "kura/validation";
+
+const uploadRequest = k.object({
+	avatar: k.file().maxSize(2_000_000).mimeTypes(["image/png"]),
+	gallery: k.files(k.file().extensions(["jpg", "png"])).min(1),
+});
+
+router.post("/profile/avatar", async (ctx) => {
+	const input = ctx.validatedBody<{ avatar: File; gallery: File[] }>();
+	const avatar = await ctx.file("avatar");
+
+	if (!input || !avatar) {
+		return Response.json({ error: "missing upload" }, { status: 400 });
+	}
+
+	await avatar.moveTo("storage/app/avatars", {
+		name: avatar.clientName,
+	});
+
+	return Response.json({
+		file: avatar.clientName,
+		gallery: input.gallery.length,
+	});
+}).schema({
+	body: uploadRequest,
+});
+```
+
+OpenAPI docs automatically use `multipart/form-data` when the request body
+schema contains file fields. The current parser is Bun-native and uses
+`Bun.readableStreamToFormData`, so multipart bodies are processed in memory.
+Use `BodyLimit` and file validation for public endpoints; streaming multipart
+drivers can be added later without changing the public route schema API.
+
 ## Response Helpers
 
 Route handlers can always return a native `Response`. For common JSON responses,

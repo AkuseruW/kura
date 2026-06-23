@@ -1,6 +1,11 @@
 import type { SchemaLike } from "../validation/Schema";
 import { parseRequestBody, type RequestBodyType } from "./Body";
 import { createContext, type RequestFormData } from "./Server";
+import {
+	type UploadedFile,
+	uploadedFileFromEntry,
+	uploadedFilesFromEntries,
+} from "./Upload";
 
 export class KuraRequest {
 	private body: Record<string, unknown> = {};
@@ -33,6 +38,14 @@ export class KuraRequest {
 	files(name: string): File[] {
 		const files = this.formData?.getAll(name) ?? [];
 		return files.filter((f): f is File => f instanceof File);
+	}
+
+	uploadedFile(name: string): UploadedFile | null {
+		return uploadedFileFromEntry(name, this.formData?.get(name) ?? null);
+	}
+
+	uploadedFiles(name: string): UploadedFile[] {
+		return uploadedFilesFromEntries(name, this.formData?.getAll(name) ?? []);
 	}
 
 	header(name: string): string | null {

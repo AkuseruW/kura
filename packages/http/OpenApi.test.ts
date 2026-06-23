@@ -267,6 +267,58 @@ describe("OpenAPI", () => {
 		});
 	});
 
+	test("documents file request schemas as multipart form data", () => {
+		const router = new Router();
+		const uploadSchema = k.object({
+			avatar: k.file(),
+			photos: k.files().optional(),
+			title: k.string(),
+		});
+
+		router
+			.post("/uploads", () => Response.json({}))
+			.schema({
+				body: uploadSchema,
+			});
+
+		const document = createOpenApiDocument(router);
+		const operation = document.paths["/uploads"]?.post;
+
+		expect(operation?.requestBody).toEqual({
+			required: true,
+			content: {
+				"multipart/form-data": {
+					schema: toOpenApiSchema(uploadSchema),
+				},
+			},
+		});
+	});
+
+	test("respects explicit request body content type for file schemas", () => {
+		const router = new Router();
+		const uploadSchema = k.object({
+			file: k.file(),
+		});
+
+		router
+			.post("/uploads/raw", () => Response.json({}))
+			.openapi({
+				body: {
+					contentType: "application/octet-stream",
+					schema: uploadSchema,
+				},
+			});
+
+		const document = createOpenApiDocument(router);
+		const operation = document.paths["/uploads/raw"]?.post;
+
+		expect(operation?.requestBody?.content).toEqual({
+			"application/octet-stream": {
+				schema: toOpenApiSchema(uploadSchema),
+			},
+		});
+	});
+
 	test("registers hidden JSON and UI routes", async () => {
 		const router = new Router();
 		router

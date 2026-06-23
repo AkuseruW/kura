@@ -140,6 +140,45 @@ describe("Context helpers", () => {
 		expect(ctx.formData?.get("name")).toBe("Ada");
 	});
 
+	test("reads uploaded files from multipart bodies", async () => {
+		const formData = new FormData();
+		formData.append(
+			"avatar",
+			new File(["avatar"], "avatar.png", { type: "image/png" }),
+		);
+		formData.append(
+			"photos",
+			new File(["one"], "one.jpg", { type: "image/jpeg" }),
+		);
+		formData.append(
+			"photos",
+			new File(["two"], "two.jpg", { type: "image/jpeg" }),
+		);
+		formData.append("name", "Ada");
+
+		const ctx = createContext(
+			new Request("http://localhost/users", {
+				body: formData,
+				method: "POST",
+			}),
+		);
+
+		const avatar = await ctx.file("avatar");
+		const photos = await ctx.files("photos");
+
+		expect(avatar?.fieldName).toBe("avatar");
+		expect(avatar?.clientName).toBe("avatar.png");
+		expect(avatar?.extension).toBe("png");
+		expect(avatar?.type).toBe("image/png");
+		expect(await avatar?.text()).toBe("avatar");
+		expect(photos.map((photo) => photo.clientName)).toEqual([
+			"one.jpg",
+			"two.jpg",
+		]);
+		expect(await ctx.file("missing")).toBeNull();
+		expect(ctx.bodyValue<Record<string, unknown>>()?.name).toBe("Ada");
+	});
+
 	test("parses text bodies lazily when requested by handlers", async () => {
 		const ctx = createContext(
 			new Request("http://localhost/messages", {

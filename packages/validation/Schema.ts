@@ -144,6 +144,10 @@ export class Schema<T = unknown> {
 				return input.length >= value;
 			}
 
+			if (this._type === "array" && input instanceof File) {
+				return 1 >= value;
+			}
+
 			return false;
 		});
 		return this;
@@ -167,6 +171,10 @@ export class Schema<T = unknown> {
 
 			if (Array.isArray(input)) {
 				return input.length <= value;
+			}
+
+			if (this._type === "array" && input instanceof File) {
+				return 1 <= value;
 			}
 
 			return false;
@@ -288,6 +296,39 @@ export class Schema<T = unknown> {
 		const schema = new Schema<File>();
 		schema._type = "file";
 		schema.rules.push((input) => input instanceof File);
+		return schema;
+	}
+
+	files(fileSchema: Schema<File> = this.file()): Schema<File[]> {
+		const schema = new Schema<File[]>();
+		schema._type = "array";
+		schema.itemSchema = fileSchema as Schema<unknown>;
+		schema.requiresAsyncRules = fileSchema.requiresAsyncValidation();
+		schema.rules.push(
+			(input) =>
+				input instanceof File ||
+				(Array.isArray(input) && input.every((item) => item instanceof File)),
+		);
+		if (!fileSchema.requiresAsyncValidation()) {
+			schema.rules.push((input) =>
+				normalizeFileList(input).every((file) => {
+					try {
+						fileSchema.parse(file);
+						return true;
+					} catch {
+						return false;
+					}
+				}),
+			);
+		}
+		schema.parser = (input) =>
+			normalizeFileList(input).map((file) => fileSchema.parse(file));
+		schema.asyncParser = async (input, context) =>
+			Promise.all(
+				normalizeFileList(input).map((file) =>
+					fileSchema.parseAsync(file, context),
+				),
+			);
 		return schema;
 	}
 
@@ -671,6 +712,16 @@ export function isSchema(value: unknown): value is SchemaLike<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeFileList(value: unknown): File[] {
+	if (value instanceof File) {
+		return [value];
+	}
+
+	return Array.isArray(value)
+		? value.filter((item): item is File => item instanceof File)
+		: [];
 }
 
 function isPresent(value: unknown): boolean {

@@ -132,3 +132,10 @@ export {
 	type ServerOptions,
 	type ValidatedRouteData,
 } from "./packages/http/Server";
+export {
+	UploadedFile,
+	type UploadedFileMoveOptions,
+	type UploadedFileOptions,
+	uploadedFileFromEntry,
+	uploadedFilesFromEntries,
+} from "./packages/http/Upload";

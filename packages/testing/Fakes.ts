@@ -1,6 +1,7 @@
 import { AssertionError } from "node:assert";
 import { isDeepStrictEqual } from "node:util";
 import { Emitter, type Event, type Listener } from "../core/Event";
+import { UploadedFile } from "../http/Upload";
 import {
 	type Job,
 	type JobRegistry,
@@ -76,6 +77,144 @@ export class FakeMailDriver {
 
 	assertNotSent(matcher?: FakeMailMatcher): this {
 		assertNone(this.sent(matcher).length, "mail", "sent", matcher);
+
+		return this;
+	}
+}
+
+export type FakeUploadedFileContent =
+	| string
+	| Uint8Array
+	| ArrayBuffer
+	| Blob
+	| readonly (string | Uint8Array | ArrayBuffer | Blob)[];
+
+export type FakeUploadedFileOptions = {
+	readonly fieldName?: string;
+	readonly name?: string;
+	readonly type?: string;
+	readonly lastModified?: number;
+};
+
+export function fakeUploadedFile(
+	content: FakeUploadedFileContent = "",
+	options: FakeUploadedFileOptions = {},
+): UploadedFile {
+	const parts = Array.isArray(content) ? [...content] : [content];
+	const file = new File(parts, options.name ?? "upload.txt", {
+		lastModified: options.lastModified,
+		type: options.type,
+	});
+
+	return new UploadedFile(file, { fieldName: options.fieldName ?? "file" });
+}
+
+export type FakeStorageValue =
+	| string
+	| Uint8Array
+	| ArrayBuffer
+	| Blob
+	| File
+	| UploadedFile;
+
+export type FakeStorageRecord = {
+	readonly key: string;
+	readonly bytes: Uint8Array;
+	readonly size: number;
+	readonly storedAt: Date;
+	readonly clientName?: string;
+	readonly type?: string;
+};
+
+export type FakeStorageMatcher =
+	| string
+	| Partial<FakeStorageRecord>
+	| ((record: FakeStorageRecord) => boolean);
+
+export class FakeStorage {
+	private records = new Map<string, FakeStorageRecord>();
+
+	async put(key: string, value: FakeStorageValue): Promise<FakeStorageRecord> {
+		const normalizedKey = normalizeStorageKey(key);
+		const storedValue = await storageValueToRecordValue(value);
+		const record: FakeStorageRecord = {
+			key: normalizedKey,
+			bytes: storedValue.bytes,
+			size: storedValue.bytes.byteLength,
+			storedAt: new Date(),
+			clientName: storedValue.clientName,
+			type: storedValue.type,
+		};
+
+		this.records.set(normalizedKey, record);
+		return copyStorageRecord(record);
+	}
+
+	async putFile(
+		key: string,
+		file: UploadedFile | File,
+	): Promise<FakeStorageRecord> {
+		return this.put(key, file);
+	}
+
+	get(key: string): FakeStorageRecord | null {
+		const record = this.records.get(normalizeStorageKey(key));
+		return record ? copyStorageRecord(record) : null;
+	}
+
+	exists(key: string): boolean {
+		return this.records.has(normalizeStorageKey(key));
+	}
+
+	all(): FakeStorageRecord[] {
+		return [...this.records.values()].map(copyStorageRecord);
+	}
+
+	stored(matcher?: FakeStorageMatcher): FakeStorageRecord[] {
+		return this.all().filter((record) => matchesStorageRecord(record, matcher));
+	}
+
+	clear(): this {
+		this.records.clear();
+
+		return this;
+	}
+
+	assertStored(matcher?: FakeStorageMatcher): this {
+		assertAtLeastOne(this.stored(matcher).length, "file", "stored", matcher);
+
+		return this;
+	}
+
+	assertStoredTimes(expected: number, matcher?: FakeStorageMatcher): this {
+		assertCount(this.stored(matcher).length, expected, "file", "stored");
+
+		return this;
+	}
+
+	assertNotStored(matcher?: FakeStorageMatcher): this {
+		assertNone(this.stored(matcher).length, "file", "stored", matcher);
+
+		return this;
+	}
+
+	assertStoredContent(key: string, expected: string | Uint8Array): this {
+		const normalizedKey = normalizeStorageKey(key);
+		const record = this.records.get(normalizedKey);
+		const expectedBytes =
+			typeof expected === "string"
+				? new TextEncoder().encode(expected)
+				: expected;
+
+		if (!record || !isDeepStrictEqual(record.bytes, expectedBytes)) {
+			throw new AssertionError({
+				message: `Expected stored file [${normalizedKey}] to match content`,
+				actual: record?.bytes,
+				expected: expectedBytes,
+				operator: "deepStrictEqual",
+				stackStartFn: this.assertStoredContent,
+			});
+		}
 
 		return this;
 	}
@@ -266,6 +405,25 @@ function matchesQueuedJob(
 	return matcher(job);
 }
 
+function matchesStorageRecord(
+	record: FakeStorageRecord,
+	matcher: FakeStorageMatcher | undefined,
+): boolean {
+	if (!matcher) {
+		return true;
+	}
+
+	if (typeof matcher === "string") {
+		return record.key === matcher;
+	}
+
+	if (typeof matcher === "function") {
+		return matcher(record);
+	}
+
+	return matchesPartial(record, matcher);
+}
+
 function matchesEventRecord<TPayload>(
 	record: FakeEventRecord<TPayload>,
 	matcher: FakeEventMatcher<TPayload> | undefined,
@@ -395,6 +553,74 @@ function copyEventRecord<TPayload>(
 	};
 }
 
+function copyStorageRecord(record: FakeStorageRecord): FakeStorageRecord {
+	return {
+		key: record.key,
+		bytes: new Uint8Array(record.bytes),
+		size: record.size,
+		storedAt: copyDate(record.storedAt),
+		clientName: record.clientName,
+		type: record.type,
+	};
+}
+
 function copyDate(date: Date): Date {
 	return new Date(date.getTime());
+}
+
+type StorageRecordValue = {
+	readonly bytes: Uint8Array;
+	readonly clientName?: string;
+	readonly type?: string;
+};
+
+async function storageValueToRecordValue(
+	value: FakeStorageValue,
+): Promise<StorageRecordValue> {
+	if (value instanceof UploadedFile) {
+		const file = value.toFile();
+		return {
+			bytes: await blobToBytes(file),
+			clientName: value.clientName,
+			type: value.type,
+		};
+	}
+
+	if (value instanceof File) {
+		return {
+			bytes: await blobToBytes(value),
+			clientName: value.name,
+			type: value.type,
+		};
+	}
+
+	if (value instanceof Blob) {
+		return {
+			bytes: await blobToBytes(value),
+			type: value.type,
+		};
+	}
+
+	if (value instanceof ArrayBuffer) {
+		return { bytes: new Uint8Array(value) };
+	}
+
+	if (value instanceof Uint8Array) {
+		return { bytes: new Uint8Array(value) };
+	}
+
+	return { bytes: new TextEncoder().encode(value) };
+}
+
+async function blobToBytes(blob: Blob): Promise<Uint8Array> {
+	return new Uint8Array(await blob.arrayBuffer());
+}
+
+function normalizeStorageKey(key: string): string {
+	const normalized = key.trim().replace(/^\/+/, "");
+	if (!normalized) {
+		throw new Error("Storage key cannot be empty");
+	}
+
+	return normalized;
 }
