@@ -154,6 +154,29 @@ The generated app serves `/openapi.json` and `/docs`. Set `ui: "swagger"` when
 you prefer Swagger UI. Kura defaults to OpenAPI `3.1.2`; use
 `specVersion: "3.2.0"` when you need the latest OpenAPI spec.
 
+Generate a typed API client from the same route table when frontend or server
+code needs to call your API without duplicating endpoint types.
+
+```sh
+bun kura client:generate
+```
+
+The command writes `app/client/api_client.ts` by default. It infers params,
+query, headers, bodies, and success responses from route schemas.
+
+```ts
+import { createApi } from "./app/client/api_client";
+
+const api = createApi({ baseUrl: "http://localhost:3333" });
+const user = await api.usersShow({
+	params: { id: "1" },
+});
+```
+
+Non-2xx responses throw `ApiClientError` with the original `Response`, status,
+and parsed JSON/text payload. Multipart route bodies generated from `k.file()`
+or `k.files()` are sent as `FormData`.
+
 Route schemas also validate requests before handlers run. Invalid input returns
 the standard `422` JSON error response, and handlers can read parsed values from
 the validated helpers.

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { Config } from "../core/Config";
 import { Config as ConfigStore } from "../core/Config";
 import type { EnvSchema, EnvShape } from "../core/EnvSchema";
+import { writeTypedApiClient } from "../http/ApiClient";
 import type { RegisteredRoute, Router } from "../http/Router";
 import type { BunStaticRouteMap } from "../http/Server";
 import {
@@ -77,6 +78,7 @@ export function createDevToolCommands(
 ): readonly Command[] {
 	return [
 		createRoutesCommand(options),
+		createClientGenerateCommand(options),
 		createEnvCommand(options),
 		createConfigCommand(options),
 		createDoctorCommand(options),
@@ -121,6 +123,46 @@ function createRoutesCommand(options: DevToolConsoleOptions): Command {
 			}
 
 			ctx.output.write(formatRoutes(routes));
+		},
+	);
+}
+
+function createClientGenerateCommand(options: DevToolConsoleOptions): Command {
+	return defineCommand(
+		{
+			name: "client:generate",
+			description: "Generate a typed API client from registered routes",
+			options: [
+				{
+					name: "output",
+					alias: "o",
+					value: "string",
+					default: "app/client/api_client.ts",
+					description: "Generated client output path",
+				},
+				{
+					name: "root",
+					alias: "r",
+					value: "string",
+					description: "Project root directory",
+				},
+			],
+		},
+		async (ctx) => {
+			const router = await resolveRouter(options);
+			const root = resolveRoot(options, ctx.options);
+			const output = resolve(
+				root,
+				readStringOption(ctx.options, "output") ?? "app/client/api_client.ts",
+			);
+
+			await writeTypedApiClient(router, { output });
+			ctx.output.write(
+				formatKeyValues("Kura client", [
+					["Routes", String(router.list().length)],
+					["Output", output],
+				]),
+			);
 		},
 	);
 }

@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Config } from "../core/Config";
 import { defineEnv, envVar } from "../core/EnvSchema";
 import { Router } from "../http/Router";
+import { k } from "../validation/Schema";
 import { ConsoleKernel, MemoryConsoleOutput } from "./Console";
 import { registerDevToolCommands } from "./DevTools";
 
@@ -86,6 +87,39 @@ describe("dev tool console commands", () => {
 				path: "/",
 			},
 		]);
+	});
+
+	test("generates a typed API client from registered routes", async () => {
+		const root = await makeRoot();
+		const router = new Router();
+		router
+			.post("/users/:id", () => Response.json({ id: 1 }))
+			.as("users.update")
+			.schema({
+				body: k.object({ email: k.string().email() }),
+				params: k.object({ id: k.string() }),
+				responses: {
+					200: k.object({ id: k.number(), email: k.string() }),
+				},
+			});
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, {
+			root,
+			loadRouter: () => router,
+		});
+
+		expect(await console.run(["client:generate"])).toBe(0);
+
+		const generated = await readFile(
+			join(root, "app/client/api_client.ts"),
+			"utf8",
+		);
+		expect(output.text()).toContain("Kura client");
+		expect(output.text()).toContain("app/client/api_client.ts");
+		expect(generated).toContain("usersUpdate");
+		expect(generated).toContain("export type UsersUpdateBody");
+		expect(generated).toContain("id: number");
 	});
 
 	test("prints selected environment values and redacts secrets", async () => {
