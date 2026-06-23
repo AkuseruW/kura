@@ -97,7 +97,7 @@ async function createAppRoot(): Promise<string> {
 				kura: "bun bin/console.ts",
 			},
 			dependencies: {
-				kura: "npm:@akuseru_w/kura@0.1.13",
+				kura: "npm:@akuseru_w/kura@0.1.14",
 			},
 		}),
 	);
