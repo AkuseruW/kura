@@ -299,6 +299,31 @@ export class TestResponse {
 		return this;
 	}
 
+	assertCookie(name: string, value?: string): this {
+		const actual = this.cookie(name);
+
+		if (value === undefined) {
+			if (actual === null) {
+				throw new AssertionError({
+					message: `Expected response cookie [${name}] to be set`,
+					actual,
+					expected: "set-cookie",
+					operator: "exists",
+				});
+			}
+
+			return this;
+		}
+
+		strictEqual(
+			actual,
+			value,
+			`Expected response cookie [${name}] to be [${value}], received [${actual}]`,
+		);
+
+		return this;
+	}
+
 	assertRedirect(url: string): this {
 		if (!isRedirectStatus(this.status)) {
 			throw new AssertionError({
@@ -327,6 +352,53 @@ export class TestResponse {
 		}
 
 		deepStrictEqual(actual, expected, "Expected response JSON to match");
+
+		return this;
+	}
+
+	async assertJsonPath(path: string, expected: unknown): Promise<this> {
+		const json = await this.json();
+		const actual = readJsonPath(json, path);
+
+		deepStrictEqual(
+			actual,
+			expected,
+			`Expected response JSON path [${path}] to match`,
+		);
+
+		return this;
+	}
+
+	async assertValidationErrors(
+		expectedSources?: readonly string[],
+	): Promise<this> {
+		this.assertStatus(422);
+		const body = await this.json();
+		const sources = readValidationErrorSources(body);
+
+		if (expectedSources === undefined) {
+			if (sources.length === 0) {
+				throw new AssertionError({
+					message: "Expected response to contain validation errors",
+					actual: sources,
+					expected: "validation-errors",
+					operator: "notEmpty",
+				});
+			}
+
+			return this;
+		}
+
+		for (const expectedSource of expectedSources) {
+			if (!sources.includes(expectedSource)) {
+				throw new AssertionError({
+					message: `Expected validation errors to include [${expectedSource}]`,
+					actual: sources,
+					expected: expectedSources,
+					operator: "includes",
+				});
+			}
+		}
 
 		return this;
 	}
@@ -463,6 +535,52 @@ function safeDecode(value: string): string {
 	} catch {
 		return value;
 	}
+}
+
+function readJsonPath(value: unknown, path: string): unknown {
+	let current = value;
+
+	for (const segment of path.split(".").filter((item) => item.length > 0)) {
+		if (Array.isArray(current)) {
+			const index = Number(segment);
+			current = Number.isInteger(index) ? current[index] : undefined;
+			continue;
+		}
+
+		if (isRecord(current)) {
+			current = current[segment];
+			continue;
+		}
+
+		return undefined;
+	}
+
+	return current;
+}
+
+function readValidationErrorSources(value: unknown): readonly string[] {
+	if (!isRecord(value) || !isRecord(value.error)) {
+		return [];
+	}
+
+	const details = value.error.details;
+	if (!isRecord(details) || !Array.isArray(details.errors)) {
+		return [];
+	}
+
+	return details.errors
+		.map((error) => {
+			if (!isRecord(error) || typeof error.source !== "string") {
+				return undefined;
+			}
+
+			return error.source;
+		})
+		.filter((source): source is string => source !== undefined);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
 
 const redirectStatuses = [301, 302, 303, 307, 308] as const;

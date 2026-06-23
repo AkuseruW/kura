@@ -358,6 +358,7 @@ ${volumeNotes}
 ## Platform Notes
 
 - Docker, Railway, Render, Fly.io, and similar Bun-capable hosts should run the generated Dockerfile or an equivalent build/start flow.
+- Kura serves HTTP/1.1 directly by default. Put a proxy/CDN in front for public HTTP/2, or set \`HTTP3=true\` with \`TLS_CERT\` and \`TLS_KEY\` on hosts that expose UDP/QUIC.
 - Serverless and edge hosts need an adapter before they can run the Bun HTTP server directly.
 - Run \`bun kura deploy:doctor\` after changing dependencies, scripts, or selected features.
 `;

@@ -82,6 +82,28 @@ describe("Server", () => {
 		}
 	});
 
+	test("rejects HTTP/3 without TLS", () => {
+		const server = new Server({
+			port: 0,
+			http3: true,
+		});
+
+		expect(() => server.start()).toThrow(
+			"HTTP/3 requires TLS. Provide tls when http3 is enabled.",
+		);
+	});
+
+	test("rejects disabling HTTP/1 without HTTP/3", () => {
+		const server = new Server({
+			port: 0,
+			http1: false,
+		});
+
+		expect(() => server.start()).toThrow(
+			"Disabling HTTP/1 requires HTTP/3 to be enabled.",
+		);
+	});
+
 	test("renders base exceptions from the fetch pipeline", async () => {
 		const server = new Server({ port: 0 });
 		server.setHandler(() => {

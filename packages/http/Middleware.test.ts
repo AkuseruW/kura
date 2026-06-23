@@ -335,6 +335,45 @@ describe("built-in middlewares", () => {
 		);
 	});
 
+	test("adds credentialed CORS headers for explicit origins", async () => {
+		const response = await Cors({
+			allowedHeaders: ["Content-Type", "X-Trace-Id"],
+			credentials: true,
+			exposedHeaders: ["X-Request-Id"],
+			origin: "https://app.example.com",
+		})(
+			createContext(
+				new Request("http://localhost", {
+					headers: { Origin: "https://app.example.com" },
+				}),
+			),
+			async () => new Response("ok"),
+		);
+
+		expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+			"https://app.example.com",
+		);
+		expect(response.headers.get("Access-Control-Allow-Credentials")).toBe(
+			"true",
+		);
+		expect(response.headers.get("Access-Control-Allow-Headers")).toBe(
+			"Content-Type, X-Trace-Id",
+		);
+		expect(response.headers.get("Access-Control-Expose-Headers")).toBe(
+			"X-Request-Id",
+		);
+		expect(response.headers.get("Vary")).toBe("Origin");
+	});
+
+	test("rejects credentialed wildcard CORS by default", () => {
+		expect(() => Cors({ credentials: true })).toThrow(
+			"CORS credentials cannot be used with wildcard origins",
+		);
+		expect(() =>
+			Cors({ credentials: true, origin: ["https://app.example.com", "*"] }),
+		).toThrow("CORS credentials cannot be used with wildcard origins");
+	});
+
 	test("returns allowed preflight responses before handlers run", async () => {
 		let handlerCalled = false;
 		const response = await Cors({

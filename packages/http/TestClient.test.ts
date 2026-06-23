@@ -299,7 +299,7 @@ describe("TestClient", () => {
 		});
 	});
 
-	test("asserts response status, headers, redirects, and JSON bodies", async () => {
+	test("asserts response status, headers, cookies, redirects, and JSON bodies", async () => {
 		const router = new Router();
 		router.get("/users", () =>
 			Response.json(
@@ -312,19 +312,33 @@ describe("TestClient", () => {
 			() =>
 				new Response(null, {
 					status: 302,
-					headers: { Location: "/dashboard" },
+					headers: {
+						Location: "/dashboard",
+						"Set-Cookie": "session=abc123; Path=/",
+					},
 				}),
 		);
+		router
+			.post("/users", () => Response.json({ ok: true }))
+			.schema({
+				body: k.object({ name: k.string() }),
+			});
 		const client = createTestClient(router);
 
 		const usersResponse = await client.get("/users");
 		const redirectResponse = await client.get("/login");
+		const validationResponse = await client.post("/users", { name: 42 });
 
-		await usersResponse
-			.assertStatus(200)
-			.assertHeader("X-Total", "1")
-			.assertJson({ users: [{ id: 1, email: "dev@kura.dev" }] });
-		redirectResponse.assertStatus(302).assertRedirect("/dashboard");
+		usersResponse.assertStatus(200).assertHeader("X-Total", "1");
+		await usersResponse.assertJsonPath("users.0.email", "dev@kura.dev");
+		await usersResponse.assertJson({
+			users: [{ id: 1, email: "dev@kura.dev" }],
+		});
+		redirectResponse
+			.assertStatus(302)
+			.assertCookie("session", "abc123")
+			.assertRedirect("/dashboard");
+		await validationResponse.assertValidationErrors(["body"]);
 	});
 
 	test("throws readable errors when assertions fail", async () => {
@@ -342,11 +356,17 @@ describe("TestClient", () => {
 		expect(() => result.assertHeader("X-Mode", "prod")).toThrow(
 			"Expected response header [X-Mode] to be [prod], received [test]",
 		);
+		expect(() => result.assertCookie("session")).toThrow(
+			"Expected response cookie [session] to be set",
+		);
 		expect(() => result.assertRedirect("/home")).toThrow(
 			"Expected response to be a redirect, received status 200",
 		);
 		await expect(result.assertJson({ ok: false })).rejects.toThrow(
 			"Expected response JSON to match",
+		);
+		await expect(result.assertJsonPath("ok", false)).rejects.toThrow(
+			"Expected response JSON path [ok] to match",
 		);
 	});
 });

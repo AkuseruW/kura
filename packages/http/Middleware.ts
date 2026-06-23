@@ -125,17 +125,33 @@ export type CorsOrigin =
 export type CorsOptions = {
 	readonly origin?: CorsOrigin;
 	readonly methods?: readonly string[];
+	readonly allowedHeaders?: readonly string[];
 	readonly headers?: readonly string[];
+	readonly exposedHeaders?: readonly string[];
 	readonly credentials?: boolean;
 	readonly maxAge?: number;
+	readonly allowWildcardWithCredentials?: boolean;
 };
 
 export const Cors = (options: CorsOptions = {}): Middleware => {
 	const origin = options.origin ?? "*";
+	if (
+		options.credentials === true &&
+		!options.allowWildcardWithCredentials &&
+		originAllowsWildcard(origin)
+	) {
+		throw new Error(
+			"CORS credentials cannot be used with wildcard origins. Configure explicit origins or set allowWildcardWithCredentials.",
+		);
+	}
+
 	const methods = options.methods ?? ["GET", "POST", "PUT", "PATCH", "DELETE"];
-	const headers = options.headers ?? ["Content-Type", "Authorization"];
+	const headers = options.allowedHeaders ??
+		options.headers ?? ["Content-Type", "Authorization"];
+	const exposedHeaders = options.exposedHeaders ?? [];
 	const methodsHeader = methods.join(", ");
 	const headersHeader = headers.join(", ");
+	const exposedHeadersHeader = exposedHeaders.join(", ");
 
 	return async (ctx, next) => {
 		const requestOrigin = ctx.request.headers.get("origin");
@@ -150,6 +166,7 @@ export const Cors = (options: CorsOptions = {}): Middleware => {
 			applyCorsHeaders(response.headers, {
 				allowedOrigin,
 				credentials: options.credentials,
+				exposedHeadersHeader,
 				headersHeader,
 				maxAge: options.maxAge,
 				methodsHeader,
@@ -162,6 +179,7 @@ export const Cors = (options: CorsOptions = {}): Middleware => {
 			applyCorsHeaders(response.headers, {
 				allowedOrigin,
 				credentials: options.credentials,
+				exposedHeadersHeader,
 				headersHeader,
 				maxAge: options.maxAge,
 				methodsHeader,
@@ -202,11 +220,20 @@ function resolveCorsOrigin(
 	return origin.includes(requestOrigin) ? requestOrigin : null;
 }
 
+function originAllowsWildcard(origin: CorsOrigin): boolean {
+	if (origin === "*") {
+		return true;
+	}
+
+	return Array.isArray(origin) && origin.includes("*");
+}
+
 function applyCorsHeaders(
 	headers: Headers,
 	options: {
 		readonly allowedOrigin: string;
 		readonly credentials?: boolean;
+		readonly exposedHeadersHeader: string;
 		readonly headersHeader: string;
 		readonly maxAge?: number;
 		readonly methodsHeader: string;
@@ -218,6 +245,10 @@ function applyCorsHeaders(
 
 	if (options.credentials) {
 		headers.set("Access-Control-Allow-Credentials", "true");
+	}
+
+	if (options.exposedHeadersHeader) {
+		headers.set("Access-Control-Expose-Headers", options.exposedHeadersHeader);
 	}
 
 	if (options.maxAge !== undefined) {

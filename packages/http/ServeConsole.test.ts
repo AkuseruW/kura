@@ -175,6 +175,59 @@ describe("serve console command", () => {
 		expect(await response?.text()).toBe("ok");
 	});
 
+	test("starts with explicit HTTP/3 and TLS options", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		const fake = fakeServerFactory();
+		console.register(
+			createServeCommand({
+				root,
+				handler: () => new Response("ok"),
+				serverFactory: fake.factory,
+				keepAlive: false,
+				clock: fakeClock(0, 42),
+				environment: "testing",
+			}),
+		);
+
+		const exitCode = await console.run([
+			"serve",
+			"--http3",
+			"--no-http1",
+			"--tls-cert",
+			"cert.pem",
+			"--tls-key",
+			"key.pem",
+		]);
+
+		expect(exitCode).toBe(0);
+		expect(fake.starts).toHaveLength(1);
+		expect(fake.starts[0]?.http3).toBe(true);
+		expect(fake.starts[0]?.http1).toBe(false);
+		expect(fake.starts[0]?.tls).toBeDefined();
+		expect(output.text()).toContain("HTTP/3  enabled, HTTP/1.1 disabled");
+	});
+
+	test("rejects HTTP/3 without TLS options", async () => {
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		console.register(
+			createServeCommand({
+				handler: () => new Response("ok"),
+				serverFactory: fakeServerFactory().factory,
+				keepAlive: false,
+			}),
+		);
+
+		const exitCode = await console.run(["serve", "--http3"]);
+
+		expect(exitCode).toBe(1);
+		expect(output.errorText()).toBe(
+			"HTTP/3 requires TLS. Set TLS_CERT and TLS_KEY or pass --tls-cert and --tls-key.",
+		);
+	});
+
 	test("logs HTTP requests by default", async () => {
 		const output = new MemoryConsoleOutput();
 		const console = new ConsoleKernel(output);

@@ -2,6 +2,7 @@ import { watch } from "node:fs";
 import { access } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { Serve } from "bun";
 import {
 	type Command,
 	type ConsoleKernel,
@@ -18,6 +19,7 @@ import {
 import type { Router } from "./Router";
 import type {
 	BunDevelopmentOptions,
+	BunServerTlsOptions,
 	BunStaticRouteMap,
 	Context,
 } from "./Server";
@@ -34,6 +36,9 @@ export interface ServeConsoleOptions {
 	readonly router?: Router;
 	readonly staticRoutes?: BunStaticRouteMap;
 	readonly development?: BunDevelopmentOptions;
+	readonly http1?: boolean;
+	readonly http3?: boolean;
+	readonly tls?: BunServerTlsOptions;
 	readonly loader?: ServeEntryLoader;
 	readonly serverFactory?: ServeServerFactory;
 	readonly watcherFactory?: ServeWatcherFactory;
@@ -87,6 +92,9 @@ export interface ServeServerStartOptions {
 	readonly handler: ServeHandler;
 	readonly staticRoutes?: BunStaticRouteMap;
 	readonly development?: BunDevelopmentOptions;
+	readonly http1?: boolean;
+	readonly http3?: boolean;
+	readonly tls?: BunServerTlsOptions;
 	readonly errorHandler?: HttpErrorHandler;
 }
 
@@ -153,6 +161,30 @@ export function createServeCommand(options: ServeConsoleOptions = {}): Command {
 					name: "request-log",
 					default: true,
 					description: "Log HTTP requests",
+				},
+				{
+					name: "http3",
+					description: "Enable experimental HTTP/3 over TLS",
+				},
+				{
+					name: "http1",
+					default: true,
+					description: "Keep HTTP/1.1 enabled when HTTP/3 is enabled",
+				},
+				{
+					name: "tls-cert",
+					value: "string",
+					description: "TLS certificate path",
+				},
+				{
+					name: "tls-key",
+					value: "string",
+					description: "TLS private key path",
+				},
+				{
+					name: "tls-passphrase",
+					value: "string",
+					description: "TLS private key passphrase",
 				},
 			],
 		},
@@ -225,6 +257,30 @@ export function createPreviewCommand(
 					name: "request-log",
 					default: true,
 					description: "Log HTTP requests",
+				},
+				{
+					name: "http3",
+					description: "Enable experimental HTTP/3 over TLS",
+				},
+				{
+					name: "http1",
+					default: true,
+					description: "Keep HTTP/1.1 enabled when HTTP/3 is enabled",
+				},
+				{
+					name: "tls-cert",
+					value: "string",
+					description: "TLS certificate path",
+				},
+				{
+					name: "tls-key",
+					value: "string",
+					description: "TLS private key path",
+				},
+				{
+					name: "tls-passphrase",
+					value: "string",
+					description: "TLS private key passphrase",
 				},
 			],
 		},
@@ -344,6 +400,9 @@ type ServeConfig = {
 	readonly explicitRouter?: Router;
 	readonly explicitStaticRoutes?: BunStaticRouteMap;
 	readonly explicitDevelopment?: BunDevelopmentOptions;
+	readonly http1?: boolean;
+	readonly http3?: boolean;
+	readonly tls?: BunServerTlsOptions;
 	readonly errorHandler: HttpErrorHandler;
 	readonly loader: ServeEntryLoader;
 	readonly serverFactory: ServeServerFactory;
@@ -370,6 +429,9 @@ async function startDevServer(
 		),
 		staticRoutes: target.staticRoutes,
 		development: target.development,
+		http1: config.http1,
+		http3: config.http3,
+		tls: config.tls,
 		errorHandler: config.errorHandler,
 	});
 	let reloading = false;
@@ -395,6 +457,9 @@ async function startDevServer(
 					),
 					staticRoutes: target.staticRoutes,
 					development: target.development,
+					http1: config.http1,
+					http3: config.http3,
+					tls: config.tls,
 					errorHandler: config.errorHandler,
 				});
 				server = nextServer;
@@ -432,6 +497,19 @@ function resolveServeConfig(
 	const port = parsePort(readStringOption(consoleOptions, "port"));
 	const host =
 		readStringOption(consoleOptions, "host") ?? options.host ?? "127.0.0.1";
+	const tls = resolveTlsOptions(root, consoleOptions, options.tls);
+	const http3 =
+		readBooleanOption(consoleOptions, "http3") ??
+		options.http3 ??
+		readBooleanEnv("HTTP3") ??
+		false;
+	const http1 =
+		readBooleanOption(consoleOptions, "http1") ??
+		options.http1 ??
+		readBooleanEnv("HTTP1") ??
+		true;
+
+	assertProtocolOptions({ http1, http3, tls });
 
 	return {
 		root,
@@ -448,6 +526,9 @@ function resolveServeConfig(
 		explicitRouter: options.router,
 		explicitStaticRoutes: options.staticRoutes,
 		explicitDevelopment: options.development,
+		http1,
+		http3,
+		tls,
 		errorHandler: resolveHttpErrorHandler(options.errorHandler, {
 			debug:
 				(options.environment ?? Bun.env.NODE_ENV ?? "development") ===
@@ -458,6 +539,54 @@ function resolveServeConfig(
 		watcherFactory: options.watcherFactory ?? createNodeWatcher,
 		banner: "Kura server started",
 	};
+}
+
+function resolveTlsOptions(
+	root: string,
+	consoleOptions: ConsoleOptions,
+	explicitTls: BunServerTlsOptions | undefined,
+): BunServerTlsOptions | undefined {
+	if (explicitTls !== undefined) {
+		return explicitTls;
+	}
+
+	const cert = readStringOption(consoleOptions, "tls-cert") ?? Bun.env.TLS_CERT;
+	const key = readStringOption(consoleOptions, "tls-key") ?? Bun.env.TLS_KEY;
+	const passphrase =
+		readStringOption(consoleOptions, "tls-passphrase") ??
+		Bun.env.TLS_PASSPHRASE;
+
+	if (!cert && !key) {
+		return undefined;
+	}
+
+	if (!cert || !key) {
+		throw new Error(
+			"TLS requires both a certificate and private key. Set TLS_CERT and TLS_KEY or pass --tls-cert and --tls-key.",
+		);
+	}
+
+	return {
+		cert: Bun.file(resolvePath(root, cert)),
+		key: Bun.file(resolvePath(root, key)),
+		passphrase: passphrase || undefined,
+	};
+}
+
+function assertProtocolOptions(options: BunProtocolOptions): void {
+	if (options.http3 === true && options.tls === undefined) {
+		throw new Error(
+			"HTTP/3 requires TLS. Set TLS_CERT and TLS_KEY or pass --tls-cert and --tls-key.",
+		);
+	}
+
+	if (options.http1 === false && options.http3 !== true) {
+		throw new Error("Disabling HTTP/1 requires HTTP/3 to be enabled.");
+	}
+}
+
+function resolvePath(root: string, path: string): string {
+	return isAbsolute(path) ? path : resolve(root, path);
 }
 
 function withHttpErrorHandling(
@@ -628,14 +757,27 @@ function handlerFromRouter(router: Router): ServeHandler {
 	return (ctx) => router.dispatch(ctx);
 }
 
+type BunProtocolOptions = {
+	readonly http1?: boolean;
+	readonly http3?: boolean;
+	readonly tls?: BunServerTlsOptions;
+};
+
+type BunServeOptions = BunProtocolOptions & Serve.Options<undefined, string>;
+
 function createBunServer(options: ServeServerStartOptions): ServeServer {
-	const server = Bun.serve({
+	assertProtocolOptions(options);
+	const serverOptions: BunServeOptions = {
 		hostname: options.host,
 		port: options.port,
 		routes: options.staticRoutes,
 		development: options.development,
+		http1: options.http1,
+		http3: options.http3,
+		tls: options.tls,
 		fetch: (request) => options.handler(createContext(request)),
-	});
+	};
+	const server = Bun.serve(serverOptions);
 
 	return {
 		url: server.url,
@@ -794,6 +936,35 @@ function readStringOption(
 	return undefined;
 }
 
+function readBooleanOption(
+	options: ConsoleOptions,
+	name: string,
+): boolean | undefined {
+	const value = options[name];
+
+	return typeof value === "boolean" ? value : undefined;
+}
+
+function readBooleanEnv(name: string): boolean | undefined {
+	const value = Bun.env[name];
+
+	if (value === undefined || value === "") {
+		return undefined;
+	}
+
+	const normalized = value.trim().toLowerCase();
+
+	if (["1", "true", "yes", "on"].includes(normalized)) {
+		return true;
+	}
+
+	if (["0", "false", "no", "off"].includes(normalized)) {
+		return false;
+	}
+
+	throw new Error(`Environment variable [${name}] must be a boolean`);
+}
+
 function isEnabled(options: ConsoleOptions, name: string): boolean {
 	return options[name] === true;
 }
@@ -848,6 +1019,15 @@ function formatServerStarted(
 		formatServerRow(theme, "Entry", displayPath(config.root, config.entry)),
 		formatServerRow(theme, "Root", config.root),
 		formatServerRow(theme, "Mode", config.environment),
+		...(config.http3
+			? [
+					formatServerRow(
+						theme,
+						"HTTP/3",
+						config.http1 === false ? "enabled, HTTP/1.1 disabled" : "enabled",
+					),
+				]
+			: []),
 		formatServerRow(theme, "Watch", config.watch ? "enabled" : "disabled"),
 		"",
 		theme.muted(`Ready in ${formatDuration(duration)}`),
