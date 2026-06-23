@@ -268,6 +268,7 @@ describe("new app command", () => {
 			imports: Record<string, string>;
 			scripts: {
 				build: string;
+				client: string;
 				config: string;
 				"deploy:doctor": string;
 				dev: string;
@@ -284,6 +285,9 @@ describe("new app command", () => {
 		expect(packageJson.scripts.dev).toBe("bun bin/console.ts serve --watch");
 		expect(packageJson.scripts.preview).toBe("bun bin/console.ts preview");
 		expect(packageJson.scripts.routes).toBe("bun bin/console.ts routes");
+		expect(packageJson.scripts.client).toBe(
+			"bun bin/console.ts client:generate",
+		);
 		expect(packageJson.scripts.doctor).toBe("bun bin/console.ts doctor");
 		expect(packageJson.scripts["deploy:doctor"]).toBe(
 			"bun bin/console.ts deploy:doctor",
@@ -587,6 +591,7 @@ describe("new app command", () => {
 			"multipart parsing uses Bun's in-memory form parser",
 		);
 		expect(readme).toContain("## Production");
+		expect(readme).toContain("bun kura client:generate");
 		expect(readme).toContain("bun run deploy:doctor");
 		expect(readme).toContain("DEPLOYMENT.md");
 		const dockerfile = await readGenerated(root, "demo-api/Dockerfile");

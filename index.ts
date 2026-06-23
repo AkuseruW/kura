@@ -1,5 +1,6 @@
 export * from "./auth";
 export * from "./cache";
+export * from "./client";
 export * from "./console";
 export * from "./core";
 export * from "./database";

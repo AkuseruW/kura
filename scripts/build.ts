@@ -16,6 +16,7 @@ const runtimeExports: readonly ExportTarget[] = [
 	{ path: ".", source: "index.ts", output: "index" },
 	{ path: "./auth", source: "auth.ts", output: "auth" },
 	{ path: "./cache", source: "cache.ts", output: "cache" },
+	{ path: "./client", source: "client.ts", output: "client" },
 	{ path: "./config", source: "config.ts", output: "config" },
 	{ path: "./container", source: "container.ts", output: "container" },
 	{ path: "./console", source: "console.ts", output: "console" },

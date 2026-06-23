@@ -1549,6 +1549,7 @@ See \`DEPLOYMENT.md\` for Docker and host-specific notes.
 \`\`\`sh
 bun kura
 bun kura routes
+bun kura client:generate
 bun kura doctor
 bun kura deploy:doctor
 bun kura env

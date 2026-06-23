@@ -21,6 +21,7 @@ export function makePackageJson(
 			start: "bun bin/console.ts serve --host 0.0.0.0",
 			preview: "bun bin/console.ts preview",
 			routes: "bun bin/console.ts routes",
+			client: "bun bin/console.ts client:generate",
 			doctor: "bun bin/console.ts doctor",
 			"deploy:doctor": "bun bin/console.ts deploy:doctor",
 			env: "bun bin/console.ts env",
