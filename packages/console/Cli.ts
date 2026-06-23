@@ -18,6 +18,7 @@ import {
 	registerGeneratorCommands,
 } from "./Generators";
 import { type NewAppConsoleOptions, registerNewAppCommand } from "./NewApp";
+import { registerUpgradeCommands, type UpgradeConsoleOptions } from "./Upgrade";
 
 export interface KuraCliOptions {
 	readonly newApp?: NewAppConsoleOptions;
@@ -26,6 +27,7 @@ export interface KuraCliOptions {
 	readonly preview?: PreviewConsoleOptions;
 	readonly devTools?: DevToolConsoleOptions;
 	readonly features?: FeatureConsoleOptions;
+	readonly upgrade?: UpgradeConsoleOptions;
 }
 
 export function createKuraConsole(options: KuraCliOptions = {}): ConsoleKernel {
@@ -34,6 +36,7 @@ export function createKuraConsole(options: KuraCliOptions = {}): ConsoleKernel {
 	registerNewAppCommand(console, options.newApp);
 	registerFeatureCommands(console, options.features);
 	registerGeneratorCommands(console, options.generators);
+	registerUpgradeCommands(console, options.upgrade);
 	registerServeCommand(console, options.serve);
 	registerPreviewCommand(console, options.preview);
 	registerDevToolCommands(console, options.devTools);

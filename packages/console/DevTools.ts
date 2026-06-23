@@ -96,6 +96,7 @@ const expectedPackageScripts = {
 	client: "bun bin/console.ts client:generate",
 	doctor: "bun bin/console.ts doctor",
 	"deploy:doctor": "bun bin/console.ts deploy:doctor",
+	upgrade: "bun bin/console.ts upgrade",
 	env: "bun bin/console.ts env",
 	config: "bun bin/console.ts config",
 	test: "bun bin/test.ts",
@@ -803,6 +804,7 @@ async function packageScriptCanBeAdded(
 			"client",
 			"doctor",
 			"deploy:doctor",
+			"upgrade",
 			"env",
 			"config",
 		].includes(name)

@@ -24,6 +24,7 @@ export function makePackageJson(
 			client: "bun bin/console.ts client:generate",
 			doctor: "bun bin/console.ts doctor",
 			"deploy:doctor": "bun bin/console.ts deploy:doctor",
+			upgrade: "bun bin/console.ts upgrade",
 			env: "bun bin/console.ts env",
 			config: "bun bin/console.ts config",
 			test: "bun bin/test.ts",
@@ -155,6 +156,7 @@ export function makeConsoleEntrypoint(choices: NewAppChoices): string {
 \tregisterGeneratorCommands,
 \tregisterPreviewCommand,
 \tregisterServeCommand,
+\tregisterUpgradeCommands,
 } from "kura/console";
 
 const startEnv = await import("#start/env");
@@ -165,6 +167,9 @@ registerGeneratorCommands(appConsole, {
 \tarchitecture: "${choices.architecture}",
 });
 registerFeatureCommands(appConsole, {
+\troot: process.cwd(),
+});
+registerUpgradeCommands(appConsole, {
 \troot: process.cwd(),
 });
 registerServeCommand(appConsole, {

@@ -48,6 +48,11 @@ export {
 	registerNewAppCommand,
 } from "./packages/console/NewApp";
 export {
+	createUpgradeCommands,
+	registerUpgradeCommands,
+	type UpgradeConsoleOptions,
+} from "./packages/console/Upgrade";
+export {
 	createPreviewCommand,
 	createServeCommand,
 	type PreviewBuildRunner,
