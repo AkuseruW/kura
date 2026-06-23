@@ -375,13 +375,24 @@ describe("new app command", () => {
 		expect(kernel).toContain("defineHttpKernel");
 		expect(kernel).toContain("export const kernel =");
 		expect(kernel).toContain("const errorHandler = handleException");
+		expect(kernel).toContain('import securityConfig from "#config/security"');
 		expect(kernel).toContain("const server = [");
 		expect(kernel).toContain("const router: readonly Middleware[] = []");
 		expect(kernel).toContain("export const middleware = {");
 		expect(kernel).toContain('from "kura/http"');
+		expect(kernel).toContain("SecurityHeaders(securityConfig.headers)");
+		expect(kernel).toContain("RateLimit(securityConfig.rateLimit)");
 		expect(kernel).toContain("BodyLimit({ maxBytes: 1_048_576 })");
 		expect(kernel).toContain("BodyParser");
 		expect(kernel).toContain("RequestTimeout({ ms: 30_000 })");
+		const securityConfig = await readGenerated(
+			root,
+			"demo-api/config/security.ts",
+		);
+		expect(securityConfig).toContain("SecurityHeadersOptions");
+		expect(securityConfig).toContain("RateLimitOptions");
+		expect(securityConfig).toContain("RATE_LIMIT_MAX");
+		expect(securityConfig).toContain("RATE_LIMIT_WINDOW_SECONDS");
 		const startRoutes = await readGenerated(root, "demo-api/start/routes.ts");
 		expect(startRoutes).toContain('import { Router } from "kura/http"');
 		expect(startRoutes).toContain(
@@ -1124,6 +1135,9 @@ describe("new app command", () => {
 		expect(await generatedFileExists(root, "minimal/config/logger.ts")).toBe(
 			true,
 		);
+		expect(await generatedFileExists(root, "minimal/config/security.ts")).toBe(
+			true,
+		);
 		expect(await generatedFileExists(root, "minimal/config/auth.ts")).toBe(
 			false,
 		);
@@ -1162,6 +1176,8 @@ describe("new app command", () => {
 		expect(envExample).not.toContain("AUTH_GUARD");
 		expect(envExample).not.toContain("HASH_DRIVER");
 		expect(envExample).not.toContain("DB_CONNECTION");
+		expect(envExample).toContain("RATE_LIMIT_MAX=120");
+		expect(envExample).toContain("RATE_LIMIT_WINDOW_SECONDS=60");
 	});
 
 	test("uses injected prompts for interactive generation", async () => {

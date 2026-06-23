@@ -39,6 +39,7 @@ import {
 	makeLoggerConfig,
 	makePackageJson,
 	makeQueueConfig,
+	makeSecurityConfig,
 	makeServerEntrypoint,
 	makeSessionConfig,
 	makeShieldConfig,
@@ -203,6 +204,10 @@ export { router };
 		{
 			path: "config/logger.ts",
 			content: makeLoggerConfig(),
+		},
+		{
+			path: "config/security.ts",
+			content: makeSecurityConfig(),
 		},
 		...makeFeatureConfigFiles(choices),
 		{
@@ -448,7 +453,10 @@ function makeKernel(choices: NewAppChoices): string {
 	]
 		.filter(Boolean)
 		.join("\n");
-	const csrfImport = usesCsrf ? ", CsrfProtection" : "";
+	const middlewareExport =
+		namedMiddleware.length > 0
+			? `export const middleware = {\n${namedMiddleware}\n};`
+			: "export const middleware = {};";
 	const csrfSetup = usesCsrf
 		? `const csrfProtection = CsrfProtection({
 \tcookieName: env.get("CSRF_COOKIE_NAME", "kura-csrf-token"),
@@ -458,8 +466,23 @@ function makeKernel(choices: NewAppChoices): string {
 `
 		: "";
 	const csrfMiddleware = usesCsrf ? "\tcsrfProtection,\n" : "";
+	const httpImports = [
+		"BodyLimit",
+		"BodyParser",
+		"Cors",
+		usesCsrf ? "CsrfProtection" : "",
+		"defineHttpKernel",
+		"type Middleware",
+		"RateLimit",
+		"RequestId",
+		"RequestTimeout",
+		"SecurityHeaders",
+	]
+		.filter(Boolean)
+		.join(",\n\t");
 	const imports = [
-		`import { BodyLimit, BodyParser, Cors${csrfImport}, defineHttpKernel, type Middleware, RequestId, RequestTimeout } from "kura/http";`,
+		`import {\n\t${httpImports},\n} from "kura/http";`,
+		'import securityConfig from "#config/security";',
 		'import handleException from "#exceptions/handler";',
 	];
 
@@ -497,7 +520,9 @@ ${csrfSetup}/**
  */
 const server = [
 \tRequestId,
+\tSecurityHeaders(securityConfig.headers),
 \tCors(),
+\tRateLimit(securityConfig.rateLimit),
 \tRequestTimeout({ ms: 30_000 }),
 \tBodyLimit({ maxBytes: 1_048_576 }),
 \tBodyParser,
@@ -511,9 +536,7 @@ const router: readonly Middleware[] = [];
 /**
  * Named middleware is assigned directly to routes or route groups.
  */
-export const middleware = {
-${namedMiddleware}
-};
+${middlewareExport}
 
 export const kernel = defineHttpKernel({
 \terrorHandler,

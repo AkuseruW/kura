@@ -155,6 +155,19 @@ export class UnprocessableEntityException extends HttpException {
 	}
 }
 
+export class TooManyRequestsException extends HttpException {
+	constructor(
+		message = "Too Many Requests",
+		options: Omit<HttpExceptionOptions, "status"> = {},
+	) {
+		super(message, {
+			...options,
+			code: options.code ?? "E_TOO_MANY_REQUESTS",
+			status: 429,
+		});
+	}
+}
+
 export class InternalServerErrorException extends HttpException {
 	constructor(
 		message = "Internal Server Error",
@@ -286,6 +299,9 @@ export function defaultHttpErrorCode(status: number): string {
 	}
 	if (normalized === 422) {
 		return "E_VALIDATION_FAILED";
+	}
+	if (normalized === 429) {
+		return "E_TOO_MANY_REQUESTS";
 	}
 	return normalized >= 500 ? "E_INTERNAL_SERVER_ERROR" : "E_HTTP_ERROR";
 }

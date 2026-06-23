@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { BaseException } from "../core/BaseException";
 import { parseRequestBody, requestMayHaveBody } from "./Body";
 import { readCookie, serializeCookie } from "./Cookie";
-import { ForbiddenException } from "./ErrorHandler";
+import { ForbiddenException, TooManyRequestsException } from "./ErrorHandler";
 import { applyMiddlewares } from "./MiddlewareStack";
 import type { Context } from "./Server";
 
@@ -46,6 +46,63 @@ export type RequestTimeoutOptions = {
 	readonly ms: number;
 };
 
+export type SecurityHeadersHstsOptions = {
+	readonly enabled?: boolean;
+	readonly includeSubDomains?: boolean;
+	readonly maxAge?: number;
+	readonly preload?: boolean;
+};
+
+export type SecurityHeadersContentSecurityPolicy =
+	| string
+	| {
+			readonly directives: Readonly<Record<string, readonly string[]>>;
+	  };
+
+export type SecurityHeadersOptions = {
+	readonly contentSecurityPolicy?: false | SecurityHeadersContentSecurityPolicy;
+	readonly contentTypeOptions?: false | "nosniff";
+	readonly crossOriginOpenerPolicy?: false | string;
+	readonly enabled?: boolean;
+	readonly frameOptions?: false | "deny" | "sameorigin";
+	readonly headers?: Readonly<Record<string, string | false | undefined>>;
+	readonly hsts?: false | SecurityHeadersHstsOptions;
+	readonly referrerPolicy?: false | string;
+};
+
+export type RateLimitKeyResolver = (ctx: Context) => string | Promise<string>;
+
+export type RateLimitSkip = (ctx: Context) => boolean | Promise<boolean>;
+
+export type RateLimitState = {
+	readonly limit: number;
+	readonly remaining: number;
+	readonly resetAt: Date;
+	readonly retryAfter: number;
+	readonly exceeded: boolean;
+};
+
+export type RateLimitStoreOptions = {
+	readonly limit: number;
+	readonly now: Date;
+	readonly windowMs: number;
+};
+
+export interface RateLimitStore {
+	hit(key: string, options: RateLimitStoreOptions): RateLimitState;
+	reset?(key: string): void;
+}
+
+export type RateLimitOptions = {
+	readonly enabled?: boolean;
+	readonly headers?: boolean;
+	readonly key?: RateLimitKeyResolver;
+	readonly limit: number;
+	readonly skip?: RateLimitSkip;
+	readonly store?: RateLimitStore;
+	readonly windowMs: number;
+};
+
 export type CsrfExceptRoute =
 	| string
 	| RegExp
@@ -80,6 +137,46 @@ export class RequestTimeoutException extends BaseException {
 			"E_REQUEST_TIMEOUT",
 			408,
 		);
+	}
+}
+
+export class MemoryRateLimitStore implements RateLimitStore {
+	private readonly windows = new Map<
+		string,
+		{
+			count: number;
+			resetAt: number;
+		}
+	>();
+
+	hit(key: string, options: RateLimitStoreOptions): RateLimitState {
+		const now = options.now.getTime();
+		const existing = this.windows.get(key);
+		const window =
+			existing && existing.resetAt > now
+				? existing
+				: {
+						count: 0,
+						resetAt: now + options.windowMs,
+					};
+
+		window.count += 1;
+		this.windows.set(key, window);
+
+		const remaining = Math.max(0, options.limit - window.count);
+		const retryAfter = Math.max(0, Math.ceil((window.resetAt - now) / 1000));
+
+		return {
+			exceeded: window.count > options.limit,
+			limit: options.limit,
+			remaining,
+			resetAt: new Date(window.resetAt),
+			retryAfter,
+		};
+	}
+
+	reset(key: string): void {
+		this.windows.delete(key);
 	}
 }
 
@@ -135,6 +232,56 @@ export const BodyParser: Middleware = async (ctx, next) => {
 	}
 
 	return next();
+};
+
+export const SecurityHeaders = (
+	options: SecurityHeadersOptions = {},
+): Middleware => {
+	return async (_ctx, next) => {
+		const response = await next();
+
+		if (options.enabled === false) {
+			return response;
+		}
+
+		applySecurityHeaders(response.headers, options);
+		return response;
+	};
+};
+
+export const RateLimit = (options: RateLimitOptions): Middleware => {
+	const limit = positiveInteger("limit", options.limit);
+	const windowMs = positiveInteger("windowMs", options.windowMs);
+	const store = options.store ?? new MemoryRateLimitStore();
+	const headersEnabled = options.headers ?? true;
+
+	return async (ctx, next) => {
+		if (options.enabled === false || (await options.skip?.(ctx))) {
+			return next();
+		}
+
+		const key = await resolveRateLimitKey(ctx, options.key);
+		const state = store.hit(key, {
+			limit,
+			now: new Date(),
+			windowMs,
+		});
+		const headers: Record<string, string> = headersEnabled
+			? rateLimitHeaders(state)
+			: {};
+
+		if (state.exceeded) {
+			throw new TooManyRequestsException("Too many requests", {
+				headers,
+			});
+		}
+
+		const response = await next();
+		for (const [name, value] of Object.entries(headers)) {
+			response.headers.set(name, value);
+		}
+		return response;
+	};
 };
 
 export const CsrfProtection = (
@@ -196,6 +343,174 @@ export const CsrfProtection = (
 		return response;
 	};
 };
+
+function applySecurityHeaders(
+	headers: Headers,
+	options: SecurityHeadersOptions,
+): void {
+	setHeaderIfEnabled(
+		headers,
+		"X-Content-Type-Options",
+		options.contentTypeOptions ?? "nosniff",
+		serializeContentTypeOptions,
+	);
+	setHeaderIfEnabled(
+		headers,
+		"X-Frame-Options",
+		options.frameOptions ?? "deny",
+		serializeFrameOptions,
+	);
+	setHeaderIfEnabled(
+		headers,
+		"Referrer-Policy",
+		options.referrerPolicy ?? "no-referrer",
+		(value) => value,
+	);
+	setHeaderIfEnabled(
+		headers,
+		"Cross-Origin-Opener-Policy",
+		options.crossOriginOpenerPolicy ?? "same-origin",
+		(value) => value,
+	);
+
+	const hsts = serializeHsts(options.hsts);
+	if (hsts) {
+		headers.set("Strict-Transport-Security", hsts);
+	}
+
+	const contentSecurityPolicy = serializeContentSecurityPolicy(
+		options.contentSecurityPolicy,
+	);
+	if (contentSecurityPolicy) {
+		headers.set("Content-Security-Policy", contentSecurityPolicy);
+	}
+
+	for (const [name, value] of Object.entries(options.headers ?? {})) {
+		if (value === false || value === undefined) {
+			headers.delete(name);
+		} else {
+			headers.set(name, value);
+		}
+	}
+}
+
+function setHeaderIfEnabled(
+	headers: Headers,
+	name: string,
+	value: string | false,
+	serialize: (value: string) => string,
+): void {
+	if (value === false) {
+		return;
+	}
+
+	headers.set(name, serialize(value));
+}
+
+function serializeContentTypeOptions(value: string): string {
+	if (value !== "nosniff") {
+		throw new Error("contentTypeOptions must be nosniff when enabled.");
+	}
+
+	return value;
+}
+
+function serializeFrameOptions(value: string): string {
+	if (value !== "deny" && value !== "sameorigin") {
+		throw new Error("frameOptions must be deny or sameorigin when enabled.");
+	}
+
+	return value === "deny" ? "DENY" : "SAMEORIGIN";
+}
+
+function serializeHsts(options: SecurityHeadersOptions["hsts"]): string | null {
+	if (!options || options.enabled === false) {
+		return null;
+	}
+
+	const values = [
+		`max-age=${positiveInteger("hsts.maxAge", options.maxAge ?? 31_536_000)}`,
+	];
+
+	if (options.includeSubDomains ?? true) {
+		values.push("includeSubDomains");
+	}
+
+	if (options.preload) {
+		values.push("preload");
+	}
+
+	return values.join("; ");
+}
+
+function serializeContentSecurityPolicy(
+	value: SecurityHeadersOptions["contentSecurityPolicy"],
+): string | null {
+	if (!value) {
+		return null;
+	}
+
+	if (typeof value === "string") {
+		return value;
+	}
+
+	return Object.entries(value.directives)
+		.map(([directive, sources]) => {
+			if (sources.length === 0) {
+				return directive;
+			}
+
+			return `${directive} ${sources.join(" ")}`;
+		})
+		.join("; ");
+}
+
+async function resolveRateLimitKey(
+	ctx: Context,
+	resolver: RateLimitKeyResolver | undefined,
+): Promise<string> {
+	if (resolver) {
+		return resolver(ctx);
+	}
+
+	const forwardedFor = firstForwardedValue(
+		ctx.request.headers.get("x-forwarded-for"),
+	);
+	const realIp = ctx.request.headers.get("x-real-ip");
+
+	if (forwardedFor) {
+		return `ip:${forwardedFor}`;
+	}
+
+	if (realIp) {
+		return `ip:${realIp}`;
+	}
+
+	return `origin:${new URL(ctx.request.url).origin}`;
+}
+
+function firstForwardedValue(value: string | null): string | null {
+	if (!value) {
+		return null;
+	}
+
+	const first = value.split(",")[0]?.trim();
+	return first && first.length > 0 ? first : null;
+}
+
+function rateLimitHeaders(state: RateLimitState): Record<string, string> {
+	const headers: Record<string, string> = {
+		"RateLimit-Limit": String(state.limit),
+		"RateLimit-Remaining": String(state.remaining),
+		"RateLimit-Reset": String(state.retryAfter),
+	};
+
+	if (state.exceeded) {
+		headers["Retry-After"] = String(state.retryAfter);
+	}
+
+	return headers;
+}
 
 export type CorsOrigin =
 	| string
