@@ -462,6 +462,8 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 		"HTTP3=false",
 		"TLS_CERT=",
 		"TLS_KEY=",
+		"RATE_LIMIT_MAX=120",
+		"RATE_LIMIT_WINDOW_SECONDS=60",
 		`APP_KEY=${appKey}`,
 		"APP_URL=http://localhost:3333",
 	];
@@ -527,6 +529,8 @@ function makeEnvSchemaEntries(choices: NewAppChoices): string {
 		["HTTP3", "envVar.boolean().default(false)"],
 		["TLS_CERT", "envVar.string().optional()"],
 		["TLS_KEY", "envVar.string().optional()"],
+		["RATE_LIMIT_MAX", "envVar.number().default(120)"],
+		["RATE_LIMIT_WINDOW_SECONDS", "envVar.number().default(60)"],
 		["APP_KEY", "envVar.secret()"],
 		["APP_URL", 'envVar.url().default("http://localhost:3333")'],
 	];
@@ -948,6 +952,41 @@ const hashConfig = defineConfig({
 });
 
 export default hashConfig;
+`;
+}
+
+export function makeSecurityConfig(): string {
+	return `import { defineConfig } from "kura/config";
+import type { RateLimitOptions, SecurityHeadersOptions } from "kura/http";
+import env from "#start/env";
+
+const isProduction = env.get<string>("NODE_ENV", "development") === "production";
+
+/**
+ * Security middleware configuration.
+ */
+const securityConfig = defineConfig({
+\theaders: {
+\t\tcontentTypeOptions: "nosniff",
+\t\tcrossOriginOpenerPolicy: "same-origin",
+\t\tframeOptions: "deny",
+\t\thsts: {
+\t\t\tenabled: isProduction,
+\t\t\tincludeSubDomains: true,
+\t\t\tmaxAge: 31_536_000,
+\t\t\tpreload: false,
+\t\t},
+\t\treferrerPolicy: "no-referrer",
+\t} satisfies SecurityHeadersOptions,
+
+\trateLimit: {
+\t\tenabled: true,
+\t\tlimit: env.number("RATE_LIMIT_MAX", 120) ?? 120,
+\t\twindowMs: (env.number("RATE_LIMIT_WINDOW_SECONDS", 60) ?? 60) * 1000,
+\t} satisfies RateLimitOptions,
+});
+
+export default securityConfig;
 `;
 }
 

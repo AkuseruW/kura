@@ -68,6 +68,8 @@ const defaultEnvKeys = [
 	"HTTP3",
 	"TLS_CERT",
 	"TLS_KEY",
+	"RATE_LIMIT_MAX",
+	"RATE_LIMIT_WINDOW_SECONDS",
 ] as const;
 
 export function createDevToolCommands(

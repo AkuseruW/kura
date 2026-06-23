@@ -1,16 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { createContext } from "./Context";
-import { BadRequestException } from "./ErrorHandler";
+import {
+	BadRequestException,
+	handleHttpError,
+	TooManyRequestsException,
+} from "./ErrorHandler";
 import {
 	BodyLimit,
 	BodyParser,
 	Cors,
 	CsrfProtection,
+	MemoryRateLimitStore,
 	MiddlewarePipeline,
+	RateLimit,
 	RequestBodyLimitException,
 	RequestId,
 	RequestTimeout,
 	RequestTimeoutException,
+	SecurityHeaders,
 } from "./Middleware";
 import { Router } from "./Router";
 import type { Context } from "./Server";
@@ -322,6 +329,127 @@ describe("built-in middlewares", () => {
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe("ok");
 	});
+
+	test("adds default security headers", async () => {
+		const response = await SecurityHeaders()(
+			createContext(new Request("http://localhost")),
+			async () => new Response("ok"),
+		);
+
+		expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+		expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+		expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+		expect(response.headers.get("Cross-Origin-Opener-Policy")).toBe(
+			"same-origin",
+		);
+		expect(response.headers.get("Strict-Transport-Security")).toBeNull();
+		expect(response.headers.get("Content-Security-Policy")).toBeNull();
+	});
+
+	test("configures optional security headers", async () => {
+		const response = await SecurityHeaders({
+			contentSecurityPolicy: {
+				directives: {
+					"default-src": ["'self'"],
+					"object-src": ["'none'"],
+				},
+			},
+			frameOptions: "sameorigin",
+			headers: {
+				"Permissions-Policy": "geolocation=()",
+				"Referrer-Policy": false,
+			},
+			hsts: {
+				enabled: true,
+				includeSubDomains: false,
+				maxAge: 60,
+			},
+		})(
+			createContext(new Request("http://localhost")),
+			async () => new Response("ok"),
+		);
+
+		expect(response.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
+		expect(response.headers.get("Strict-Transport-Security")).toBe(
+			"max-age=60",
+		);
+		expect(response.headers.get("Content-Security-Policy")).toBe(
+			"default-src 'self'; object-src 'none'",
+		);
+		expect(response.headers.get("Permissions-Policy")).toBe("geolocation=()");
+		expect(response.headers.get("Referrer-Policy")).toBeNull();
+	});
+
+	test("limits requests with standard rate limit headers", async () => {
+		const limiter = RateLimit({
+			key: () => "account:1",
+			limit: 2,
+			windowMs: 60_000,
+		});
+		const first = await limiter(
+			createContext(new Request("http://localhost")),
+			async () => new Response("ok"),
+		);
+		const second = await limiter(
+			createContext(new Request("http://localhost")),
+			async () => new Response("ok"),
+		);
+
+		expect(first.status).toBe(200);
+		expect(first.headers.get("RateLimit-Limit")).toBe("2");
+		expect(first.headers.get("RateLimit-Remaining")).toBe("1");
+		expect(second.headers.get("RateLimit-Remaining")).toBe("0");
+
+		let error: unknown;
+		try {
+			await limiter(
+				createContext(new Request("http://localhost")),
+				async () => new Response("late"),
+			);
+		} catch (thrown) {
+			error = thrown;
+		}
+
+		expect(error).toBeInstanceOf(TooManyRequestsException);
+		const response = await handleHttpError(error, {
+			request: new Request("http://localhost"),
+		});
+		expect(response.status).toBe(429);
+		expect(response.headers.get("RateLimit-Limit")).toBe("2");
+		expect(response.headers.get("RateLimit-Remaining")).toBe("0");
+		expect(response.headers.get("Retry-After")).toBeDefined();
+	});
+
+	test("supports memory rate limit store resets", async () => {
+		const store = new MemoryRateLimitStore();
+		const limiter = RateLimit({
+			key: () => "account:2",
+			limit: 1,
+			store,
+			windowMs: 60_000,
+		});
+
+		await limiter(
+			createContext(new Request("http://localhost")),
+			async () => new Response("ok"),
+		);
+		await expect(
+			limiter(
+				createContext(new Request("http://localhost")),
+				async () => new Response("late"),
+			),
+		).rejects.toBeInstanceOf(TooManyRequestsException);
+
+		store.reset("account:2");
+		const response = await limiter(
+			createContext(new Request("http://localhost")),
+			async () => new Response("ok"),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("RateLimit-Remaining")).toBe("0");
+	});
+
 	test("adds CORS headers", async () => {
 		const response = await Cors({ origin: "https://example.com" })(
 			createContext(new Request("http://localhost")),
