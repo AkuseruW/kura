@@ -291,6 +291,20 @@ export class Schema<T = unknown> {
 		return schema;
 	}
 
+	files(): Schema<File[]> {
+		const schema = new Schema<File[]>();
+		schema._type = "array";
+		schema.itemSchema = this.file() as Schema<unknown>;
+		schema.rules.push(
+			(input) =>
+				input instanceof File ||
+				(Array.isArray(input) && input.every((item) => item instanceof File)),
+		);
+		schema.parser = (input) =>
+			input instanceof File ? [input] : (input as File[]);
+		return schema;
+	}
+
 	maxSize(this: Schema<File>, bytes: number): Schema<File> {
 		const maxBytes = parseNonNegativeNumber(bytes, "maxSize");
 

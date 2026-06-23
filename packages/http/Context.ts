@@ -1,5 +1,10 @@
 import type { RequestBodyType } from "./Body";
 import { parseRequestBody } from "./Body";
+import {
+	type UploadedFile,
+	uploadedFileFromEntry,
+	uploadedFilesFromEntries,
+} from "./Upload";
 
 export type RequestFormData = Awaited<
 	ReturnType<typeof Bun.readableStreamToFormData>
@@ -61,6 +66,8 @@ export type Context = Omit<ContextCore, "state"> & {
 	cookie(name: string): string | null;
 	cookie(name: string, defaultValue: string): string;
 	parseBody<T = unknown>(): Promise<T | undefined>;
+	file(name: string): Promise<UploadedFile | null>;
+	files(name: string): Promise<UploadedFile[]>;
 	bodyValue<T = unknown>(): T | undefined;
 	bodyValue<T>(defaultValue: T): T;
 	raw(): string | null;
@@ -145,6 +152,14 @@ export function ensureContext(ctx: Context | ContextCore): Context {
 	}) as Context["cookie"];
 	mutable.parseBody = async <T>() =>
 		(await parseRequestBody(mutable as Context)) as T | undefined;
+	mutable.file = async (name: string) => {
+		await parseRequestBody(mutable as Context);
+		return uploadedFileFromEntry(name, mutable.formData?.get(name) ?? null);
+	};
+	mutable.files = async (name: string) => {
+		await parseRequestBody(mutable as Context);
+		return uploadedFilesFromEntries(name, mutable.formData?.getAll(name) ?? []);
+	};
 	mutable.bodyValue = <T>(defaultValue?: T) =>
 		mutable.body === undefined ? defaultValue : (mutable.body as T);
 	mutable.raw = () => mutable.rawBody ?? null;

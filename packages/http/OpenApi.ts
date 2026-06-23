@@ -202,6 +202,7 @@ const DEFAULT_OPENAPI_PATH = "/openapi.json";
 const DEFAULT_DOCS_PATH = "/docs";
 const DEFAULT_OPENAPI_VERSION = "3.1.2";
 const JSON_CONTENT_TYPE = "application/json";
+const MULTIPART_CONTENT_TYPE = "multipart/form-data";
 const schemaDescriptionCache = new WeakMap<
 	SchemaLike<unknown>,
 	SchemaDescription
@@ -395,21 +396,26 @@ function createRequestBody(
 	specVersion: OpenApiVersion,
 ): OpenApiRequestBodyObject {
 	if (isRouteOpenApiBodyObject(body)) {
+		const contentType =
+			body.contentType ?? defaultRequestContentType(body.schema);
+
 		return {
 			description: body.description,
 			required: body.required,
 			content: {
-				[body.contentType ?? JSON_CONTENT_TYPE]: {
+				[contentType]: {
 					schema: toOpenApiSchema(body.schema, specVersion),
 				},
 			},
 		};
 	}
 
+	const contentType = defaultRequestContentType(body);
+
 	return {
 		required: true,
 		content: {
-			[JSON_CONTENT_TYPE]: {
+			[contentType]: {
 				schema: toOpenApiSchema(body, specVersion),
 			},
 		},
@@ -505,6 +511,34 @@ function describeSchema(schema: SchemaLike<unknown>): SchemaDescription {
 	const description = schema.describe();
 	schemaDescriptionCache.set(schema, description);
 	return description;
+}
+
+function defaultRequestContentType(input: OpenApiSchemaInput): string {
+	return schemaInputContainsFile(input)
+		? MULTIPART_CONTENT_TYPE
+		: JSON_CONTENT_TYPE;
+}
+
+function schemaInputContainsFile(input: OpenApiSchemaInput): boolean {
+	return (
+		isSchema(input) && schemaDescriptionContainsFile(describeSchema(input))
+	);
+}
+
+function schemaDescriptionContainsFile(
+	description: SchemaDescription,
+): boolean {
+	if (description.type === "file") {
+		return true;
+	}
+
+	if (description.item && schemaDescriptionContainsFile(description.item)) {
+		return true;
+	}
+
+	return Object.values(description.shape ?? {}).some((field) =>
+		schemaDescriptionContainsFile(field),
+	);
 }
 
 function schemaDescriptionToOpenApiWithoutNullability(

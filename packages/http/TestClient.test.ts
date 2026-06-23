@@ -118,6 +118,58 @@ describe("TestClient", () => {
 		});
 	});
 
+	test("supports multipart uploads with route validation", async () => {
+		const router = new Router();
+		router
+			.post("/uploads", async (ctx) => {
+				const body = ctx.validatedBody<{
+					avatar: File;
+					photos: File[];
+					title: string;
+				}>();
+				const avatar = await ctx.file("avatar");
+
+				return Response.json({
+					avatar: avatar?.clientName,
+					photos: body?.photos.map((file) => file.name),
+					title: body?.title,
+				});
+			})
+			.schema({
+				body: k.object({
+					avatar: k.file().mimeTypes(["image/png"]),
+					photos: k.files(),
+					title: k.string(),
+				}),
+			});
+		const client = createTestClient(router);
+		const formData = new FormData();
+		formData.append(
+			"avatar",
+			new File(["avatar"], "avatar.png", { type: "image/png" }),
+		);
+		formData.append(
+			"photos",
+			new File(["one"], "one.jpg", { type: "image/jpeg" }),
+		);
+		formData.append(
+			"photos",
+			new File(["two"], "two.jpg", { type: "image/jpeg" }),
+		);
+		formData.append("title", "Profile");
+
+		const response = await client.request("POST", "/uploads", {
+			body: formData,
+		});
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({
+			avatar: "avatar.png",
+			photos: ["one.jpg", "two.jpg"],
+			title: "Profile",
+		});
+	});
+
 	test("renders route validation errors as 422 responses", async () => {
 		const router = new Router();
 		router

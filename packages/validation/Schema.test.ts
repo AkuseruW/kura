@@ -224,6 +224,23 @@ describe("Schema", () => {
 		);
 	});
 
+	test("validates file lists and always returns an array", () => {
+		const avatar = new File(["avatar"], "avatar.png", { type: "image/png" });
+		const banner = new File(["banner"], "banner.jpg", { type: "image/jpeg" });
+
+		expect(k.files().parse(avatar)).toEqual([avatar]);
+		expect(k.files().min(2).max(2).parse([avatar, banner])).toEqual([
+			avatar,
+			banner,
+		]);
+		expect(() => k.files().parse(["not-a-file"])).toThrow(
+			"Validation failed for array",
+		);
+		expect(() => k.files().min(2).parse([avatar])).toThrow(
+			"Validation failed for array",
+		);
+	});
+
 	test("parses optional and nullable values", () => {
 		expect(k.string().optional().parse(undefined)).toBeUndefined();
 		expect(k.string().optional().parse("kura")).toBe("kura");

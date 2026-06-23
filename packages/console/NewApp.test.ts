@@ -563,6 +563,12 @@ describe("new app command", () => {
 		expect(
 			await readGenerated(root, "demo-api/app/services/storage_service.ts"),
 		).toContain("class StorageService");
+		expect(
+			await readGenerated(root, "demo-api/app/services/storage_service.ts"),
+		).toContain("putFile(key: string, file: UploadedFile | File)");
+		expect(
+			await readGenerated(root, "demo-api/app/services/storage_service.ts"),
+		).toContain("Storage key escapes storage root");
 		const readme = await readGenerated(root, "demo-api/README.md");
 		expect(readme).toContain("HTTP kernel");
 		expect(readme).toContain("## Feature Status");
