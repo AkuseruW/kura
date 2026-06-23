@@ -1495,6 +1495,14 @@ bun kura make:controller Home
 bun kura serve --watch
 \`\`\`
 
+Install the framework globally if you prefer the shorter app console command:
+
+\`\`\`sh
+bun install -g @akuseru_w/kura
+kura serve
+kura routes
+\`\`\`
+
 ## Structure
 
 ${makeArchitectureStructureBullets(choices)}
