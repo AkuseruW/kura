@@ -229,6 +229,12 @@ describe("Schema", () => {
 		const banner = new File(["banner"], "banner.jpg", { type: "image/jpeg" });
 
 		expect(k.files().parse(avatar)).toEqual([avatar]);
+		expect(
+			k
+				.files(k.file().mimeTypes(["image/png"]))
+				.min(1)
+				.parse(avatar),
+		).toEqual([avatar]);
 		expect(k.files().min(2).max(2).parse([avatar, banner])).toEqual([
 			avatar,
 			banner,
@@ -239,6 +245,9 @@ describe("Schema", () => {
 		expect(() => k.files().min(2).parse([avatar])).toThrow(
 			"Validation failed for array",
 		);
+		expect(() =>
+			k.files(k.file().mimeTypes(["image/png"])).parse([avatar, banner]),
+		).toThrow("Validation failed for array");
 	});
 
 	test("parses optional and nullable values", () => {

@@ -1625,6 +1625,12 @@ function makeGeneratedStarterBullets(choices: NewAppChoices): string {
 		);
 	}
 
+	if (choices.modules.includes("storage")) {
+		bullets.push(
+			"- Uploads: multipart parsing uses Bun's in-memory form parser; keep body limits and file validation on public upload routes.",
+		);
+	}
+
 	return bullets.join("\n");
 }
 

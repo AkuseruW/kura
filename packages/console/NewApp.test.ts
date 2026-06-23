@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import {
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConsoleKernel, MemoryConsoleOutput } from "./Console";
@@ -576,6 +583,9 @@ describe("new app command", () => {
 		expect(readme).toContain("- Auth (starter): Access token");
 		expect(readme).toContain("- Mail (starter): Config and mailable class");
 		expect(readme).toContain("- Storage (starter): Local storage service");
+		expect(readme).toContain(
+			"multipart parsing uses Bun's in-memory form parser",
+		);
 		expect(readme).toContain("## Production");
 		expect(readme).toContain("bun run deploy:doctor");
 		expect(readme).toContain("DEPLOYMENT.md");
@@ -702,6 +712,95 @@ describe("new app command", () => {
 		expect(await findFilesNamed(join(root, "demo-api"), ".gitkeep")).toEqual(
 			[],
 		);
+	});
+
+	test("generated storage apps can validate and store multipart uploads", async () => {
+		const root = await makeRoot();
+		const console = new ConsoleKernel(new MemoryConsoleOutput());
+		registerNewAppCommand(console, { root });
+
+		expect(
+			await console.run(["new", "demo-api", "--yes", "--module", "storage"]),
+		).toBe(0);
+
+		const repoRoot = process.cwd();
+		const smokePath = join(root, "demo-api", "upload_smoke.ts");
+		await writeFile(
+			smokePath,
+			`import { Router } from ${JSON.stringify(`${repoRoot}/http.ts`)};
+import { createTestClient } from ${JSON.stringify(`${repoRoot}/testing.ts`)};
+import { k } from ${JSON.stringify(`${repoRoot}/validation.ts`)};
+import { StorageService } from "./app/services/storage_service.ts";
+
+const router = new Router();
+const storage = new StorageService("tmp/upload-smoke");
+const uploadSchema = k.object({
+\tavatar: k.file().mimeTypes(["image/png"]).maxSize(16),
+\tgallery: k.files(k.file().mimeTypes(["image/png"]).maxSize(16)).min(1),
+});
+
+router
+\t.post("/uploads", async (ctx) => {
+\t\tconst input = ctx.validatedBody<{ avatar: File; gallery: File[] }>();
+\t\tconst avatar = await ctx.file("avatar");
+\t\tif (!input || !avatar) {
+\t\t\treturn Response.json({ error: "missing upload" }, { status: 500 });
+\t\t}
+
+\t\tconst path = await storage.putFile(\`avatars/\${avatar.clientName}\`, avatar);
+\t\treturn Response.json({
+\t\t\tavatar: input.avatar.name,
+\t\t\tgallery: input.gallery.map((file) => file.name),
+\t\t\tstored: await Bun.file(path).text(),
+\t\t});
+\t})
+\t.schema({ body: uploadSchema });
+
+const client = createTestClient(router);
+const form = new FormData();
+form.set("avatar", new File(["avatar"], "avatar.png", { type: "image/png" }));
+form.set("gallery", new File(["gallery"], "gallery.png", { type: "image/png" }));
+
+const response = await client.request("POST", "/uploads", { body: form });
+if (response.status !== 200) {
+\tthrow new Error(\`Expected upload route to return 200, received \${response.status}: \${await response.text()}\`);
+}
+
+const payload = await response.json<{
+\tavatar: string;
+\tgallery: string[];
+\tstored: string;
+}>();
+if (
+\tpayload.avatar !== "avatar.png" ||
+\tpayload.gallery[0] !== "gallery.png" ||
+\tpayload.stored !== "avatar"
+) {
+\tthrow new Error(\`Unexpected upload payload: \${JSON.stringify(payload)}\`);
+}
+
+const invalidForm = new FormData();
+invalidForm.set("avatar", new File(["avatar"], "avatar.txt", { type: "text/plain" }));
+invalidForm.set("gallery", new File(["gallery"], "gallery.png", { type: "image/png" }));
+const invalidResponse = await client.request("POST", "/uploads", { body: invalidForm });
+if (invalidResponse.status !== 422) {
+\tthrow new Error(\`Expected invalid upload to return 422, received \${invalidResponse.status}\`);
+}
+`,
+		);
+
+		const smoke = Bun.spawnSync({
+			cmd: [process.execPath, smokePath],
+			cwd: join(root, "demo-api"),
+			stderr: "pipe",
+			stdout: "pipe",
+		});
+
+		if (smoke.exitCode !== 0) {
+			throw new Error(
+				`Upload smoke failed\n${smoke.stdout.toString()}\n${smoke.stderr.toString()}`,
+			);
+		}
 	});
 
 	test("generates a modular application structure", async () => {

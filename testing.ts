@@ -27,4 +27,11 @@ export {
 	type FakeMailRecord,
 	FakeQueueDriver,
 	type FakeQueueMatcher,
+	FakeStorage,
+	type FakeStorageMatcher,
+	type FakeStorageRecord,
+	type FakeStorageValue,
+	type FakeUploadedFileContent,
+	type FakeUploadedFileOptions,
+	fakeUploadedFile,
 } from "./packages/testing/Fakes";

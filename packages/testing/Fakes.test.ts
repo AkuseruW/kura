@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { Event } from "../core/Event";
 import { Job, type JobContext, QueueManager } from "../queue/Queue";
-import { FakeEventDispatcher, FakeMailDriver, FakeQueueDriver } from "./Fakes";
+import {
+	FakeEventDispatcher,
+	FakeMailDriver,
+	FakeQueueDriver,
+	FakeStorage,
+	fakeUploadedFile,
+} from "./Fakes";
 
 describe("FakeMailDriver", () => {
 	test("records sent mail and exposes assertions", async () => {
@@ -66,6 +72,51 @@ describe("FakeQueueDriver", () => {
 
 		driver.clear();
 		expect(driver.all()).toEqual([]);
+	});
+});
+
+describe("FakeStorage", () => {
+	test("records stored uploaded files and exposes assertions", async () => {
+		const storage = new FakeStorage();
+		const avatar = fakeUploadedFile("avatar", {
+			fieldName: "avatar",
+			name: "avatar.png",
+			type: "image/png",
+		});
+
+		const record = await storage.putFile("avatars/avatar.png", avatar);
+
+		expect(record).toMatchObject({
+			key: "avatars/avatar.png",
+			clientName: "avatar.png",
+			size: 6,
+			type: "image/png",
+		});
+		expect(storage.exists("avatars/avatar.png")).toBe(true);
+		expect(storage.get("avatars/avatar.png")?.bytes).toEqual(
+			new TextEncoder().encode("avatar"),
+		);
+		expect(storage.stored({ clientName: "avatar.png" })).toHaveLength(1);
+		storage
+			.assertStored("avatars/avatar.png")
+			.assertStoredTimes(1, (stored) => stored.type === "image/png")
+			.assertStoredContent("avatars/avatar.png", "avatar")
+			.assertNotStored("avatars/missing.png");
+		expect(() => storage.assertStored("avatars/missing.png")).toThrow(
+			"Expected file to be stored",
+		);
+		expect(() => storage.assertStoredTimes(2)).toThrow(
+			"Expected file to be stored 2 times, received 1",
+		);
+		expect(() => storage.assertNotStored()).toThrow(
+			"Expected file not to be stored, received 1",
+		);
+		expect(() =>
+			storage.assertStoredContent("avatars/avatar.png", "wrong"),
+		).toThrow("Expected stored file [avatars/avatar.png] to match content");
+
+		storage.clear();
+		expect(storage.all()).toEqual([]);
 	});
 });
 
