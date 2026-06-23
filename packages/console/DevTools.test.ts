@@ -265,6 +265,35 @@ describe("dev tool console commands", () => {
 		expect(output.text()).toContain("/app/storage");
 	});
 
+	test("checks named deployment targets", async () => {
+		const root = await makeRoot();
+		await writeFile(
+			join(root, "package.json"),
+			JSON.stringify({
+				scripts: {
+					build: "bun build bin/server.ts --target=bun --production",
+					preview: "bun bin/console.ts preview",
+					start: "bun bin/console.ts serve --host 0.0.0.0",
+				},
+				dependencies: {
+					kura: "^0.1.14",
+				},
+			}),
+		);
+		await writeFile(join(root, ".env"), "APP_KEY=local-development-key");
+		await mkdir(join(root, "config"));
+		setEnv("APP_KEY", "local-development-key");
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, { root });
+
+		expect(await console.run(["deploy:doctor", "--target", "railway"])).toBe(0);
+		expect(await console.run(["deploy:doctor", "--target", "vercel"])).toBe(1);
+
+		expect(output.text()).toContain("Railway deployment target selected");
+		expect(output.text()).toContain("Vercel serverless/edge deployment needs");
+	});
+
 	test("fails deploy doctor for local runtime dependencies", async () => {
 		const root = await makeRoot();
 		await writeFile(
@@ -302,6 +331,74 @@ describe("dev tool console commands", () => {
 		expect(output.text()).toContain(
 			"runtime dependencies use local paths: kura",
 		);
+	});
+
+	test("checks HTTP/3 deployment prerequisites", async () => {
+		const root = await makeRoot();
+		await writeFile(
+			join(root, "package.json"),
+			JSON.stringify({
+				scripts: {
+					build: "bun build bin/server.ts --target=bun --production",
+					preview: "bun bin/console.ts preview",
+					start: "bun bin/console.ts serve --host 0.0.0.0",
+				},
+				dependencies: {
+					kura: "^0.1.14",
+				},
+			}),
+		);
+		await writeFile(
+			join(root, ".env"),
+			["APP_KEY=local-development-key", "HTTP3=true", ""].join("\n"),
+		);
+		setEnv("APP_KEY", "local-development-key");
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, { root });
+
+		expect(await console.run(["deploy:doctor"])).toBe(1);
+
+		expect(output.text()).toContain("deploy:protocol");
+		expect(output.text()).toContain("HTTP3=true requires TLS_CERT and TLS_KEY");
+	});
+
+	test("warns when HTTP/3 is configured for deployment", async () => {
+		const root = await makeRoot();
+		await writeFile(
+			join(root, "package.json"),
+			JSON.stringify({
+				scripts: {
+					build: "bun build bin/server.ts --target=bun --production",
+					preview: "bun bin/console.ts preview",
+					start: "bun bin/console.ts serve --host 0.0.0.0",
+				},
+				dependencies: {
+					kura: "^0.1.14",
+				},
+			}),
+		);
+		await writeFile(
+			join(root, ".env"),
+			[
+				"APP_KEY=local-development-key",
+				"HTTP3=true",
+				"TLS_CERT=cert.pem",
+				"TLS_KEY=key.pem",
+				"",
+			].join("\n"),
+		);
+		await mkdir(join(root, "config"));
+		setEnv("APP_KEY", "local-development-key");
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerDevToolCommands(console, { root });
+
+		expect(await console.run(["deploy:doctor"])).toBe(0);
+
+		expect(output.text()).toContain("deploy:protocol");
+		expect(output.text()).toContain("HTTP/3 is enabled with TLS");
+		expect(output.text()).toContain("UDP/QUIC");
 	});
 
 	test("warns about scaffold-only generated features", async () => {

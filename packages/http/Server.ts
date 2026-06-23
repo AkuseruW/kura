@@ -26,6 +26,16 @@ export type BunStaticRouteMap = Serve.Routes<undefined, string>;
 
 export type BunDevelopmentOptions = Serve.Development;
 
+export type BunServerTlsOptions = Bun.TLSOptions | Bun.TLSOptions[];
+
+type BunProtocolOptions = {
+	readonly http1?: boolean;
+	readonly http3?: boolean;
+	readonly tls?: BunServerTlsOptions;
+};
+
+type KuraServeOptions = Serve.Options<undefined, string> & BunProtocolOptions;
+
 export type ServerOptions = {
 	readonly port: number;
 	readonly hostname?: string;
@@ -33,6 +43,9 @@ export type ServerOptions = {
 	readonly development?: BunDevelopmentOptions;
 	readonly environment?: string;
 	readonly errorHandler?: HttpErrorHandlerInput;
+	readonly http1?: boolean;
+	readonly http3?: boolean;
+	readonly tls?: BunServerTlsOptions;
 };
 
 export class Server {
@@ -61,11 +74,13 @@ export class Server {
 	}
 
 	start(): void {
-		const options = {
+		const protocol = resolveProtocolOptions(this.options);
+		const options: KuraServeOptions = {
 			hostname: this.options.hostname,
 			port: this.options.port,
 			routes: this.staticRoutes,
 			development: this.options.development,
+			...protocol,
 			fetch: async (request) => {
 				let ctx: Context | undefined;
 				try {
@@ -87,4 +102,20 @@ export class Server {
 	stop(): void {
 		this.server?.stop();
 	}
+}
+
+function resolveProtocolOptions(options: ServerOptions): BunProtocolOptions {
+	if (options.http3 === true && options.tls === undefined) {
+		throw new Error("HTTP/3 requires TLS. Provide tls when http3 is enabled.");
+	}
+
+	if (options.http1 === false && options.http3 !== true) {
+		throw new Error("Disabling HTTP/1 requires HTTP/3 to be enabled.");
+	}
+
+	return {
+		http1: options.http1,
+		http3: options.http3,
+		tls: options.tls,
+	};
 }

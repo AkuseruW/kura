@@ -41,9 +41,12 @@ type GeneratorInput = {
 export function createGeneratorCommands(
 	options: GeneratorConsoleOptions = {},
 ): readonly Command[] {
-	return generatorDefinitions.map((definition) =>
-		makeGeneratorCommand(definition, options),
-	);
+	return [
+		...generatorDefinitions.map((definition) =>
+			makeGeneratorCommand(definition, options),
+		),
+		makeResourceCommand(options),
+	];
 }
 
 export function registerGeneratorCommands(
@@ -111,6 +114,50 @@ function generatorCommandOptions() {
 			description: "Overwrite an existing file",
 		},
 	];
+}
+
+function makeResourceCommand(options: GeneratorConsoleOptions): Command {
+	return defineCommand(
+		{
+			name: "make:resource",
+			description: "Create a REST resource workflow",
+			arguments: [
+				{
+					name: "name",
+					required: true,
+					description: "Resource name to generate",
+				},
+			],
+			options: generatorCommandOptions(),
+		},
+		async (context) => {
+			const rawName = context.args[0];
+
+			if (!rawName) {
+				throw new Error("Command [make:resource] requires <name>.");
+			}
+
+			const root = resolveRoot(options, context.options);
+			const resource = makeResourceInput(rawName, options);
+			const files = makeResourceFiles(resource);
+			const actions: string[] = [];
+
+			for (const file of files) {
+				const targetPath = join(root, file.path);
+				const action = await writeGeneratedFile({
+					path: targetPath,
+					content: file.content,
+					force: isEnabled(context.options, "force"),
+				});
+				actions.push(`${capitalize(action)} ${file.path}`);
+			}
+
+			actions.push(
+				`Register routes with ${resource.routeFunctionName}(router) from ${resource.routeImport}`,
+			);
+			context.output.write(actions.join("\n"));
+		},
+	);
 }
 
 async function writeGeneratedFile(options: {
@@ -368,6 +415,257 @@ function modelImportPath(input: GeneratorInput, modelName: string): string {
 			: [snakeCase(modelName)];
 
 	return `../../app/modules/${moduleSegments.join("/")}/${modelFileName}`;
+}
+
+type ResourceInput = {
+	readonly architecture: ArchitecturePreset;
+	readonly className: string;
+	readonly controllerPath: string;
+	readonly createValidatorName: string;
+	readonly fileBase: string;
+	readonly pluralName: string;
+	readonly routeFunctionName: string;
+	readonly routeImport: string;
+	readonly routePath: string;
+	readonly tag: string;
+	readonly testPath: string;
+	readonly updateValidatorName: string;
+	readonly validatorPath: string;
+};
+
+type ResourceFile = {
+	readonly path: string;
+	readonly content: string;
+};
+
+function makeResourceInput(
+	rawName: string,
+	options: GeneratorConsoleOptions,
+): ResourceInput {
+	const architecture = options.architecture ?? "standard";
+	const segments = parseNameSegments(rawName);
+	const baseName = pascalCase(segments.at(-1) ?? rawName);
+	const fileBase = snakeCase(baseName);
+	const pluralName = tableNameFromModel(baseName);
+	const className = `${baseName}Controller`;
+	const routeFunctionName = `register${baseName}ResourceRoutes`;
+	const createValidatorName = `create${baseName}Validator`;
+	const updateValidatorName = `update${baseName}Validator`;
+	const moduleSegments =
+		segments.length > 1
+			? segments.slice(0, -1).map(snakeCase)
+			: [snakeCase(baseName)];
+	const modulePath = moduleSegments.join("/");
+	const paths = resourcePaths(architecture, fileBase, modulePath);
+
+	return {
+		architecture,
+		className,
+		controllerPath: paths.controllerPath,
+		createValidatorName,
+		fileBase,
+		pluralName,
+		routeFunctionName,
+		routeImport: paths.routeImport,
+		routePath: paths.routePath,
+		tag: pluralName,
+		testPath: `tests/functional/${fileBase}_resource.test.ts`,
+		updateValidatorName,
+		validatorPath: paths.validatorPath,
+	};
+}
+
+function resourcePaths(
+	architecture: ArchitecturePreset,
+	fileBase: string,
+	modulePath: string,
+): Pick<
+	ResourceInput,
+	"controllerPath" | "routeImport" | "routePath" | "validatorPath"
+> {
+	if (architecture === "domain") {
+		return {
+			controllerPath: `app/domains/${modulePath}/http/${fileBase}_controller.ts`,
+			routeImport: `#domains/${modulePath}/http/routes`,
+			routePath: `app/domains/${modulePath}/http/routes.ts`,
+			validatorPath: `app/domains/${modulePath}/application/${fileBase}_validator.ts`,
+		};
+	}
+
+	if (architecture === "modular") {
+		return {
+			controllerPath: `app/modules/${modulePath}/${fileBase}_controller.ts`,
+			routeImport: `#modules/${modulePath}/routes`,
+			routePath: `app/modules/${modulePath}/routes.ts`,
+			validatorPath: `app/modules/${modulePath}/${fileBase}_validator.ts`,
+		};
+	}
+
+	return {
+		controllerPath: `app/controllers/${fileBase}_controller.ts`,
+		routeImport: `#routes/${fileBase}`,
+		routePath: `routes/${fileBase}.ts`,
+		validatorPath: `app/validators/${fileBase}_validator.ts`,
+	};
+}
+
+function makeResourceFiles(input: ResourceInput): readonly ResourceFile[] {
+	return [
+		{
+			path: input.controllerPath,
+			content: makeResourceController(input),
+		},
+		{
+			path: input.validatorPath,
+			content: makeResourceValidator(input),
+		},
+		{
+			path: input.routePath,
+			content: makeResourceRoutes(input),
+		},
+		{
+			path: input.testPath,
+			content: makeResourceTest(input),
+		},
+	];
+}
+
+function makeResourceController(input: ResourceInput): string {
+	return `import { KuraResponse, type Context } from "kura/http";
+
+export class ${input.className} {
+\tasync index(_ctx: Context): Promise<Response> {
+\t\treturn Response.json([]);
+\t}
+
+\tasync store(ctx: Context): Promise<Response> {
+\t\treturn Response.json(ctx.validated?.body ?? {}, { status: 201 });
+\t}
+
+\tasync show(ctx: Context): Promise<Response> {
+\t\treturn Response.json({ id: ctx.param("id") });
+\t}
+
+\tasync update(ctx: Context): Promise<Response> {
+\t\treturn Response.json({
+\t\t\tid: ctx.param("id"),
+\t\t\t...(ctx.validated?.body ?? {}),
+\t\t});
+\t}
+
+\tasync destroy(_ctx: Context): Promise<Response> {
+\t\treturn KuraResponse.noContent();
+\t}
+}
+`;
+}
+
+function makeResourceValidator(input: ResourceInput): string {
+	return `import { k } from "kura/validation";
+
+export const ${input.createValidatorName} = k.object({
+\tname: k.string().min(1),
+});
+
+export const ${input.updateValidatorName} = k.object({
+\tname: k.string().min(1).optional(),
+});
+`;
+}
+
+function makeResourceRoutes(input: ResourceInput): string {
+	const controllerImport = resourceImport(input.controllerPath);
+	const validatorImport = resourceImport(input.validatorPath);
+
+	return `import type { Router } from "kura/http";
+import { ${input.className} } from "${controllerImport}";
+import {
+\t${input.createValidatorName},
+\t${input.updateValidatorName},
+} from "${validatorImport}";
+
+export function ${input.routeFunctionName}(router: Router): void {
+\tconst controller = new ${input.className}();
+
+\trouter.get("/${input.pluralName}", (ctx) => controller.index(ctx))
+\t\t.as("${input.pluralName}.index")
+\t\t.openapi({
+\t\t\tsummary: "List ${input.pluralName}",
+\t\t\ttags: ["${input.tag}"],
+\t\t});
+\trouter.post("/${input.pluralName}", (ctx) => controller.store(ctx))
+\t\t.as("${input.pluralName}.store")
+\t\t.schema({ body: ${input.createValidatorName} })
+\t\t.openapi({
+\t\t\tsummary: "Create ${input.fileBase}",
+\t\t\ttags: ["${input.tag}"],
+\t\t});
+\trouter.get("/${input.pluralName}/:id", (ctx) => controller.show(ctx))
+\t\t.as("${input.pluralName}.show")
+\t\t.openapi({
+\t\t\tsummary: "Show ${input.fileBase}",
+\t\t\ttags: ["${input.tag}"],
+\t\t});
+\trouter.patch("/${input.pluralName}/:id", (ctx) => controller.update(ctx))
+\t\t.as("${input.pluralName}.update")
+\t\t.schema({ body: ${input.updateValidatorName} })
+\t\t.openapi({
+\t\t\tsummary: "Update ${input.fileBase}",
+\t\t\ttags: ["${input.tag}"],
+\t\t});
+\trouter.delete("/${input.pluralName}/:id", (ctx) => controller.destroy(ctx))
+\t\t.as("${input.pluralName}.destroy")
+\t\t.openapi({
+\t\t\tsummary: "Delete ${input.fileBase}",
+\t\t\ttags: ["${input.tag}"],
+\t\t});
+}
+`;
+}
+
+function makeResourceTest(input: ResourceInput): string {
+	return `import { describe, expect, test } from "bun:test";
+import { Router } from "kura/http";
+import { createTestClient } from "kura/testing";
+import { ${input.routeFunctionName} } from "${input.routeImport}";
+
+describe("${input.pluralName} resource", () => {
+\ttest("lists and creates ${input.pluralName}", async () => {
+\t\tconst router = new Router();
+\t\t${input.routeFunctionName}(router);
+\t\tconst client = createTestClient(router);
+
+\t\tconst index = await client.get("/${input.pluralName}");
+\t\tconst store = await client.post("/${input.pluralName}", { name: "Demo" });
+
+\t\tindex.assertStatus(200);
+\t\tstore.assertStatus(201);
+\t\tawait expect(store.json()).resolves.toEqual({ name: "Demo" });
+\t});
+});
+`;
+}
+
+function resourceImport(path: string): string {
+	const withoutExtension = path.replace(/\.ts$/, "");
+
+	if (withoutExtension.startsWith("app/controllers/")) {
+		return withoutExtension.replace(/^app\/controllers\//, "#controllers/");
+	}
+
+	if (withoutExtension.startsWith("app/validators/")) {
+		return withoutExtension.replace(/^app\/validators\//, "#validators/");
+	}
+
+	if (withoutExtension.startsWith("app/modules/")) {
+		return withoutExtension.replace(/^app\/modules\//, "#modules/");
+	}
+
+	if (withoutExtension.startsWith("app/domains/")) {
+		return withoutExtension.replace(/^app\/domains\//, "#domains/");
+	}
+
+	return withoutExtension;
 }
 
 function formatTimestamp(date: Date): string {

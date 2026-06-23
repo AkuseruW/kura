@@ -348,7 +348,7 @@ describe("new app command", () => {
 			"satisfies readonly MigrationDefinition[]",
 		);
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
-			'import env from "#start/env"',
+			'import env, { appRoot } from "#start/env"',
 		);
 		expect(await readGenerated(root, "demo-api/bin/server.ts")).toContain(
 			"new MiddlewarePipeline()",

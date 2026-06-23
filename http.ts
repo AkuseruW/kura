@@ -94,6 +94,7 @@ export {
 } from "./packages/http/Router";
 export {
 	type BunDevelopmentOptions,
+	type BunServerTlsOptions,
 	type BunStaticRouteMap,
 	type Context,
 	type ContextCore,

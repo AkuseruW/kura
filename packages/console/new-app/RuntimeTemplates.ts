@@ -289,19 +289,27 @@ function makeMigrationDefinitions(choices: NewAppChoices): string[] {
 export function makeServerEntrypoint(choices: NewAppChoices): string {
 	const imports =
 		choices.preset === "full"
-			? `import {
+			? `import { resolve } from "node:path";
+import {
 \ttype BunDevelopmentOptions,
+\ttype BunServerTlsOptions,
 \ttype BunStaticRouteMap,
 \ttype Context,
 \tMiddlewarePipeline,
 \tServer,
 } from "kura/http";
 import home from "../resources/pages/home.html";
-import env from "#start/env";
+import env, { appRoot } from "#start/env";
 import { kernel } from "#start/kernel";
 import { router } from "#start/routes";`
-			: `import { type Context, MiddlewarePipeline, Server } from "kura/http";
-import env from "#start/env";
+			: `import { resolve } from "node:path";
+import {
+\ttype BunServerTlsOptions,
+\ttype Context,
+\tMiddlewarePipeline,
+\tServer,
+} from "kura/http";
+import env, { appRoot } from "#start/env";
 import { kernel } from "#start/kernel";
 import { router } from "#start/routes";`;
 	const staticRouteExports =
@@ -328,6 +336,9 @@ export const development = (
 \t\thostname: env.get("HOST", "localhost"),
 \t\tenvironment: env.get("NODE_ENV", "development"),
 \t\terrorHandler: kernel.errorHandler,
+\t\thttp1: env.boolean("HTTP1", true) ?? true,
+\t\thttp3: env.boolean("HTTP3", false) ?? false,
+\t\ttls: createTlsOptions(),
 \t\tstaticRoutes,
 \t\tdevelopment,
 \t}`
@@ -336,6 +347,9 @@ export const development = (
 \t\thostname: env.get("HOST", "localhost"),
 \t\tenvironment: env.get("NODE_ENV", "development"),
 \t\terrorHandler: kernel.errorHandler,
+\t\thttp1: env.boolean("HTTP1", true) ?? true,
+\t\thttp3: env.boolean("HTTP3", false) ?? false,
+\t\ttls: createTlsOptions(),
 \t}`;
 
 	return `${imports}
@@ -359,6 +373,24 @@ function createHandler() {
 \t}
 
 \treturn pipeline.toHandler(dispatchRouter);
+}
+
+function createTlsOptions(): BunServerTlsOptions | undefined {
+\tconst cert = env.get<string | undefined>("TLS_CERT", undefined);
+\tconst key = env.get<string | undefined>("TLS_KEY", undefined);
+
+\tif (!cert && !key) {
+\t\treturn undefined;
+\t}
+
+\tif (!cert || !key) {
+\t\tthrow new Error("TLS_CERT and TLS_KEY must be configured together.");
+\t}
+
+\treturn {
+\t\tcert: Bun.file(resolve(appRoot, cert)),
+\t\tkey: Bun.file(resolve(appRoot, key)),
+\t};
 }
 
 export function createServer(): Server {
@@ -397,7 +429,7 @@ import { fileURLToPath } from "node:url";
 import { defineEnv, Env, envVar } from "kura/env";
 
 const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const appRoot =
+export const appRoot =
 \tbasename(runtimeRoot) === "build" ? resolve(runtimeRoot, "..") : runtimeRoot;
 
 export const envSchema = defineEnv({
@@ -426,6 +458,10 @@ function makeEnvFile(choices: NewAppChoices, appKey: string): string {
 		"HOST=localhost",
 		"NODE_ENV=development",
 		"LOG_LEVEL=info",
+		"HTTP1=true",
+		"HTTP3=false",
+		"TLS_CERT=",
+		"TLS_KEY=",
 		`APP_KEY=${appKey}`,
 		"APP_URL=http://localhost:3333",
 	];
@@ -482,6 +518,10 @@ function makeEnvSchemaEntries(choices: NewAppChoices): string {
 			"LOG_LEVEL",
 			'envVar.enum(["trace", "debug", "info", "warn", "error", "silent"]).default("info")',
 		],
+		["HTTP1", "envVar.boolean().default(true)"],
+		["HTTP3", "envVar.boolean().default(false)"],
+		["TLS_CERT", "envVar.string().optional()"],
+		["TLS_KEY", "envVar.string().optional()"],
 		["APP_KEY", "envVar.secret()"],
 		["APP_URL", 'envVar.url().default("http://localhost:3333")'],
 	];

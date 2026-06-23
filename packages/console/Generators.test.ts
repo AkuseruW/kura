@@ -41,6 +41,7 @@ describe("generator console commands", () => {
 				"make:migration",
 				"make:model",
 				"make:policy",
+				"make:resource",
 				"make:seeder",
 				"make:validator",
 				"make:listener",
@@ -201,6 +202,57 @@ describe("generator console commands", () => {
 				"database/migrations/20260616171011_create_users.ts",
 			),
 		).toContain('schema.createTable("users"');
+	});
+
+	test("generates a standard REST resource workflow", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerGeneratorCommands(console, { root, now: fixedNow });
+
+		expect(await console.run(["make:resource", "Post"])).toBe(0);
+
+		expect(output.text()).toContain(
+			"Created app/controllers/post_controller.ts",
+		);
+		expect(output.text()).toContain("Created app/validators/post_validator.ts");
+		expect(output.text()).toContain("Created routes/post.ts");
+		expect(output.text()).toContain(
+			"Register routes with registerPostResourceRoutes(router)",
+		);
+		expect(await readGenerated(root, "routes/post.ts")).toContain(
+			"registerPostResourceRoutes",
+		);
+		expect(await readGenerated(root, "routes/post.ts")).toContain(
+			'.as("posts.store")',
+		);
+		expect(
+			await readGenerated(root, "tests/functional/post_resource.test.ts"),
+		).toContain('client.post("/posts"');
+	});
+
+	test("generates a domain REST resource workflow", async () => {
+		const root = await makeRoot();
+		const output = new MemoryConsoleOutput();
+		const console = new ConsoleKernel(output);
+		registerGeneratorCommands(console, {
+			root,
+			now: fixedNow,
+			architecture: "domain",
+		});
+
+		expect(await console.run(["make:resource", "posts/Post"])).toBe(0);
+
+		expect(output.text()).toContain(
+			"Created app/domains/posts/http/post_controller.ts",
+		);
+		expect(output.text()).toContain(
+			"Created app/domains/posts/application/post_validator.ts",
+		);
+		expect(output.text()).toContain("Created app/domains/posts/http/routes.ts");
+		expect(
+			await readGenerated(root, "app/domains/posts/http/routes.ts"),
+		).toContain('from "#domains/posts/application/post_validator"');
 	});
 
 	test("generates the remaining templates", async () => {

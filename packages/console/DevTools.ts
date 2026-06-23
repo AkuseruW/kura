@@ -39,6 +39,8 @@ type DoctorCheck = {
 	readonly message: string;
 };
 
+type DeploymentTarget = "docker" | "railway" | "render" | "vercel";
+
 type DeploymentPackageJson = {
 	readonly dependencies: Readonly<Record<string, string>>;
 	readonly optionalDependencies: Readonly<Record<string, string>>;
@@ -59,6 +61,10 @@ const defaultEnvKeys = [
 	"CACHE_STORE",
 	"QUEUE_CONNECTION",
 	"REDIS_URL",
+	"HTTP1",
+	"HTTP3",
+	"TLS_CERT",
+	"TLS_KEY",
 ] as const;
 
 export function createDevToolCommands(
@@ -217,12 +223,19 @@ function createDoctorCommand(options: DevToolConsoleOptions): Command {
 					value: "string",
 					description: "Project root directory",
 				},
+				{
+					name: "target",
+					value: "string",
+					default: "docker",
+					description: "Deployment target: docker, railway, render, or vercel",
+				},
 			],
 		},
 		async (ctx) => {
 			const root = resolveRoot(options, ctx.options);
 			const checks = await runDoctorChecks(root, options, {
 				deployment: ctx.parsed.commandName === "deploy:doctor",
+				target: parseDeploymentTarget(readStringOption(ctx.options, "target")),
 			});
 
 			if (isEnabled(ctx.options, "json")) {
@@ -325,7 +338,10 @@ async function readEnvEntries(
 async function runDoctorChecks(
 	root: string,
 	options: DevToolConsoleOptions,
-	mode: { readonly deployment: boolean } = { deployment: false },
+	mode: {
+		readonly deployment: boolean;
+		readonly target?: DeploymentTarget;
+	} = { deployment: false },
 ): Promise<readonly DoctorCheck[]> {
 	const checks: DoctorCheck[] = [];
 	const packageExists = await exists(resolve(root, "package.json"));
@@ -402,7 +418,7 @@ async function runDoctorChecks(
 	}
 
 	if (mode.deployment) {
-		checks.push(...(await runDeploymentChecks(root, options)));
+		checks.push(...(await runDeploymentChecks(root, options, mode.target)));
 	}
 
 	return checks;
@@ -471,12 +487,17 @@ async function runFeatureSupportChecks(
 async function runDeploymentChecks(
 	root: string,
 	options: DevToolConsoleOptions,
+	target: DeploymentTarget = "docker",
 ): Promise<readonly DoctorCheck[]> {
 	const checks: DoctorCheck[] = [];
 	const dockerfile = await readOptionalText(resolve(root, "Dockerfile"));
 	const dockerignore = await readOptionalText(resolve(root, ".dockerignore"));
+	const envFile = parseEnvText(
+		await readOptionalText(resolve(root, options.envFile ?? ".env")),
+	);
 	const packageJson = await readDeploymentPackageJson(root);
 
+	checks.push(runDeploymentTargetCheck(target));
 	checks.push({
 		name: "deploy:dockerfile",
 		status: dockerfile
@@ -561,10 +582,86 @@ async function runDeploymentChecks(
 				? "runtime dependencies are registry-compatible"
 				: `runtime dependencies use local paths: ${localDependencies.join(", ")}`,
 	});
+	checks.push(runDeploymentProtocolCheck(envFile));
 
 	checks.push(...(await runDeploymentFeatureChecks(root, options)));
 
 	return checks;
+}
+
+function runDeploymentTargetCheck(target: DeploymentTarget): DoctorCheck {
+	if (target === "docker") {
+		return {
+			name: "deploy:target",
+			status: "ok",
+			message: "Docker-style deployment target selected",
+		};
+	}
+
+	if (target === "railway" || target === "render") {
+		return {
+			name: "deploy:target",
+			status: "ok",
+			message: `${capitalize(target)} deployment target selected; use build/start scripts with platform PORT and HOST=0.0.0.0`,
+		};
+	}
+
+	return {
+		name: "deploy:target",
+		status: "error",
+		message:
+			"Vercel serverless/edge deployment needs a dedicated adapter before it can run the Bun HTTP server",
+	};
+}
+
+function parseDeploymentTarget(value: string | undefined): DeploymentTarget {
+	const target = value ?? "docker";
+
+	if (
+		target === "docker" ||
+		target === "railway" ||
+		target === "render" ||
+		target === "vercel"
+	) {
+		return target;
+	}
+
+	throw new Error(
+		"Option [target] must be one of docker, railway, render, or vercel",
+	);
+}
+
+function runDeploymentProtocolCheck(
+	env: Readonly<Record<string, string>>,
+): DoctorCheck {
+	const http3 = readBooleanLike(env.HTTP3 ?? process.env.HTTP3) ?? false;
+	const tlsCert = env.TLS_CERT ?? process.env.TLS_CERT;
+	const tlsKey = env.TLS_KEY ?? process.env.TLS_KEY;
+
+	if (!http3) {
+		return {
+			name: "deploy:protocol",
+			status: "warn",
+			message:
+				"Kura serves HTTP/1.1 directly; terminate public HTTP/2 or HTTP/3 at your proxy/CDN unless you enable experimental HTTP/3 with TLS",
+		};
+	}
+
+	if (!tlsCert || !tlsKey) {
+		return {
+			name: "deploy:protocol",
+			status: "error",
+			message:
+				"HTTP3=true requires TLS_CERT and TLS_KEY because Bun HTTP/3 requires TLS",
+		};
+	}
+
+	return {
+		name: "deploy:protocol",
+		status: "warn",
+		message:
+			"HTTP/3 is enabled with TLS; verify your host exposes UDP/QUIC and keep a proxy/CDN fallback for unsupported platforms",
+	};
 }
 
 async function runDeploymentFeatureChecks(
@@ -650,6 +747,39 @@ async function readOptionalText(path: string): Promise<string | undefined> {
 	}
 }
 
+function parseEnvText(
+	content: string | undefined,
+): Readonly<Record<string, string>> {
+	if (!content) {
+		return {};
+	}
+
+	const entries: [string, string][] = [];
+
+	for (const line of content.split("\n")) {
+		const trimmed = line.trim();
+
+		if (!trimmed || trimmed.startsWith("#")) {
+			continue;
+		}
+
+		const separator = trimmed.indexOf("=");
+
+		if (separator === -1) {
+			continue;
+		}
+
+		const key = trimmed.slice(0, separator).trim();
+		const value = trimmed.slice(separator + 1).trim();
+
+		if (key) {
+			entries.push([key, value]);
+		}
+	}
+
+	return Object.fromEntries(entries);
+}
+
 function readStringRecord(value: unknown): Readonly<Record<string, string>> {
 	if (!isRecord(value)) {
 		return {};
@@ -682,6 +812,24 @@ function isLocalDependency(version: string): boolean {
 		version.startsWith("link:") ||
 		version.startsWith("workspace:")
 	);
+}
+
+function readBooleanLike(value: string | undefined): boolean | undefined {
+	if (value === undefined || value.length === 0) {
+		return undefined;
+	}
+
+	const normalized = value.trim().toLowerCase();
+
+	if (["1", "true", "yes", "on"].includes(normalized)) {
+		return true;
+	}
+
+	if (["0", "false", "no", "off"].includes(normalized)) {
+		return false;
+	}
+
+	return undefined;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -873,4 +1021,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : "Command failed";
+}
+
+function capitalize(value: string): string {
+	return `${value[0]?.toUpperCase() ?? ""}${value.slice(1)}`;
 }
