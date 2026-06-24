@@ -82,6 +82,17 @@ describe("local app console", () => {
 			await runLocalAppConsole(["help", "new"], { cwd: root }),
 		).toBeUndefined();
 	});
+
+	test("keeps app upgrades on the global framework command", async () => {
+		const root = await createAppRoot();
+
+		expect(
+			await runLocalAppConsole(["upgrade"], { cwd: root }),
+		).toBeUndefined();
+		expect(
+			await runLocalAppConsole(["help", "upgrade"], { cwd: root }),
+		).toBeUndefined();
+	});
 });
 
 async function createAppRoot(): Promise<string> {

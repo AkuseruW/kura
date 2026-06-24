@@ -278,6 +278,7 @@ describe("new app command", () => {
 				preview: string;
 				routes: string;
 				test: string;
+				upgrade: string;
 			};
 		};
 		expect(packageJson.dependencies.kura).toBe("file:../kura");
@@ -292,6 +293,7 @@ describe("new app command", () => {
 		expect(packageJson.scripts["deploy:doctor"]).toBe(
 			"bun bin/console.ts deploy:doctor",
 		);
+		expect(packageJson.scripts.upgrade).toBe("bun bin/console.ts upgrade");
 		expect(packageJson.scripts.env).toBe("bun bin/console.ts env");
 		expect(packageJson.scripts.config).toBe("bun bin/console.ts config");
 		expect(packageJson.scripts.test).toBe("bun bin/test.ts");
@@ -318,6 +320,7 @@ describe("new app command", () => {
 		expect(consoleEntrypoint).toContain("loadEnvSchema");
 		expect(consoleEntrypoint).toContain('entry: "bin/server.ts"');
 		expect(consoleEntrypoint).toContain("registerDevToolCommands");
+		expect(consoleEntrypoint).toContain("registerUpgradeCommands");
 		expect(consoleEntrypoint).toContain('from "kura/console"');
 		expect(consoleEntrypoint).toContain('await import("#start/routes")');
 		expect(consoleEntrypoint).toContain("registerPreviewCommand");

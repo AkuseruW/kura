@@ -44,6 +44,7 @@ export function formatNewAppPlan(options: {
 		"  bun kura routes",
 		"  bun kura doctor",
 		"  bun kura deploy:doctor",
+		"  bun kura upgrade",
 		"  bun run preview",
 	];
 
@@ -96,6 +97,7 @@ export function formatNewAppCreated(options: {
 		"  bun kura routes",
 		"  bun kura doctor",
 		"  bun kura deploy:doctor",
+		"  bun kura upgrade",
 		"  bun kura env",
 		"  bun kura config app.starter",
 		"  bun run preview",

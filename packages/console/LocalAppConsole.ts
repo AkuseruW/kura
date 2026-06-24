@@ -62,11 +62,11 @@ export function findLocalAppConsole(cwd: string): LocalAppConsole | undefined {
 function shouldRunGlobalCli(argv: readonly string[]): boolean {
 	const command = argv[0];
 
-	if (command === "new") {
+	if (command === "new" || command === "upgrade") {
 		return true;
 	}
 
-	return command === "help" && argv[1] === "new";
+	return command === "help" && (argv[1] === "new" || argv[1] === "upgrade");
 }
 
 function isKuraAppManifest(path: string): boolean {
