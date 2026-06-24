@@ -48,6 +48,24 @@ export {
 	registerNewAppCommand,
 } from "./packages/console/NewApp";
 export {
+	applyPluginInstall,
+	createPluginCommands,
+	definePluginManifest,
+	formatPluginInstallPlan,
+	type PluginAction,
+	type PluginActionStatus,
+	type PluginConsoleOptions,
+	type PluginEnvEntry,
+	type PluginFile,
+	type PluginInstallPlan,
+	type PluginManifest,
+	type PluginPackageSetup,
+	type PluginTextPatch,
+	planPluginInstall,
+	readPluginManifest,
+	registerPluginCommands,
+} from "./packages/console/PluginInstaller";
+export {
 	createUpgradeCommands,
 	registerUpgradeCommands,
 	type UpgradeConsoleOptions,

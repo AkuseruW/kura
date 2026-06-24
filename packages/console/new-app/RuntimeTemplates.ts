@@ -22,6 +22,7 @@ export function makePackageJson(
 			preview: "bun bin/console.ts preview",
 			routes: "bun bin/console.ts routes",
 			client: "bun bin/console.ts client:generate",
+			configure: "bun bin/console.ts configure",
 			doctor: "bun bin/console.ts doctor",
 			"deploy:doctor": "bun bin/console.ts deploy:doctor",
 			upgrade: "bun bin/console.ts upgrade",
@@ -154,6 +155,7 @@ export function makeConsoleEntrypoint(choices: NewAppChoices): string {
 \tregisterDevToolCommands,
 \tregisterFeatureCommands,
 \tregisterGeneratorCommands,
+\tregisterPluginCommands,
 \tregisterPreviewCommand,
 \tregisterServeCommand,
 \tregisterUpgradeCommands,
@@ -167,6 +169,9 @@ registerGeneratorCommands(appConsole, {
 \tarchitecture: "${choices.architecture}",
 });
 registerFeatureCommands(appConsole, {
+\troot: process.cwd(),
+});
+registerPluginCommands(appConsole, {
 \troot: process.cwd(),
 });
 registerUpgradeCommands(appConsole, {

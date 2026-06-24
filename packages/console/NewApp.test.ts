@@ -269,6 +269,7 @@ describe("new app command", () => {
 			scripts: {
 				build: string;
 				client: string;
+				configure: string;
 				config: string;
 				"deploy:doctor": string;
 				dev: string;
@@ -289,6 +290,7 @@ describe("new app command", () => {
 		expect(packageJson.scripts.client).toBe(
 			"bun bin/console.ts client:generate",
 		);
+		expect(packageJson.scripts.configure).toBe("bun bin/console.ts configure");
 		expect(packageJson.scripts.doctor).toBe("bun bin/console.ts doctor");
 		expect(packageJson.scripts["deploy:doctor"]).toBe(
 			"bun bin/console.ts deploy:doctor",
@@ -320,6 +322,7 @@ describe("new app command", () => {
 		expect(consoleEntrypoint).toContain("loadEnvSchema");
 		expect(consoleEntrypoint).toContain('entry: "bin/server.ts"');
 		expect(consoleEntrypoint).toContain("registerDevToolCommands");
+		expect(consoleEntrypoint).toContain("registerPluginCommands");
 		expect(consoleEntrypoint).toContain("registerUpgradeCommands");
 		expect(consoleEntrypoint).toContain('from "kura/console"');
 		expect(consoleEntrypoint).toContain('await import("#start/routes")');
