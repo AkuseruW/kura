@@ -93,6 +93,17 @@ describe("local app console", () => {
 			await runLocalAppConsole(["help", "upgrade"], { cwd: root }),
 		).toBeUndefined();
 	});
+
+	test("keeps plugin configuration on the global framework command", async () => {
+		const root = await createAppRoot();
+
+		expect(
+			await runLocalAppConsole(["configure", "plugin.json"], { cwd: root }),
+		).toBeUndefined();
+		expect(
+			await runLocalAppConsole(["help", "configure"], { cwd: root }),
+		).toBeUndefined();
+	});
 });
 
 async function createAppRoot(): Promise<string> {

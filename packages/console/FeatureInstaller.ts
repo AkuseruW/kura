@@ -18,6 +18,12 @@ import type {
 	NewAppFile,
 	NewAppPrompt,
 } from "./new-app/Types";
+import {
+	applyPluginInstall,
+	definePluginManifest,
+	type PluginInstallPlan,
+	planPluginInstall,
+} from "./PluginInstaller";
 
 export interface FeatureConsoleOptions {
 	readonly root?: string;
@@ -409,28 +415,21 @@ async function planFileActions(
 	force: boolean,
 ): Promise<readonly FeatureAction[]> {
 	const actions: FeatureAction[] = [];
+	const filePlan = await planFeatureFilePlugin(root, files, force);
 
 	for (const file of files) {
-		const path = join(root, file.path);
-		const exists = await pathExists(path);
-
 		if (file.kind === "directory") {
+			const path = join(root, file.path);
+			const exists = await pathExists(path);
 			actions.push({
 				action: exists ? "skip" : "create",
 				path: file.path,
 				reason: exists ? "directory exists" : undefined,
 			});
-			continue;
 		}
-
-		actions.push({
-			action: exists ? (force ? "overwrite" : "skip") : "create",
-			path: file.path,
-			reason: exists && !force ? "file exists" : undefined,
-		});
 	}
 
-	return actions;
+	return [...actions, ...featureActionsFromPluginPlan(filePlan)];
 }
 
 async function planPatchActions(
@@ -454,23 +453,61 @@ async function writeFeatureFiles(
 	force: boolean,
 ): Promise<void> {
 	for (const file of files) {
-		const path = join(root, file.path);
-
 		if (file.kind === "directory") {
-			await mkdir(path, { recursive: true });
-			continue;
+			await mkdir(join(root, file.path), { recursive: true });
 		}
-
-		await mkdir(dirname(path), { recursive: true });
-		if ((await pathExists(path)) && !force) {
-			continue;
-		}
-
-		await writeFile(path, file.content, {
-			flag: force ? "w" : "wx",
-			mode: file.mode,
-		});
 	}
+
+	await applyPluginInstall(await planFeatureFilePlugin(root, files, force));
+}
+
+async function planFeatureFilePlugin(
+	root: string,
+	files: readonly NewAppFile[],
+	force: boolean,
+): Promise<PluginInstallPlan> {
+	const pluginFiles = files
+		.filter((file) => file.kind !== "directory")
+		.map((file) => ({
+			path: file.path,
+			content: file.content,
+			mode: file.mode,
+		}));
+
+	if (pluginFiles.length === 0) {
+		return {
+			root,
+			manifest: {
+				name: "kura:first-party-files",
+				files: [],
+			},
+			actions: [],
+		};
+	}
+
+	return planPluginInstall(
+		root,
+		definePluginManifest({
+			name: "kura:first-party-files",
+			files: pluginFiles,
+		}),
+		{ force },
+	);
+}
+
+function featureActionsFromPluginPlan(
+	plan: PluginInstallPlan,
+): readonly FeatureAction[] {
+	return plan.actions.map((action) => ({
+		action:
+			action.status === "skip"
+				? "skip"
+				: action.message === "overwrite file"
+					? "overwrite"
+					: "create",
+		path: action.path ?? "-",
+		reason: action.status === "skip" ? action.message : undefined,
+	}));
 }
 
 async function applyFeaturePatches(
